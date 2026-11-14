@@ -1,18 +1,14 @@
 {
   "language.name": "English",
-
   "common.cancel": "Cancel",
   "common.delete": "Delete",
   "common.done": "Done",
-
   "mode.survival": "Survival",
   "mode.creative": "Creative",
-
   "menu.subtitle": "Voxel Sandbox",
   "menu.singleplayer": "Singleplayer",
   "menu.options": "Options",
   "menu.quit": "Quit Game",
-
   "worlds.title": "Select World",
   "worlds.play": "Play World",
   "worlds.create": "Create New World",
@@ -20,7 +16,6 @@
   "worlds.delete_title": "Delete this world?",
   "worlds.delete_warning": "'{0}' will be lost forever!",
   "worlds.detail": "{0} Mode, {1}, seed {2}",
-
   "create.title": "Create New World",
   "create.world_name": "World Name",
   "create.world_name_default": "New World",
@@ -34,13 +29,10 @@
   "world_type.flat_test": "Flat test",
   "world_type.void_test": "Void test",
   "create.biome": "Biome: {0}",
-
   "pause.title": "Game Menu",
   "pause.back": "Back to Game",
   "pause.save_quit": "Save and Quit to Title",
-
   "loading.title": "Loading world",
-
   "iso.title": "Creating isometric view",
   "iso.stage.planning": "Planning the area...",
   "iso.stage.generating": "Generating terrain: {0} / {1} chunks",
@@ -51,7 +43,6 @@
   "iso.saved": "Isometric view saved: {0}",
   "iso.failed": "Isometric view failed: {0}",
   "iso.busy": "The previous isometric view is still being saved",
-
   "options.title": "Options",
   "options.difficulty": "Difficulty: {0}",
   "options.render_distance": "Render Dist",
@@ -77,12 +68,17 @@
   "options.level_low": "Low",
   "options.level_mid": "Medium",
   "options.level_high": "High",
-
   "panel.inventory": "Inventory",
   "panel.creative_inventory": "Creative Inventory",
   "panel.crafting": "Crafting",
   "panel.chest": "Chest",
   "panel.large_chest": "Large Chest",
   "panel.furnace": "Furnace",
-  "panel.page": "Page {0} / {1}"
+  "panel.page": "Page {0} / {1}",
+  "panel.category.building": "Building",
+  "panel.category.decoration": "Decoration",
+  "panel.category.nature": "Nature",
+  "panel.category.equipment": "Equipment",
+  "panel.category.copper": "Copper Logic",
+  "panel.category.mobs": "Mobs"
 }

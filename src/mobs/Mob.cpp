@@ -211,7 +211,20 @@ void Mob::render(const Shader& shader, const glm::mat4& view, const glm::mat4& p
     }
 
     glBindVertexArray(m_model->get_vao());
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(m_model->get_index_count()), GL_UNSIGNED_INT, nullptr);
+    const auto& ranges = m_model->get_primitive_ranges();
+    if (ranges.empty()) {
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(m_model->get_index_count()), GL_UNSIGNED_INT, nullptr);
+    } else {
+        for (const auto& range : ranges) {
+            if (!m_hidden_material_token.empty() &&
+                range.material_name.find(m_hidden_material_token) != std::string::npos) continue;
+            Texture* tex = m_model->get_texture(range.texture_role);
+            if (!tex) tex = m_model->get_texture("albedo");
+            if (tex) { tex->bind(0); shader.set_int("albedo_texture", 0); }
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(range.index_count), GL_UNSIGNED_INT,
+                           reinterpret_cast<const void*>(range.first_index * sizeof(uint32_t)));
+        }
+    }
     glBindVertexArray(0);
 }
 

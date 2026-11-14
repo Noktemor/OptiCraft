@@ -221,7 +221,8 @@ SESSION_MODE=survival tools/profiling/capture_session.sh                        
 |---|---|
 | `gpu_frame_ms` / `gpu_frame_max_ms` | сумма и максимум времени GPU на `render_chunks` за секунду (без present) |
 | `gpu_prepare_ms` | загрузка мешей, диспетчеризация мешера, culling (начало `render_chunks` → конец `prepare_gpu_frame`) |
-| `gpu_opaque_ms`, `gpu_hiz_ms`, `gpu_flora_ms`, `gpu_liquid_ms` | непрозрачные кубы и блоки формы, пирамида Hi-Z, флора, мобы и жидкость |
+| `gpu_hiz_ms` | depth prepass, построение Hi-Z и повторный culling до цветного прохода |
+| `gpu_opaque_ms`, `gpu_flora_ms`, `gpu_liquid_ms` | непрозрачные кубы и блоки формы, флора, мобы и жидкость |
 | `gpu_mesher_ms`, `gpu_mesher_max_ms` | сумма и максимум времени GPU на батчи мешера |
 | `mesher_batches`, `mesher_chunks` | сколько батчей и чанков мешер обработал за секунду |
 | `ms_per_chunk` | скользящая стоимость одного чанка в мешере (по ней подбирается размер батча) |
@@ -239,6 +240,7 @@ SESSION_MODE=survival tools/profiling/capture_session.sh                        
 `gpu_frame_ms` — это только фазы `render_chunks`; время самого present остаётся в `present_ms`.
 
 Те же значения идут в Tracy как графики `GPU render_chunks ms`, `GPU mesher batch ms`, `GPU mesher ms per chunk (avg)`.
+До исправления порядка GPU-меток в ноябре 2026 времена отдельных фаз в старых записях некорректны: Hi-Z иногда имел старую метку, а проходы opaque и flora пересекались. Общий `gpu_frame_ms` измеряется отдельными метками и от этой ошибки не зависит. GPU и драйвер в новых запусках указаны в `game.log` как OpenGL vendor и renderer.
 
 ### 9.6 Лимит мешера (Config)
 

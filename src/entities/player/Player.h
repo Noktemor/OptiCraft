@@ -77,6 +77,7 @@ private:
     // дистанцию падения к моменту приземления. Урон применяется только если m_fall_damage_enabled
     // (включается извне для Survival — см. set_fall_damage_enabled).
     bool m_fall_damage_enabled = false;
+    int m_feather_falling_level = 0;
     float m_fall_start_height = 0.0f;
     void apply_fall_damage();
 
@@ -159,6 +160,7 @@ public:
 
     // Урон от падения (Survival) — вкл/выкл извне в зависимости от текущего режима игры.
     void set_fall_damage_enabled(bool enabled) { m_fall_damage_enabled = enabled; }
+    void set_feather_falling_level(int level) { m_feather_falling_level = level < 0 ? 0 : (level > 4 ? 4 : level); }
     // Сбрасывает отсчёт высоты падения к текущей позиции — вызывать при включении Survival,
     // чтобы не получить урон за падение, случившееся ещё в Creative/полёте.
     void reset_fall_tracking() { m_fall_start_height = m_position.y; }

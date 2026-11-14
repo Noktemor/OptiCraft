@@ -472,6 +472,29 @@ std::shared_ptr<const Cave_Network::Region> Cave_Network::fetch_region(int rx, i
     });
 }
 
+std::optional<Cave_Kind> Cave_Network::try_kind_at(int world_x, int world_y, int world_z) const {
+    const bool in_network = world_y >= kNetworkMinY && world_y <= kNetworkMaxY;
+    const bool in_sealed = world_y >= kSealedMinY && world_y <= kSealedMaxY;
+    if (!in_network && !in_sealed) return Cave_Kind::None;
+    const int rx = floordiv(world_x, kRegion);
+    const int rz = floordiv(world_z, kRegion);
+    const uint64_t packed = (static_cast<uint64_t>(static_cast<uint32_t>(rx)) << 32) |
+                            static_cast<uint32_t>(rz);
+    const auto region = m_regions.try_get(static_cast<int64_t>(packed));
+    if (!region) return std::nullopt;
+    const int lx = world_x - region->x0;
+    const int lz = world_z - region->z0;
+    if (in_network) {
+        const size_t i = net_index(lx, world_y, lz);
+        if (get_bit(region->net, i)) return get_bit(region->water, i) ? Cave_Kind::Water : Cave_Kind::Air;
+    }
+    if (in_sealed) {
+        const size_t i = sealed_index(lx, world_y, lz);
+        if (get_bit(region->sealed, i)) return get_bit(region->flood, i) ? Cave_Kind::Sealed_Flooded : Cave_Kind::Sealed_Dry;
+    }
+    return Cave_Kind::None;
+}
+
 Cave_Kind Cave_Network::kind_at(int world_x, int world_y, int world_z) const {
     const bool in_network = world_y >= kNetworkMinY && world_y <= kNetworkMaxY;
     const bool in_sealed = world_y >= kSealedMinY && world_y <= kSealedMaxY;

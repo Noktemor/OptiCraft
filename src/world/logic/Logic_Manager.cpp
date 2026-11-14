@@ -41,7 +41,10 @@ int emit(Block_Types type, uint8_t meta, glm::ivec3 n, glm::ivec3 c) {
         case Block_Types::Repeater_On:
             return c == n + facing_offset(meta) ? 15 : 0;
         default:
-            return 0;
+            // Wooden/stone/metal button variants use their original id and the active_bit
+            // in metadata instead of allocating an extra pressed block type for each wood.
+            return get_block_props(type).shape == Block_Shape::Button &&
+                   (meta & Block_Meta::active_bit) != 0u ? 15 : 0;
     }
 }
 
@@ -121,7 +124,7 @@ bool Logic_Manager::is_node(Block_Types type) {
         case Block_Types::Repeater_On:
             return true;
         default:
-            return false;
+            return get_block_props(type).shape == Block_Shape::Button;
     }
 }
 
@@ -135,7 +138,7 @@ bool Logic_Manager::is_attached(Block_Types type) {
         case Block_Types::Signal_Clamp_Off:
             return true;
         default:
-            return false;
+            return get_block_props(type).shape == Block_Shape::Button;
     }
 }
 
@@ -228,6 +231,13 @@ bool Logic_Manager::interact(const World_Access& world, glm::ivec3 pos) {
             return true;
         }
         default:
+            if (get_block_props(type).shape == Block_Shape::Button) {
+                if ((meta & Block_Meta::active_bit) != 0u) return true;
+                write_block(world, pos, type, static_cast<uint8_t>(meta | Block_Meta::active_bit));
+                m_pulses[key_of(pos)] = k_button_ticks;
+                track(pos);
+                return true;
+            }
             return false;
     }
 }
@@ -248,7 +258,10 @@ void Logic_Manager::discover(const World_Access& world, glm::ivec3 center, int r
                 const Redstone_Key k{x, y, z};
                 m_nodes.insert(k);
                 // Кнопка, сохранённая нажатой: таймер заново, иначе она залипнет навсегда.
-                if (t == Block_Types::Button_Pressed && m_pulses.find(k) == m_pulses.end()) {
+                if ((t == Block_Types::Button_Pressed ||
+                     (get_block_props(t).shape == Block_Shape::Button &&
+                      (world.meta(x,y,z) & Block_Meta::active_bit) != 0u)) &&
+                    m_pulses.find(k) == m_pulses.end()) {
                     m_pulses[k] = k_button_ticks;
                 }
             }
@@ -382,12 +395,18 @@ void Logic_Manager::step(const World_Access& world) {
     for (auto it = m_pulses.begin(); it != m_pulses.end();) {
         const glm::ivec3 p = pos_of(it->first);
         if (!world.loaded(p.x, p.y, p.z)) { ++it; continue; }
-        if (world.type(p.x, p.y, p.z) != Block_Types::Button_Pressed) {
+        const Block_Types t = world.type(p.x, p.y, p.z);
+        const uint8_t meta = world.meta(p.x, p.y, p.z);
+        const bool vanilla_button = t == Block_Types::Button_Pressed;
+        const bool variant_button = get_block_props(t).shape == Block_Shape::Button &&
+                                    (meta & Block_Meta::active_bit) != 0u;
+        if (!vanilla_button && !variant_button) {
             it = m_pulses.erase(it);
             continue;
         }
         if (--it->second <= 0) {
-            to_apply.push_back({p, Block_Types::Button});
+            if (vanilla_button) to_apply.push_back({p, Block_Types::Button});
+            else write_block(world,p,t,static_cast<uint8_t>(meta & ~Block_Meta::active_bit));
             it = m_pulses.erase(it);
         } else {
             ++it;

@@ -29,6 +29,12 @@ struct Item_Stack {
     int damage = 0;
     // Уровень зачарования «Прочность» (0 — нет, максимум 3): +50 % к прочности за уровень.
     int enchant_durability = 0;
+    int enchant_efficiency = 0;
+    int enchant_fortune = 0;
+    int enchant_sharpness = 0;
+    int enchant_protection = 0;
+    int enchant_looting = 0;
+    int enchant_feather_falling = 0;
 
     bool is_empty() const { return count <= 0 || type == Block_Types::Air; }
 };
@@ -119,6 +125,10 @@ public:
     size_t get_current_page() const { return m_creative_page; }
     void next_page();
     void previous_page();
+    static constexpr size_t k_creative_category_count = 6;
+    size_t get_creative_category() const { return m_creative_category; }
+    void set_creative_category(size_t category);
+    static const char* creative_category_name(size_t category);
 
     // ПКМ по слоту: Survival — взять половину стака / положить один предмет; Creative — как ЛКМ.
     void right_click_panel_slot(size_t index);
@@ -170,6 +180,14 @@ public:
     // Зачаровать предмет в выбранном слоте хотбара «Прочность» уровня level (1..3).
     // false — там нет предмета с прочностью.
     bool enchant_selected_durability(int level);
+    // XP (persistent across saves; level cost uses Minecraft-like cumulative curve).
+    static int xp_required_for_level(int level);
+    int xp_level() const;
+    float xp_progress() const;
+    int total_xp() const { return m_experience; }
+    void add_xp(int amount);
+    bool spend_levels(int amount);
+    int total_enchant_protection() const;
     // Списывает count штук из активного слота хотбара (Survival).
     bool consume_selected(int count = 1);
     bool has_resource(Block_Types type, int amount = 1) const;
@@ -177,10 +195,13 @@ public:
 
 private:
     Game_Mode m_mode = Game_Mode::Creative;
+    int m_experience = 0;
     int m_selected_index = 0; // Индекс активного слота хотбара
     Item_Stack m_carried;     // Стак на курсоре, пока открыта панель инвентаря
     bool m_carried_infinite = false; // курсор взят из палитры Creative (бесконечный запас)
     size_t m_creative_page = 0;
+    size_t m_creative_category = 0;
+    std::array<std::vector<Block_Types>, k_creative_category_count> m_creative_sections;
 
     // Палитра Creative (только для отображения и бесконечного источника)
     std::vector<Block_Types> m_all_blocks;      // Все зарегистрированные блоки, кроме Air
@@ -203,7 +224,7 @@ private:
     static void right_click_stack(Item_Stack& slot, Item_Stack& carried);
 
     static void merge_into(std::vector<Item_Stack>& slots, Block_Types type, int& remaining);
-    static void fill_empty(std::vector<Item_Stack>& slots, Block_Types type, int& remaining, int damage = 0);
+    static void fill_empty(std::vector<Item_Stack>& slots, Block_Types type, int& remaining, int damage = 0, const Item_Stack* full_stack = nullptr);
     static void consume_from(std::vector<Item_Stack>& slots, Block_Types type, int& remaining);
 };
 

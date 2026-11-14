@@ -19,18 +19,22 @@ struct Shape_Box {
     glm::vec3 hi{1.0f};
 };
 
-// Заполняет out (до 2 боксов) и возвращает их число. Для Shape::None возвращает 0.
-int shape_boxes(Block_Shape shape, uint8_t meta, Shape_Box out[8]);
+// Заполняет out (до 16 боксов) и возвращает их число. Для Shape::None возвращает 0.
+int shape_boxes(Block_Shape shape, uint8_t meta, Shape_Box out[16]);
 
 // Фигуры с точным хитбоксом (Button, Wire): луч прицела проходит мимо пустой части клетки, а подсветка
 // рисуется по реальному боксу, а не по всей клетке.
 inline bool shape_has_precise_hitbox(Block_Shape shape) {
-    return shape == Block_Shape::Button || shape == Block_Shape::Wire ||
-           shape == Block_Shape::Stairs;
+    return shape != Block_Shape::None;
 }
 
 // Направление "высокой" стороны ступенек для meta: 0..3 (как Block_Meta::facing_*).
 uint8_t stairs_high_side(uint8_t meta);
+
+// Для Fence/Wall/Pane: биты 0..3 — подключения N,E,S,W. Один и тот же алгоритм
+// применяется в GPU, raycast и физике (сосед может быть полнотелым кубом).
+bool shapes_connect(Block_Shape own, Block_Shape neighbor, bool neighbor_full_cube);
+uint8_t shape_connection_meta(Block_Shape own, bool north, bool east, bool south, bool west);
 
 // Противоположное направление (для установки: ступенька высокой стороной от игрока).
 uint8_t opposite_facing(uint8_t meta);

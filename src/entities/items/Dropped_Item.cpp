@@ -113,6 +113,19 @@ void Dropped_Item_Manager::spawn_from_mob(const glm::vec3& mob_position, const I
           glm::vec3(speed(m_rng), 4.0f, speed(m_rng)));
 }
 
+void Dropped_Item_Manager::spawn_experience(const glm::vec3& pos, int amount) {
+    if (amount<=0) return;
+    // The orb has its own 16x16 glowing sprite in the blocks atlas, but cannot be collected as an item.
+    std::uniform_real_distribution<float> v(-1.0f, 1.0f);
+    while (amount>0) {
+        const int worth=std::min(amount, 7);
+        amount-=worth;
+        spawn(Item_Stack{Block_Types::Experience_Orb,1},pos+glm::vec3(v(m_rng)*0.25f,0.4f,v(m_rng)*0.25f),
+              glm::vec3(v(m_rng),3.0f,v(m_rng)),0.25f);
+        m_items.back().experience=worth;
+    }
+}
+
 bool Dropped_Item_Manager::collides_at(const glm::vec3& position, const Chunk_Manager& chunk_manager) const {
     constexpr float epsilon = 0.001f;
 
@@ -222,6 +235,13 @@ void Dropped_Item_Manager::try_pickup(Dropped_Item& item, const glm::vec3& playe
         return;
     }
 
+    if (item.experience>0) {
+        inventory.add_xp(item.experience);
+        item.collecting=true;
+        item.collect_time=0.0f;
+        item.collect_from=item.position;
+        return;
+    }
     const int accepted = inventory.try_add_stack(item.stack);
     if (accepted <= 0) return; // инвентарь полон — предмет остаётся лежать
 
@@ -239,11 +259,11 @@ void Dropped_Item_Manager::merge_nearby() {
 
     for (size_t i = 0; i < m_items.size(); ++i) {
         Dropped_Item& a = m_items[i];
-        if (a.collecting || a.thrown || a.stack.is_empty() || a.stack.count >= max_stack_for(a.stack.type)) continue;
+        if (a.collecting || a.thrown || a.experience>0 || a.stack.is_empty() || a.stack.count >= max_stack_for(a.stack.type)) continue;
 
         for (size_t j = i + 1; j < m_items.size(); ++j) {
             Dropped_Item& b = m_items[j];
-            if (b.collecting || b.thrown || b.stack.is_empty() || b.stack.type != a.stack.type) continue;
+            if (b.collecting || b.thrown || b.experience>0 || b.stack.is_empty() || b.stack.type != a.stack.type) continue;
             if (a.stack.damage != b.stack.damage) continue;
             if (a.stack.count + b.stack.count > max_stack_for(a.stack.type)) continue;
 

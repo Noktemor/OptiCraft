@@ -39,6 +39,7 @@
 
 class Texture_Atlas;
 class Frustum;
+class Gpu_Worldgen;
 
 struct Renderable_Chunk {
     glm::ivec3 position; // (chunk_x, chunk_y, chunk_z)
@@ -100,6 +101,13 @@ private:
         Chunk_Ptr chunk{};
         std::shared_ptr<World_Generator::Prepared_Column> prepared{};
         size_t prepared_index = 0;
+    };
+    struct Gpu_Batch {
+        uint64_t generation_id = 0;
+        std::shared_ptr<World_Generator::Prepared_Column> prepared;
+        std::vector<Chunk_Build_Job> builds;
+        std::vector<size_t> gpu_indices; // Y levels accelerated in this dispatch
+        std::chrono::steady_clock::time_point started{};
     };
     struct Region_Prep_Job {
         int chunk_x = 0;
@@ -334,6 +342,25 @@ private:
     // Если чанк опять поменялся, пока его пересборка уже была в полёте — не теряем правку:
     // помечаем "досчитать ещё раз" и переставляем задачу заново, когда текущая завершится.
     Chunk_Coord_Set m_mesh_rebuild_requeue;
+    // Main-thread GL stage, bounded to two columns total (queued + executing).
+    // CPU workers only submit fully prepared immutable data and never touch GL.
+    std::mutex m_gpu_queue_mutex;
+    std::deque<Gpu_Batch> m_gpu_pending;
+    std::optional<Gpu_Batch> m_gpu_active;
+    std::unique_ptr<Gpu_Worldgen> m_gpu_worldgen;
+    std::atomic<size_t> m_gpu_inflight{0};
+    std::atomic<bool> m_gpu_disabled{false};
+    std::atomic<int> m_gpu_player_x{std::numeric_limits<int>::min()};
+    std::atomic<int> m_gpu_player_z{std::numeric_limits<int>::min()};
+    bool m_gpu_force = false;
+    int m_gpu_slow_batches = 0;
+    uint64_t m_gpu_completed_batches = 0;
+    double m_gpu_total_ms = 0.0;
+    bool try_submit_gpu_column(Gpu_Batch&& batch);
+    void publish_gpu_batch(Gpu_Batch&& batch);
+    void pump_gpu_worldgen();
+    void clear_gpu_worldgen();
+
     std::mutex m_job_mutex;
     std::condition_variable m_job_available;
     bool m_stop_workers = false;
@@ -455,11 +482,14 @@ private:
 public:
     // Загружен ли чанк (нужен менеджеру посевов: вне загруженной зоны ничего не растёт).
     bool is_chunk_loaded(int cx, int cy, int cz) const;
+    // Queue missing regional generation data without blocking the calling thread.
+    void request_generation_region(int chunk_x, int chunk_z);
 
     explicit Chunk_Manager(int load_radius = Config::chunk_load_radius);
     ~Chunk_Manager();
 
     void set_world_generator(const World_Generator& generator) {
+        clear_gpu_worldgen();
         m_world_generator = &generator;
         m_sunlight_heightmap.clear();
         m_columns_pending_sky_recompute.clear();

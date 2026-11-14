@@ -7,6 +7,7 @@
 #include "utils/configs/Config_World.h"
 #include "utils/profiling/Profiler.h"
 #include "world/chunks/Chunk_Manager.h"
+#include "world/generation/Gpu_Worldgen.h"
 #include "world/crafting/Smelting.h"
 #include "utils/logging/Logger.h"
 #include "math/Math_Helpers.h"
@@ -76,7 +77,9 @@ namespace {
     // Правило то же, что у recompute_sky_lighting: клетка открыта небу (15), если она выше самого высокого блока
     // колонки, не пропускающего солнце. Высота берётся из генератора (пока чанк с поверхностью не загружен, так
     // делает и главный поток) и из собственной карты высот чанка. known_open_sky — чанк целиком выше рельефа.
-    void init_chunk_sky_light(Chunk& chunk, const World_Generator& generator, bool known_open_sky) {
+    void init_chunk_sky_light(Chunk& chunk, const World_Generator& generator, bool known_open_sky,
+                              const int* prepared_terrain_heights = nullptr) {
+        OC_ZONE("ChunkWorker::initial skylight");
         const Dimension_Info& dim = generator.get_dimension();
         if (!dim.has_sky_light) return;
         std::array<bool, 6> faces{};
@@ -96,8 +99,12 @@ namespace {
             for (int x = 0; x < Config::chunk_size; ++x) {
                 int column_top = empty_height;
                 if (dim.ground) {
-                    column_top = std::clamp(generator.get_height(start_x + x, start_z + z),
-                                            empty_height, Config::world_max_y);
+                    // The generated column already contains these exact heights; copying them
+                    // through 9 independent Y workers used to repeat thousands of noise calls.
+                    const int terrain_height = prepared_terrain_heights
+                        ? prepared_terrain_heights[static_cast<size_t>(z) * Config::chunk_size + x]
+                        : generator.get_height(start_x + x, start_z + z);
+                    column_top = std::clamp(terrain_height, empty_height, Config::world_max_y);
                 }
                 const int local_top = chunk.get_column_top_opaque(x, z);
                 if (local_top >= 0) column_top = std::max(column_top, base_y + local_top);
@@ -216,11 +223,19 @@ Chunk_Manager::Chunk_Manager(int load_radius)
     m_chunk_pool = std::make_unique<Chunk_Slot_Pool>(capacity);
     m_chunk_io = std::make_unique<Chunk_IO>();
 
+    // auto (default): adaptively switch off if GPU compute steals render time.
+    // OPTICRAFT_GPU_WORLDGEN=off / force for A/B measurements.
+    if (const char* mode = std::getenv("OPTICRAFT_GPU_WORLDGEN")) {
+        const std::string setting(mode);
+        m_gpu_disabled.store(setting == "off" || setting == "0");
+        m_gpu_force = setting == "force" || setting == "1";
+    }
     start_workers();
 }
 
 Chunk_Manager::~Chunk_Manager() {
     stop_workers();
+    clear_gpu_worldgen();
     // Воркеры уже остановлены, поэтому m_chunks трогает только этот поток.
     save_all();
 }
@@ -580,6 +595,19 @@ void Chunk_Manager::prewarm_generation_regions_near_player() {
     if (wake) wake_workers();
 }
 
+void Chunk_Manager::request_generation_region(int chunk_x, int chunk_z) {
+    if (!m_world_generator) return;
+    const uint8_t missing = m_world_generator->generation_region_missing_parts_for_chunk(chunk_x, chunk_z);
+    if (!missing) return;
+    {
+        std::lock_guard<std::mutex> lock(m_job_mutex);
+        if (m_stop_workers || m_generation_id == 0) return;
+        schedule_region_preparation_locked(chunk_x, chunk_z, m_generation_id, 0,
+                                          generation_region_key_for_chunk(chunk_x, chunk_z), missing);
+    }
+    wake_workers();
+}
+
 void Chunk_Manager::wake_workers() {
     // Будим только если кто-то реально спит: иначе производитель не трогает мьютекс вовсе.
     // Порядок seq_cst: либо спящий увидит новую задачу в предикате, либо мы увидим его в m_sleepers.
@@ -587,6 +615,135 @@ void Chunk_Manager::wake_workers() {
         { std::lock_guard<std::mutex> lock(m_job_mutex); }
         m_job_available.notify_all();
     }
+}
+
+bool Chunk_Manager::try_submit_gpu_column(Gpu_Batch&& batch) {
+    if (m_gpu_disabled.load(std::memory_order_relaxed) ||
+        !batch.prepared || batch.builds.empty()) return false;
+    const int px = m_gpu_player_x.load(std::memory_order_relaxed);
+    const int pz = m_gpu_player_z.load(std::memory_order_relaxed);
+    const auto& position = batch.builds.front().job.position;
+    if (px == std::numeric_limits<int>::min() ||
+        std::max(std::abs(position.x - px), std::abs(position.z - pz)) < 8)
+        return false;
+    // Too few surviving Y levels generally means the dispatch/readback is not worth it.
+    if (batch.builds.size() < 2) return false;
+    std::lock_guard<std::mutex> lock(m_gpu_queue_mutex);
+    if (m_gpu_disabled.load() || m_gpu_inflight.load() >= 2) return false;
+    m_gpu_pending.emplace_back(std::move(batch));
+    m_gpu_inflight.fetch_add(1);
+    return true;
+}
+
+void Chunk_Manager::publish_gpu_batch(Gpu_Batch&& batch) {
+    if (batch.generation_id != m_generation_id) return;
+    for (Chunk_Build_Job& build : batch.builds) {
+        if (!build.chunk || !build.prepared) continue;
+        const int priority = build.job.priority;
+        m_pending_jobs.push(Generation_Job{std::move(build)}, priority);
+        m_pending_job_count.fetch_add(1);
+    }
+    wake_workers();
+}
+
+void Chunk_Manager::clear_gpu_worldgen() {
+    // Only called by the main thread with an active GL context (before world teardown).
+    {
+        std::lock_guard<std::mutex> lock(m_gpu_queue_mutex);
+        m_gpu_pending.clear();
+    }
+    m_gpu_active.reset();
+    m_gpu_worldgen.reset();
+    m_gpu_inflight.store(0);
+    m_gpu_slow_batches = 0;
+    m_gpu_completed_batches = 0;
+    m_gpu_total_ms = 0.0;
+}
+
+void Chunk_Manager::pump_gpu_worldgen() {
+    if (!m_world_generator) return;
+    if (m_gpu_active) {
+        std::vector<uint32_t> materials;
+        double gpu_ms = 0.0;
+        const bool complete = m_gpu_worldgen && m_gpu_worldgen->poll(materials, gpu_ms);
+        const bool timed_out = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - m_gpu_active->started).count() > 0.5;
+        if (complete || timed_out || (m_gpu_worldgen && !m_gpu_worldgen->enabled())) {
+            if (timed_out && !complete) {
+                LOG_WARN("GPU worldgen: stalled over 500 ms, CPU fallback");
+                m_gpu_disabled.store(true);
+                m_gpu_worldgen->abandon();
+            }
+            if (complete && !materials.empty() &&
+                m_gpu_active->generation_id == m_generation_id) {
+                constexpr size_t V = Chunk_Block_Grid::voxel_count;
+                std::vector<uint32_t> expanded(m_gpu_active->builds.size() * V, 0u);
+                bool valid_size = materials.size() == m_gpu_active->gpu_indices.size() * V;
+                if (valid_size) {
+                    for (size_t i = 0; i < m_gpu_active->gpu_indices.size(); ++i) {
+                        const size_t dest = m_gpu_active->gpu_indices[i];
+                        if (dest >= m_gpu_active->builds.size()) { valid_size = false; break; }
+                        std::copy_n(materials.data() + i * V, V, expanded.data() + dest * V);
+                    }
+                }
+                if (!valid_size || !m_world_generator->adopt_gpu_materials(
+                        m_gpu_active->prepared, std::move(expanded))) {
+                    LOG_WARN("GPU worldgen: material parity check failed, CPU fallback");
+                    m_gpu_disabled.store(true);
+                }
+                ++m_gpu_completed_batches;
+                m_gpu_total_ms += gpu_ms;
+                if (m_gpu_completed_batches == 1 || m_gpu_completed_batches % 32 == 0) {
+                    LOG_INFO("GPU worldgen materials: " + std::to_string(m_gpu_completed_batches) +
+                        " column batches, GPU avg " +
+                        std::to_string(m_gpu_total_ms / static_cast<double>(m_gpu_completed_batches)) +
+                        " ms per batch");
+                }
+                if (!m_gpu_force) {
+                    m_gpu_slow_batches = gpu_ms > 2.5 ? m_gpu_slow_batches + 1 : 0;
+                    if (m_gpu_slow_batches >= 2) {
+                        LOG_WARN("GPU worldgen: batch exceeds 2.5 ms, disabling to protect FPS");
+                        m_gpu_disabled.store(true);
+                    }
+                }
+            } else if (complete && materials.empty()) {
+                m_gpu_disabled.store(true);
+            }
+            publish_gpu_batch(std::move(*m_gpu_active));
+            m_gpu_active.reset();
+            m_gpu_inflight.fetch_sub(1);
+        }
+        // Do not dispatch a new compute batch during a completion/readback frame.
+        return;
+    }
+
+    Gpu_Batch batch;
+    {
+        std::lock_guard<std::mutex> lock(m_gpu_queue_mutex);
+        if (m_gpu_pending.empty()) return;
+        batch = std::move(m_gpu_pending.front());
+        m_gpu_pending.pop_front();
+    }
+    if (batch.generation_id != m_generation_id || m_gpu_disabled.load()) {
+        publish_gpu_batch(std::move(batch));
+        m_gpu_inflight.fetch_sub(1);
+        return;
+    }
+    std::array<Gpu_Material_Column, Config::chunk_size * Config::chunk_size> columns{};
+    std::vector<int> ys;
+    int cx = 0, cz = 0;
+    const bool valid = m_world_generator->extract_gpu_material_columns(batch.prepared,
+                                                    columns, ys, batch.gpu_indices, cx, cz);
+    if (!m_gpu_worldgen) m_gpu_worldgen = std::make_unique<Gpu_Worldgen>();
+    if (!valid || !m_gpu_worldgen->start(*m_world_generator, cx, cz, columns, ys)) {
+        LOG_WARN("GPU worldgen: unavailable, returning column to CPU workers");
+        m_gpu_disabled.store(true);
+        publish_gpu_batch(std::move(batch));
+        m_gpu_inflight.fetch_sub(1);
+        return;
+    }
+    batch.started = std::chrono::steady_clock::now();
+    m_gpu_active.emplace(std::move(batch));
 }
 
 void Chunk_Manager::disk_reader_loop() {
@@ -828,7 +985,8 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                 generator->generate_prepared_chunk(build_job.prepared, build_job.prepared_index,
                     *build_job.chunk);
                 build_job.chunk->finish_generation(false, true);
-                init_chunk_sky_light(*build_job.chunk, *generator, false);
+                init_chunk_sky_light(*build_job.chunk, *generator, false,
+                    generator->prepared_terrain_heights(build_job.prepared));
                 const auto region = Region_File::get(
                     world_file.get_region_path(generation_folder));
                 save_and_publish(build_job.job, std::move(build_job.chunk), region);
@@ -845,6 +1003,9 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
 
                 // Disk data wins over procedural generation. Definitively empty chunks are
                 // completed immediately; all remaining Y levels share one immutable context.
+                // Compute the conservative terrain ceiling at most once per X/Z stack instead
+                // of resampling five expensive climate columns for every high-altitude chunk.
+                std::optional<int> column_air_ceiling;
                 for (const Chunk_Job& job : column_job.chunks) {
                     if (job.generation_id != column_job.generation_id) continue;
                     Chunk_Ptr chunk(m_chunk_pool->acquire(job.position.x, job.position.y,
@@ -864,8 +1025,15 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                         continue;
                     }
 
+                    const int base_y = job.position.y * Config::chunk_height;
+                    if (!column_air_ceiling &&
+                        base_y > World_Generator::sea_level() &&
+                        base_y + Config::chunk_height - 1 < 200) {
+                        column_air_ceiling = generator->conservative_column_air_ceiling(
+                            column_job.chunk_x, column_job.chunk_z);
+                    }
                     if (generator->chunk_is_definitely_air(job.position.x, job.position.y,
-                                                           job.position.z)) {
+                                                            job.position.z, column_air_ceiling)) {
                         chunk->get_blocks_mutable().fill(Block_Types::Air);
                         chunk->finish_generation(true);
                         init_chunk_sky_light(*chunk, *generator, true);
@@ -882,19 +1050,30 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                     auto prepared = generator->prepare_chunk_column(
                         column_job.chunk_x, column_job.chunk_z, chunk_ys);
 
-                    // Fan out only the expensive independent per-chunk fill/pack phase. Every
-                    // task carries its own Chunk_Ptr; the shared prepared data is read-only.
+                    // A prepared column may be sent to an optional GPU stage. Only ore
+                    // materials are computed there; the identical CPU build remains the
+                    // single point of finalization, lighting and save publication.
+                    Gpu_Batch gpu_batch;
+                    gpu_batch.generation_id = column_job.generation_id;
+                    gpu_batch.prepared = prepared;
+                    gpu_batch.builds.reserve(fresh.size());
                     for (size_t i = 0; i < fresh.size(); ++i) {
                         Chunk_Build_Job build;
                         build.job = fresh[i].job;
                         build.chunk = std::move(fresh[i].chunk);
                         build.prepared = prepared;
                         build.prepared_index = i;
-                        const int priority = build.job.priority;
-                        m_pending_jobs.push(Generation_Job{std::move(build)}, priority);
-                        m_pending_job_count.fetch_add(1);
+                        gpu_batch.builds.emplace_back(std::move(build));
                     }
-                    wake_workers();
+                    // try_submit only moves from gpu_batch if accepted.
+                    if (!try_submit_gpu_column(std::move(gpu_batch))) {
+                        for (Chunk_Build_Job& build : gpu_batch.builds) {
+                            const int priority = build.job.priority;
+                            m_pending_jobs.push(Generation_Job{std::move(build)}, priority);
+                            m_pending_job_count.fetch_add(1);
+                        }
+                        wake_workers();
+                    }
                 }
             }
         } else if (has_mesh_job) {
@@ -1868,6 +2047,8 @@ void Chunk_Manager::update_player_position(float player_x, float player_y, float
     const int player_cz = static_cast<int>(std::floor(player_z / Config::chunk_size));
     const int player_cy = static_cast<int>(std::floor(player_y / Config::chunk_height));
 
+    m_gpu_player_x.store(player_cx, std::memory_order_relaxed);
+    m_gpu_player_z.store(player_cz, std::memory_order_relaxed);
     const bool horizontal_changed = player_cx != m_player_chunk.x || player_cz != m_player_chunk.y;
     const bool vertical_changed = player_cy != m_player_chunk_y;
     const bool window_changed = update_vertical_window();
@@ -1903,6 +2084,8 @@ void Chunk_Manager::update_player_position(float player_x, float player_y, float
 
 void Chunk_Manager::collect_finished_chunks() {
     OC_ZONE("ChunkMgr::collect_finished_chunks");
+    // One small GPU submission OR one nonblocking completion per frame.
+    pump_gpu_worldgen();
 
     bool any_chunk_inserted = false;
 
@@ -2342,7 +2525,11 @@ void Chunk_Manager::rebuild_dirty_chunks() {
     size_t dirty_seen = 0;
 
     struct Candidate { glm::ivec3 pos; int score; };
+    const auto candidate_less = [](const Candidate& a, const Candidate& b) { return a.score < b.score; };
+    // Only enqueue_cap entries can be submitted. Keep the closest ones in a bounded
+    // max-heap instead of allocating and partially sorting every eligible dirty chunk.
     std::vector<Candidate> candidates;
+    candidates.reserve(enqueue_cap);
     m_chunks.for_each([&](const glm::ivec3& key, const Chunk_Ptr& chunk) {
         if (!chunk->is_mesh_dirty()) return;
         if (m_pending_mesh_rebuilds.contains(key.x, key.y, key.z)) return;
@@ -2360,23 +2547,29 @@ void Chunk_Manager::rebuild_dirty_chunks() {
             const int dy = key.y - m_player_chunk_y;
             score = dx * dx + dz * dz + dy * dy * 4;
         }
-        candidates.push_back({key, score});
+        const Candidate candidate{key, score};
+        if (candidates.size() < enqueue_cap) {
+            candidates.push_back(candidate);
+            std::push_heap(candidates.begin(), candidates.end(), candidate_less);
+        } else if (candidate_less(candidate, candidates.front())) {
+            std::pop_heap(candidates.begin(), candidates.end(), candidate_less);
+            candidates.back() = candidate;
+            std::push_heap(candidates.begin(), candidates.end(), candidate_less);
+        }
     });
     m_dirty_scan_clean = dirty_seen == 0;
     m_dirty_scan_events = scan_events;
     m_dirty_scan_set_epoch = scan_set_epoch;
     if (candidates.empty()) return;
 
-    const size_t take = std::min(enqueue_cap, candidates.size());
-    std::partial_sort(candidates.begin(), candidates.begin() + take, candidates.end(),
-                      [](const Candidate& a, const Candidate& b) { return a.score < b.score; });
+    std::sort_heap(candidates.begin(), candidates.end(), candidate_less);
     // Постановка одной задачи копирует снимок чанка и кольцо соседей (в профиле загрузки — до ~1.5 мс),
     // а 8-16 задач за кадр давали 12-24 мс на главном потоке. Ограничиваем время; не поставленные чанки
     // остаются грязными и уйдут в работу в следующих кадрах (ближайшие к игроку — первыми).
     constexpr double enqueue_budget_ms = 2.5;
     constexpr size_t enqueue_min_jobs = 2;
     const auto enqueue_start = std::chrono::steady_clock::now();
-    for (size_t i = 0; i < take; ++i) {
+    for (size_t i = 0; i < candidates.size(); ++i) {
         if (!capture_active() && i >= enqueue_min_jobs &&
             std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - enqueue_start).count() >= enqueue_budget_ms) break;
@@ -2386,6 +2579,7 @@ void Chunk_Manager::rebuild_dirty_chunks() {
 
 void Chunk_Manager::clear() {
     ++m_generation_id;
+    clear_gpu_worldgen();
     m_chunks.for_each([this](const glm::ivec3& position, const Chunk_Ptr& chunk) {
         if (!save_chunk_to_disk(*chunk)) {
             LOG_ERROR("Chunk_Manager::clear: не удалось сохранить чанк " +
@@ -2776,8 +2970,13 @@ void Chunk_Manager::refresh_sunlight_height_column(int chunk_x, int chunk_z) {
     // Сначала разрешаем вертикальный стек один раз. Локальные heightmap чанков уже построены
     // при генерации/чтении с диска, поэтому в цикле по 1024 столбцам нет чтения самих блоков.
     std::array<Chunk*, Config::world_height_chunks> vertical_chunks{};
+    struct Loaded_Height_Chunk { Chunk* chunk; int base_y; };
+    std::array<Loaded_Height_Chunk, Config::world_height_chunks> loaded_chunks{};
+    size_t loaded_count = 0;
     for (int cy = Config::world_min_chunk_y; cy <= Config::world_max_chunk_y; ++cy) {
-        vertical_chunks[static_cast<size_t>(cy - Config::world_min_chunk_y)] = get_chunk(chunk_x, cy, chunk_z);
+        Chunk* chunk = get_chunk(chunk_x, cy, chunk_z);
+        vertical_chunks[static_cast<size_t>(cy - Config::world_min_chunk_y)] = chunk;
+        if (chunk) loaded_chunks[loaded_count++] = {chunk, cy * Config::chunk_height};
     }
 
     if (has_ground && !column.generated_valid) {
@@ -2812,11 +3011,10 @@ void Chunk_Manager::refresh_sunlight_height_column(int chunk_x, int chunk_z) {
             // чанка вернула бы в heightmap исходную высоту генератора и дала бы вспышку света.
             int top = surface_chunk_loaded ? empty_height
                      : (inserted ? generated_top : static_cast<int>(column.top[column_index]));
-            for (int cy = Config::world_min_chunk_y; cy <= Config::world_max_chunk_y; ++cy) {
-                Chunk* chunk = vertical_chunks[static_cast<size_t>(cy - Config::world_min_chunk_y)];
-                if (!chunk) continue;
-                const int local_top = chunk->get_column_top_opaque(x, z);
-                if (local_top >= 0) top = std::max(top, cy * Config::chunk_height + local_top);
+            for (size_t i = 0; i < loaded_count; ++i) {
+                const auto& loaded = loaded_chunks[i];
+                const int local_top = loaded.chunk->get_column_top_opaque(x, z);
+                if (local_top >= 0) top = std::max(top, loaded.base_y + local_top);
             }
             column.top[column_index] = static_cast<int16_t>(top);
         }

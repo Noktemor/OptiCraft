@@ -25,6 +25,7 @@
 
 #include "utils/logging/Logger.h"
 #include "world/crafting/Smelting.h"
+#include "world/enchanting/Enchanting.h"
 #include "world/logic/Logic_Manager.h"
 #include "rendering/atlas/Atlas_Registry.h"
 #include "rendering/Frustum.h"
@@ -372,7 +373,22 @@ Hud_Inventory_Slot make_hud_slot(const Item_Stack& stack, bool infinite_stack = 
     if (max_durability > 0 && stack.damage > 0) {
         durability = 1.0f - static_cast<float>(stack.damage) / static_cast<float>(max_durability);
     }
-    Hud_Inventory_Slot slot{props.uv_icon, props.name, stack.count, false, durability};
+    std::string display_name=props.name;
+    const int enchant_count=stack.enchant_durability+stack.enchant_efficiency+stack.enchant_fortune+
+        stack.enchant_sharpness+stack.enchant_protection+stack.enchant_looting+stack.enchant_feather_falling;
+    if (enchant_count>0) {
+        display_name += " [";
+        if (stack.enchant_durability) display_name += " U"+std::to_string(stack.enchant_durability);
+        if (stack.enchant_efficiency) display_name += " E"+std::to_string(stack.enchant_efficiency);
+        if (stack.enchant_fortune) display_name += " F"+std::to_string(stack.enchant_fortune);
+        if (stack.enchant_sharpness) display_name += " S"+std::to_string(stack.enchant_sharpness);
+        if (stack.enchant_protection) display_name += " P"+std::to_string(stack.enchant_protection);
+        if (stack.enchant_looting) display_name += " L"+std::to_string(stack.enchant_looting);
+        if (stack.enchant_feather_falling) display_name += " FF"+std::to_string(stack.enchant_feather_falling);
+        display_name += " ]";
+    }
+    Hud_Inventory_Slot slot{props.uv_icon, display_name, stack.count, false, durability};
+    slot.enchanted = enchant_count > 0;
     // В превью повторяем не только материал, но и базовую форму блока.
     // Иначе shaped-блоки (например, ступеньки) ошибочно выглядели обычными кубами.
     if (!props.is_item && props.mesh_style == Block_Mesh_Style::Block) {
@@ -481,6 +497,7 @@ void Game::load_options() {
     m_renderer_ptr->set_render_distance(m_render_distance);
     m_renderer_ptr->set_meshlet_renderer_enabled(m_meshlet_renderer_enabled);
     m_meshlet_renderer_enabled = m_renderer_ptr->is_meshlet_renderer_enabled();
+    OC_PLOT("Meshlet renderer enabled", m_meshlet_renderer_enabled ? 1 : 0);
     apply_graphics_settings();
 }
 
@@ -558,6 +575,7 @@ void Game::set_meshlet_renderer_enabled(bool enabled) {
         m_renderer_ptr->set_meshlet_renderer_enabled(enabled);
         m_meshlet_renderer_enabled = m_renderer_ptr->is_meshlet_renderer_enabled();
     }
+    OC_PLOT("Meshlet renderer enabled", m_meshlet_renderer_enabled ? 1 : 0);
     save_options();
 }
 
@@ -790,6 +808,7 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
     m_dropped_items_ptr = std::make_unique<Dropped_Item_Manager>();
     m_container_session = Container_Session{};
     m_open_container_paired = nullptr;
+    m_enchant_seed = 0x5A19F37Bu;
     m_chat_log.clear();
     m_mobs.reset_timers();
     m_tick.reset();
@@ -937,8 +956,14 @@ Game::Panel_View Game::build_inventory_panel() const {
     Panel_View v;
     const bool creative = m_game_mode == Game_Mode::Creative;
     if (creative) {
+        static constexpr const char* category_keys[] = {
+            "panel.category.building", "panel.category.decoration", "panel.category.nature",
+            "panel.category.equipment", "panel.category.copper", "panel.category.mobs"
+        };
+        const size_t section = m_inventory_ptr->get_creative_category();
         v.layout = Panel_Layouts::inventory_creative(m_inventory_ptr->get_page_count(),
-                                                     m_inventory_ptr->get_current_page(), k_hotbar_start);
+                                                     m_inventory_ptr->get_current_page(), k_hotbar_start,
+                                                     static_cast<int>(section), tr(category_keys[section]));
         v.title = tr("panel.creative_inventory");
     } else {
         v.layout = Panel_Layouts::inventory_survival(k_hotbar_start);
@@ -1003,6 +1028,11 @@ void Game::inventory_click(bool right) {
     const glm::vec2 cursor = get_cursor_position();
     const int w = m_window_ptr->get_width(), h = m_window_ptr->get_height();
 
+    const int category = Hud::get_panel_category_button_at(w, h, v.layout, cursor.x, cursor.y);
+    if (category >= 0) {
+        m_inventory_ptr->set_creative_category(static_cast<size_t>(category));
+        return;
+    }
     const int page_button = Hud::get_panel_page_button_at(w, h, v.layout, cursor.x, cursor.y);
     if (page_button >= 0) {
         inventory_change_page(page_button == 0 ? -1 : 1);
@@ -1067,6 +1097,31 @@ Game::Panel_View Game::build_container_panel() const {
         v.title = tr("panel.crafting");
         v.layout = Panel_Layouts::crafting_table(own, true, offset, k_hotbar_start);
         break;
+    case Block_Entity_Type::Enchanting_Table: {
+        v.title = "Enchanting Table";
+        v.layout = Panel_Layouts::enchanting_table(offset,k_hotbar_start);
+        const Block_Types table = m_chunk_manager_ptr->get_block_world(
+            m_open_container_pos.x,m_open_container_pos.y,m_open_container_pos.z);
+        const int tier = Enchanting::tier_of(table);
+        v.layout.enchant_table_tier = tier;
+        v.layout.enchant_player_level = m_inventory_ptr->xp_level();
+        v.layout.enchant_xp_progress = m_inventory_ptr->xp_progress();
+        const Item_Stack input = m_container_session.get_container_slot(0);
+        const Item_Stack lapis = m_container_session.get_container_slot(1);
+        const auto options=Enchanting::offers(input,tier,m_enchant_seed);
+        for (int i=0;i<3;++i) {
+            const auto& option=options[static_cast<size_t>(i)];
+            const bool resources=m_game_mode==Game_Mode::Creative ||
+                (v.layout.enchant_player_level >= option.required_level && lapis.type==Block_Types::Lapis_Lazuli &&
+                 lapis.count >= option.lapis_cost);
+            v.layout.enchant_enabled[static_cast<size_t>(i)] = option.available && resources;
+            v.layout.enchant_names[static_cast<size_t>(i)] = option.available
+                ? std::string(Enchanting::name(option.kind))+" "+std::to_string(option.level) : "No enchant";
+            v.layout.enchant_costs[static_cast<size_t>(i)] = "LV "+std::to_string(option.required_level)+
+                "  XP "+std::to_string(option.xp_cost)+"  L "+std::to_string(option.lapis_cost);
+        }
+        break;
+    }
     case Block_Entity_Type::Furnace: {
         v.title = tr("panel.furnace");
         float flame = 0.0f, arrow = 0.0f;
@@ -1116,6 +1171,39 @@ void Game::container_click(bool right) {
     if (!m_container_session.is_open()) return;
     const Panel_View v = build_container_panel();
     const glm::vec2 cursor = get_cursor_position();
+    if (m_container_session.get_type()==Block_Entity_Type::Enchanting_Table) {
+        const int option_index = Hud::get_panel_enchant_button_at(m_window_ptr->get_width(),
+            m_window_ptr->get_height(),v.layout,cursor.x,cursor.y);
+        if (option_index>=0) {
+            if (v.layout.enchant_enabled[static_cast<size_t>(option_index)]) {
+                Block_Entity* table=m_container_session.get_entity_mutable();
+                const int tier=Enchanting::tier_of(m_chunk_manager_ptr->get_block_world(
+                    m_open_container_pos.x,m_open_container_pos.y,m_open_container_pos.z));
+                if (table && tier>0 && table->slots.size()==2) {
+                    Item_Stack& item=table->slots[0];
+                    Item_Stack& lapis=table->slots[1];
+                    const auto options=Enchanting::offers(item,tier,m_enchant_seed);
+                    const auto& option=options[static_cast<size_t>(option_index)];
+                    const bool creative=m_game_mode==Game_Mode::Creative;
+                    if (option.available && (creative ||
+                       (m_inventory_ptr->xp_level()>=option.required_level &&
+                        lapis.type==Block_Types::Lapis_Lazuli && lapis.count>=option.lapis_cost))) {
+                        if (Enchanting::apply(item,option.kind,option.level)) {
+                            if (!creative) {
+                                lapis.count-=option.lapis_cost;
+                                if (lapis.count==0) lapis=Item_Stack{};
+                                m_inventory_ptr->spend_levels(option.xp_cost);
+                            }
+                            m_enchant_seed=m_enchant_seed*1664525u+1013904223u;
+                            push_chat_message(std::string("Enchanted: ")+Enchanting::name(option.kind)+" "+
+                                std::to_string(option.level));
+                        }
+                    }
+                }
+            }
+            return;
+        }
+    }
     const int index = Hud::get_panel_slot_at(m_window_ptr->get_width(), m_window_ptr->get_height(),
                                              v.layout, cursor.x, cursor.y);
     if (index < 0) return;
@@ -1207,22 +1295,28 @@ void Game::reload_world(const std::string& generation_folder) {
 void Game::register_tick_systems() {
     using Phase = Tick_Phase;
     m_tick.add("day_night", Phase::Pre, 0, [this](float dt) {
+        OC_ZONE("Tick::day_night");
         m_day_night_cycle.update(dt);
         m_weather.update(dt);
     });
     m_tick.add("hunger", Phase::Pre, 10, [this](float dt) {
+        OC_ZONE("Tick::hunger");
         m_player_ptr->update_hunger(dt);
     });
     m_tick.add("block_entities", Phase::Simulate, 0, [this](float dt) {
+        OC_ZONE("Tick::block_entities");
         m_chunk_manager_ptr->update_block_entities(dt);
     });
     m_tick.add("fluids", Phase::Simulate, 10, [this](float dt) {
+        OC_ZONE("Tick::fluids");
         m_chunk_manager_ptr->update_fluids(dt);
     });
     m_tick.add("mobs", Phase::Simulate, 20, [this](float dt) {
+        OC_ZONE("Tick::mobs");
         apply_mob_result(m_mobs.update_tick(dt, mob_view(), *m_chunk_manager_ptr));
     });
     m_tick.add("crops", Phase::Simulate, 30, [this](float dt) {
+        OC_ZONE("Tick::crops");
         if (!m_crops_ptr) return;
         std::vector<glm::ivec3> changed_blocks;
         m_crops_ptr->update(dt, *m_chunk_manager_ptr, changed_blocks);
@@ -1231,6 +1325,7 @@ void Game::register_tick_systems() {
         }
         });
     m_tick.add("saplings", Phase::Simulate, 35, [this](float dt) {
+        OC_ZONE("Tick::saplings");
         if (!m_saplings_ptr) return;
         std::vector<glm::ivec3> changed_blocks;
         m_saplings_ptr->update(dt, *m_chunk_manager_ptr, changed_blocks);
@@ -1240,12 +1335,14 @@ void Game::register_tick_systems() {
     });
     // Красная логика: редстоун-тики, поиск узлов вокруг игрока (раз в секунду), обновление мешей.
     m_tick.add("redstone", Phase::Simulate, 37, [this](float dt) {
+        OC_ZONE("Tick::redstone");
         auto logic_world = make_chunk_world(*m_chunk_manager_ptr);
         m_logic.update(logic_world, dt);
         m_logic_scan_timer -= dt;
         if (m_logic_scan_timer <= 0.0f) {
             m_logic_scan_timer = 1.0f;
-            m_logic.discover(logic_world, glm::ivec3(glm::floor(m_player_ptr->get_position())), 12);
+            { OC_ZONE("Tick::redstone discovery");
+              m_logic.discover(logic_world, glm::ivec3(glm::floor(m_player_ptr->get_position())), 12); }
         }
         for (const glm::ivec3& pos : m_logic.take_changed()) {
             invalidate_block_mesh(pos.x, pos.y, pos.z, *m_chunk_manager_ptr, *m_renderer_ptr);
@@ -1258,6 +1355,7 @@ void Game::register_tick_systems() {
         }
     });
     m_tick.add("dropped_items", Phase::Simulate, 40, [this](float dt) {
+        OC_ZONE("Tick::dropped_items");
         // Подбирать предметы можно только в Survival и пока жив.
         const glm::vec3 player_pos = m_player_ptr->get_position();
         m_dropped_items_ptr->update(
@@ -1321,7 +1419,9 @@ void Game::apply_mob_result(const Mob_Result& result) {
     if (result.player_damage > 0 && m_player_ptr->is_alive()) {
         const int points = std::min(m_inventory_ptr->armor_points(), Config::armor_points_cap);
         const float reduction = static_cast<float>(points) / Config::armor_points_divisor;
-        const int damage = static_cast<int>(std::ceil(static_cast<float>(result.player_damage) * (1.0f - reduction)));
+        const float extra=std::min(0.80f,0.04f*m_inventory_ptr->total_enchant_protection());
+        const int damage = static_cast<int>(std::ceil(static_cast<float>(result.player_damage) *
+            (1.0f - reduction)*(1.0f-extra)));
         m_player_ptr->take_damage(std::max(damage, 1));
         m_inventory_ptr->damage_armor(1);
     }
@@ -1329,7 +1429,7 @@ void Game::apply_mob_result(const Mob_Result& result) {
 
 void Game::update_gameplay(float delta_time, bool simulation_active, bool player_actions) {
     OC_ZONE("Game::update_gameplay");
-    poll_iso_capture_result();
+    { OC_ZONE("Gameplay::poll_iso_capture"); poll_iso_capture_result(); }
 
     if (!simulation_active) {
         // On paused frames update_player_position() is not reached, so collect worker results
@@ -1350,7 +1450,9 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
         m_mobs.set_ride_input(Horse_Ride_Input{});
     }
 
-    m_player_ptr->update(delta_time, *m_chunk_manager_ptr);
+    // Boot enchantment must be sampled before physics processes landing damage.
+    m_player_ptr->set_feather_falling_level(m_inventory_ptr->get_armor_slot(3).enchant_feather_falling);
+    { OC_ZONE("Gameplay::player update"); m_player_ptr->update(delta_time, *m_chunk_manager_ptr); }
 
     // Модель игрока: поворот по взгляду, ходьба/стойка по скорости. Без файла модели ничего не делает.
     m_player_model.ensure_loaded();
@@ -1379,7 +1481,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
 
     // --- Тики: мир, существа, время и голод выполняются с фиксированным шагом -------------
     // Системы регистрируются в register_tick_systems(). Здесь только прокрутка часов.
-    m_tick.run_frame(delta_time);
+    { OC_ZONE("Gameplay::tick systems"); m_tick.run_frame(delta_time); }
 
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
         m_renderer_ptr->invalidate_chunk_cache(position);
@@ -1392,7 +1494,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
     // Ближайшее животное на луче взгляда (логика — в Mobs_Update::aim).
     const float entity_distance = m_mobs.aim(eye, m_camera_ptr->get_front());
 
-    m_block_interaction_ptr->update(
+    { OC_ZONE("Gameplay::block interaction"); m_block_interaction_ptr->update(
         delta_time,
         eye,
         m_camera_ptr->get_front(),
@@ -1402,7 +1504,26 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
         *m_renderer_ptr,
         *m_inventory_ptr,
         entity_distance
-    );
+    ); }
+
+    // Spawn eggs work on the targeted ground/adjacent block, without placing an item block.
+    const Block_Types held_egg = m_inventory_ptr->get_selected_block();
+    const bool holding_egg = Mobs_Update::is_spawn_egg(held_egg);
+    if (holding_egg && m_input_ptr->is_mouse_button_pressed(1) && m_player_ptr->is_alive()) {
+        const glm::vec3 front = m_camera_ptr->get_front();
+        const Raycast_Hit hit = Raycast::cast(eye, front, 6.0f, *m_chunk_manager_ptr);
+        const glm::vec3 location = hit.hit
+            ? glm::vec3(static_cast<float>(hit.place_x) + .5f, static_cast<float>(hit.place_y),
+                        static_cast<float>(hit.place_z) + .5f)
+            : eye + front * 3.0f;
+        const glm::ivec3 cell = glm::ivec3(glm::floor(location));
+        const bool space_clear = !get_block_props(m_chunk_manager_ptr->get_block_world(cell.x, cell.y, cell.z)).is_solid &&
+            !get_block_props(m_chunk_manager_ptr->get_block_world(cell.x, cell.y + 1, cell.z)).is_solid;
+        if (space_clear && m_mobs.spawn_from_egg(held_egg, location, *m_chunk_manager_ptr)) {
+            if (m_game_mode == Game_Mode::Survival) m_inventory_ptr->consume_selected(1);
+            push_chat_message("Spawned: " + get_block_props(held_egg).name);
+        }
+    }
 
     handle_tool_impulse(delta_time);
 
@@ -1425,7 +1546,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
     mob_input.eye = eye;
     mob_input.look_dir = m_camera_ptr->get_front();
     mob_input.block_targets_entity = m_block_interaction_ptr->is_entity_targeted();
-    mob_input.right_click = m_input_ptr->is_mouse_button_pressed(1) && !holding_potion;
+    mob_input.right_click = m_input_ptr->is_mouse_button_pressed(1) && !holding_potion && !holding_egg;
     mob_input.left_click = m_input_ptr->is_mouse_button_pressed(0);
     mob_input.survival = m_game_mode == Game_Mode::Survival;
     mob_input.held_block = m_inventory_ptr->get_selected_block();
@@ -1453,6 +1574,24 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
             m_dropped_items_ptr->spawn_block_drops(event.position,
                                                    event.harvested ? event.type : Block_Types::Air,
                                                    event.container_contents);
+            // Fortune increases mineral yield without duplicating the base drop.
+            if (event.harvested && event.fortune_level>0 &&
+                (event.type==Block_Types::Lapis_Ore || event.type==Block_Types::Coal_Ore ||
+                 event.type==Block_Types::Diamond_Ore)) {
+                static std::mt19937 fortune_rng(0xD1A0u);
+                const int extra=std::uniform_int_distribution<int>(0,event.fortune_level)(fortune_rng);
+                if (extra>0) {
+                    const Block_Properties& ore=get_block_props(event.type);
+                    if (ore.drop_id>0) m_dropped_items_ptr->spawn_from_mob(
+                        glm::vec3(event.position)+glm::vec3(0.5f,0.0f,0.5f),
+                        Item_Stack{static_cast<Block_Types>(ore.drop_id),extra});
+                }
+            }
+            if (event.harvested && (event.type==Block_Types::Lapis_Ore ||
+                event.type==Block_Types::Coal_Ore || event.type==Block_Types::Diamond_Ore)) {
+                m_dropped_items_ptr->spawn_experience(glm::vec3(event.position)+glm::vec3(0.5f,0.0f,0.5f),
+                    event.type==Block_Types::Diamond_Ore ? 5 : 2);
+            }
         }
         // Красная логика: узлы без опоры удаляются в обоих режимах, но в Creative не дропаются.
         auto logic_world = make_chunk_world(*m_chunk_manager_ptr);
@@ -1610,6 +1749,8 @@ void Game::render_gameplay(bool show_gameplay_hud) {
                                   m_block_interaction_ptr->has_target());
         // Сердца и ножки — только в Survival (в Creative игрок неуязвим и не голодает).
         if (m_game_mode == Game_Mode::Survival) {
+            m_hud_ptr->draw_experience(m_window_ptr->get_width(),m_window_ptr->get_height(),
+                m_inventory_ptr->xp_level(),m_inventory_ptr->xp_progress());
             m_hud_ptr->draw_player_status(
                 m_window_ptr->get_width(),
                 m_window_ptr->get_height(),

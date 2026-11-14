@@ -84,6 +84,9 @@ public:
     Breeding_State& breeding() { return m_breeding; }
     const Breeding_State& breeding() const { return m_breeding; }
     bool is_baby() const { return m_breeding.is_baby(); }
+    bool has_wool() const { return m_kind == Passive_Kind::Sheep && m_has_wool; }
+    // One fleece per shearing; regenerates after grazing time (no sheep recoloring yet).
+    bool shear();
     void seek_towards(const glm::vec3& target);
 
 private:
@@ -93,6 +96,8 @@ private:
     std::mt19937 m_rng;
     Breeding_State m_breeding;
 
+    bool m_has_wool = true;
+    float m_wool_regrow_seconds = 0.0f;
     float m_health;
     Status_Effects m_effects;
     float m_invulnerable_timer = 0.0f;

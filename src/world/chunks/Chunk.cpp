@@ -1139,10 +1139,10 @@ Gpu_Mesh_Tables gpu_mesh_tables() {
         out.light_coarse[i] = tab.light_coarse[i];
     }
     // Боксы блоков формы (единица — 1/64 клетки): индекс [форма * 256 + метаданные] -> (число, смещение).
-    out.shape_index.assign(8 * 256 * 2, 0u);
-    for (uint32_t shape = 1; shape <= 5; ++shape) {
+    out.shape_index.assign(static_cast<size_t>(Block_Shape::Count) * 256 * 2, 0u);
+    for (uint32_t shape = 1; shape < static_cast<uint32_t>(Block_Shape::Count); ++shape) {
         for (uint32_t meta = 0; meta < 256; ++meta) {
-            Shape_Box boxes[8];
+            Shape_Box boxes[16];
             const int count = shape_boxes(static_cast<Block_Shape>(shape), static_cast<uint8_t>(meta), boxes);
             const size_t at = (static_cast<size_t>(shape) * 256 + meta) * 2;
             out.shape_index[at] = static_cast<uint32_t>(count);

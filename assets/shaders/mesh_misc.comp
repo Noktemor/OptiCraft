@@ -43,7 +43,7 @@ const uint FLAG_SHAPED = 128u;
 const uint FLAG_SHAPE_CULLS = 256u;
 // Блок — жидкость (по состоянию): грань жидкости к такому соседу не нужна.
 const uint FLAG_LIQUID_STATE = 512u;
-const uint FLAG_SHAPE_SHIFT = 10u;   // биты 10..12 — форма (Block_Shape)
+const uint FLAG_SHAPE_SHIFT = 10u;   // биты 10..14 — форма (Block_Shape)
 const uint KIND_SHAPED = 1u;
 const uint KIND_FLORA = 2u;
 const uint KIND_LIQUID = 3u;
@@ -241,9 +241,28 @@ void main() {
 
         // Порядок как у CPU: сначала форма, затем флора, затем жидкость.
         if ((fl & FLAG_SHAPED) != 0u) {
-            const uint shape = (fl >> FLAG_SHAPE_SHIFT) & 7u;
+            const uint shape = (fl >> FLAG_SHAPE_SHIFT) & 31u;
             const uint raw_meta = read_channel(hb, 1u, uint((y * 32 + z) * 32 + x));
-            const uint meta = shape == 2u ? stairs_effective_meta(hb, cell, raw_meta) : raw_meta;
+            uint meta = shape == 2u ? stairs_effective_meta(hb, cell, raw_meta) : raw_meta;
+            // Connection geometry comes from actual neighboring blocks, not stale persisted metadata.
+            // Shape ids: fence=6, wall=7, gate=8, pane=12.
+            if (shape == 6u || shape == 7u || shape == 12u) {
+                const ivec3 offsets[4] = ivec3[4](ivec3(0,0,-1), ivec3(1,0,0),
+                                                   ivec3(0,0,1), ivec3(-1,0,0));
+                meta = 0u;
+                for (uint dir = 0u; dir < 4u; ++dir) {
+                    const ivec3 neighbor = cell + offsets[dir];
+                    const uint neighbor_id = block_at(hb, neighbor.x, neighbor.y, neighbor.z);
+                    const uint neighbor_flags = block_flags[neighbor_id];
+                    const uint neighbor_shape = (neighbor_flags >> FLAG_SHAPE_SHIFT) & 31u;
+                    const bool full = (neighbor_flags & FLAG_SHAPE_CULLS) != 0u;
+                    const bool connects = full ||
+                        (shape == 6u && (neighbor_shape == 6u || neighbor_shape == 8u)) ||
+                        (shape == 7u && neighbor_shape == 7u) ||
+                        (shape == 12u && neighbor_shape == 12u);
+                    if (connects) meta |= (1u << dir);
+                }
+            }
             const uvec2 index = shape_index[shape * 256u + meta];
             for (uint b = 0u; b < index.x; ++b) {
                 uvec2 box = shape_boxes[index.y + b];

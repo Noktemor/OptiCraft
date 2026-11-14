@@ -88,9 +88,12 @@ public:
     // Скрытая кость схлопывается в точку сустава, поэтому её геометрия не рисуется. Нужно для
     // вида от первого лица: голова модели игрока не должна загораживать камеру. Пустая строка — выключить.
     void set_hidden_bones_matching(const std::string& token) { m_hidden_bone_token = token; }
+    // Hide one named material on this instance only (the shared GLB remains intact).
+    void set_hidden_material_matching(const std::string& token) { m_hidden_material_token = token; }
 
 private:
     std::string m_hidden_bone_token;
+    std::string m_hidden_material_token;
     std::shared_ptr<Mob_Model> m_model;
 
     glm::vec3 m_position{0.0f};

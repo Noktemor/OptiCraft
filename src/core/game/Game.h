@@ -83,6 +83,7 @@ private:
     // дублирующего состояния (см. комментарий у State_Playing::handle_input).
     Container_Session m_container_session;
     glm::ivec3 m_open_container_pos{};
+    uint32_t m_enchant_seed = 0x5A19F37Bu;
     Block_Entity* m_open_container_paired = nullptr; // вторая половина двойного сундука, если есть
     std::unique_ptr<Hud> m_hud_ptr;
     std::unique_ptr<Application> m_application_ptr;

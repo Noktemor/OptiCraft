@@ -64,6 +64,10 @@ bool Window::initialize() {
 
     const auto* gl_version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
     LOG_INFO(std::string("OpenGL driver version: ") + (gl_version ? gl_version : "unknown"));
+    const auto* gl_vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+    const auto* gl_renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    LOG_INFO(std::string("OpenGL vendor: ") + (gl_vendor ? gl_vendor : "unknown"));
+    LOG_INFO(std::string("OpenGL renderer: ") + (gl_renderer ? gl_renderer : "unknown"));
 
     // Настройки OpenGL
     glEnable(GL_DEPTH_TEST);

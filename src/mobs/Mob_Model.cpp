@@ -332,6 +332,7 @@ bool Mob_Model::load_from_file(const std::string& path) {
     std::vector<Mob_Vertex> vertices;
     std::vector<uint32_t> indices;
     const cgltf_material* first_material = nullptr;
+    m_primitive_ranges.clear();
 
     for (cgltf_size mesh_i = 0; mesh_i < data->meshes_count; ++mesh_i) {
         const cgltf_mesh& mesh = data->meshes[mesh_i];
@@ -365,6 +366,7 @@ bool Mob_Model::load_from_file(const std::string& path) {
                 continue;
             }
 
+            const size_t first_index = indices.size();
             const uint32_t base_vertex = static_cast<uint32_t>(vertices.size());
             const cgltf_size vertex_count = position_accessor->count;
             vertices.resize(vertices.size() + vertex_count);
@@ -403,6 +405,15 @@ bool Mob_Model::load_from_file(const std::string& path) {
             }
 
             if (!first_material && primitive.material) first_material = primitive.material;
+            Mob_Model::Primitive_Range range;
+            range.first_index = first_index;
+            range.index_count = indices.size() - first_index;
+            if (primitive.material) {
+                const size_t material_index = static_cast<size_t>(primitive.material - data->materials);
+                range.material_name = primitive.material->name ? primitive.material->name : "";
+                range.texture_role = "material_" + std::to_string(material_index);
+            }
+            if (range.index_count) m_primitive_ranges.push_back(std::move(range));
         }
     }
 
@@ -416,13 +427,22 @@ bool Mob_Model::load_from_file(const std::string& path) {
     m_cpu_vertices = vertices;
 
     // ---- Текстуры ----
-    // Берём материал первого примитива, у которого он есть. Мобы с разными
-    // материалами на разных частях тела (кроме albedo/normal одной текстуры
-    // на всё) — уже за пределами этой версии, см. README.
+    // Per-material textures: the sheep body and fleece use distinct PNGs in its GLB.
+    // The previous single-texture renderer painted both with the first material.
+    const std::string base_dir = parent_directory(path);
+    for (cgltf_size material_i = 0; material_i < data->materials_count; ++material_i) {
+        const cgltf_material& mat = data->materials[material_i];
+        if (mat.has_pbr_metallic_roughness && mat.pbr_metallic_roughness.base_color_texture.texture) {
+            if (auto tex = load_texture_from_gltf_image(mat.pbr_metallic_roughness.base_color_texture.texture, base_dir)) {
+                m_textures["material_" + std::to_string(material_i)] = std::move(tex);
+            }
+        }
+    }
     if (first_material) {
         const std::string base_dir = parent_directory(path);
 
         if (first_material->has_pbr_metallic_roughness && first_material->pbr_metallic_roughness.base_color_texture.texture) {
+            // Keep legacy fallback alive for models without per-primitive materials.
             if (auto tex = load_texture_from_gltf_image(first_material->pbr_metallic_roughness.base_color_texture.texture, base_dir)) {
                 m_textures["albedo"] = std::move(tex);
             }

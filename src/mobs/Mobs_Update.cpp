@@ -81,11 +81,6 @@ namespace {
         return false;
     }
 
-    Biome_Id biome_at(const Chunk_Manager& chunks, int x, int y, int z) {
-        const World_Generator* generator = chunks.world_generator();
-        return generator ? generator->biome_id(x, y, z) : Biome_Id::Plains;
-    }
-
     // Точка на поверхности земли в кольце [rmin, rmax] вокруг center. Нужны: твёрдый блок
     // (для животных и лошадей — трава), два свободных блока над ним не в воде и подходящий биом.
     // Незагруженный чанк, вода, неподходящий биом — пустой результат, попробуем в другой раз.
@@ -103,7 +98,9 @@ namespace {
         const int bz = static_cast<int>(std::floor(z));
         const int player_y = static_cast<int>(std::floor(center.y));
         const World_Generator* generator = chunks.world_generator();
-        const int surface_y = generator ? generator->get_height(bx, bz) : player_y;
+        int surface_y;
+        { OC_ZONE("Mob spawn::surface height");
+          surface_y = generator ? generator->get_height(bx, bz) : player_y; }
         // При полёте ищем поверхность, если она далеко ниже игрока.
         const int search_y = surface_y < player_y - 24 ? surface_y : player_y;
         const int top = std::min(Config::world_max_y - 2, search_y + 12);
@@ -119,7 +116,16 @@ namespace {
             const Block_Properties& above2 = get_block_props(chunks.get_block_world(bx, y + 2, bz));
             if (above1.is_solid || above2.is_solid ||
                 above1.state == Block_State::Liquid || above2.state == Block_State::Liquid) continue;
-            if (!biome_allows(group, biome_at(chunks, bx, y, bz))) return std::nullopt;
+            { OC_ZONE("Mob spawn::biome");
+              const auto biome = generator ? generator->try_biome_id(bx, y, bz)
+                                           : std::optional<Biome_Id>{Biome_Id::Plains};
+              if (!biome) {
+                  // A cold cave region may take hundreds of milliseconds. Prepare it on
+                  // the generation workers and retry naturally on a later spawn attempt.
+                  chunks.request_generation_region(chunk.x, chunk.z);
+                  return std::nullopt;
+              }
+              if (!biome_allows(group, *biome)) return std::nullopt; }
             return glm::vec3(x, static_cast<float>(y) + height_above_ground, z);
         }
         return std::nullopt;
@@ -268,8 +274,9 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
     prune(m_pigs); prune(m_cows); prune(m_sheep); prune(m_hostiles);
     m_horses.erase(std::remove_if(m_horses.begin(), m_horses.end(),
         [&](const auto& horse) { return horse.get() != m_ridden_horse && far(horse); }), m_horses.end());
-    update_hostiles(dt, player, chunks, result);
+    { OC_ZONE("Mobs tick::hostiles"); update_hostiles(dt, player, chunks, result); }
     if (!m_knights.empty()) {
+        OC_ZONE("Mobs tick::knights");
         Knight_Player_View knight_view;
         knight_view.position = player.position;
         knight_view.velocity = player.velocity;
@@ -291,6 +298,7 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
                         m_knights.end());
     }
     if (!m_bosses.empty()) {
+        OC_ZONE("Mobs tick::bosses");
         Boss_Player_View boss_view;
         boss_view.position = player.position;
         boss_view.forward = player.forward;
@@ -310,21 +318,21 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
                        m_bosses.end());
     }
     m_pig_respawn_cooldown = std::max(0.0f, m_pig_respawn_cooldown - dt);
-    spawn_missing_pigs(player.position, chunks);
-    for (auto& pig : m_pigs) {
+    { OC_ZONE("Mobs tick::spawn pigs"); spawn_missing_pigs(player.position, chunks); }
+    { OC_ZONE("Mobs tick::update pigs"); for (auto& pig : m_pigs) {
         pig->update(dt, chunks);
-    }
+    } }
 
     for (Passive_Kind kind : {Passive_Kind::Cow, Passive_Kind::Sheep}) {
         const int i = index_of(kind);
         m_passive_respawn_cooldown[i] = std::max(0.0f, m_passive_respawn_cooldown[i] - dt);
-        spawn_missing_passive(kind, player.position, chunks);
-        for (auto& animal : passive_list(kind)) {
+        { OC_ZONE("Mobs tick::spawn passive"); spawn_missing_passive(kind, player.position, chunks); }
+        { OC_ZONE("Mobs tick::update passive"); for (auto& animal : passive_list(kind)) {
             animal->update(dt, chunks);
-        }
+        } }
 }
 
-    update_breeding();
+    { OC_ZONE("Mobs tick::breeding"); update_breeding(); }
 
     // Убитые животные исчезают, когда доиграна анимация падения (мясо выпало ещё в момент удара).
     m_pigs.erase(std::remove_if(m_pigs.begin(), m_pigs.end(),
@@ -343,11 +351,14 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
 // --- Враги -----------------------------------------------------------------------------------
 
 void Mobs_Update::update_hostiles(float dt, const Mob_Player_View& player, Chunk_Manager& chunks, Mob_Result& result) {
+    OC_ZONE("Mobs::update_hostiles");
     for (Hostile_Kind kind : {Hostile_Kind::Zombie, Hostile_Kind::Skeleton, Hostile_Kind::Spider}) {
         const int i = index_of(kind);
         m_hostile_respawn_cooldown[i] = std::max(0.0f, m_hostile_respawn_cooldown[i] - dt);
-        if (m_hostiles_enabled) spawn_missing_hostiles(kind, player.position, chunks, player.sky_brightness,
-                                                       player.night_light_floor);
+        if (m_hostiles_enabled) {
+            OC_ZONE("Mobs tick::spawn hostiles");
+            spawn_missing_hostiles(kind, player.position, chunks, player.sky_brightness, player.night_light_floor);
+        }
     }
     if (m_hostiles.empty()) return;
 
@@ -836,6 +847,17 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
 
     // --- Кормление (ПКМ едой, которую животное ест) ----------------------------------------
     if (input.right_click) {
+        // Shears work on grown, unsheared sheep, without dealing damage.
+        if (m_target_passive && m_target_passive->kind() == Passive_Kind::Sheep &&
+            input.held_block == Block_Types::Shears && m_target_passive->shear()) {
+            static std::mt19937 wool_rng(std::random_device{}());
+            const int amount = std::uniform_int_distribution<int>(1, 3)(wool_rng);
+            drops.spawn_from_mob(m_target_passive->get_position(), Item_Stack{Block_Types::White_Wool, amount});
+            result.damage_held_tool = survival;
+            result.cancel_block_actions = true;
+            if (input.chat) input.chat("Sheep sheared: +" + std::to_string(amount) + " white wool");
+            return result;
+        }
         bool fed = false;
         if (m_target_pig && Pig::accepts_food(input.held_block) && m_target_pig->breeding().can_be_fed()) {
             m_target_pig->breeding().start_love();
@@ -871,7 +893,7 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
 
         // Урон: в Creative — с одного удара; в Survival — кулак или оружие/инструмент в руке.
         float damage = Config::player_fist_damage;
-        if (armed) damage = std::max(damage, held_props->attack_damage);
+        if (armed) damage = std::max(damage, held_props->attack_damage) + 0.75f * input.held_stack.enchant_sharpness;
         // Скорость игрока добавляет урону сверх ходьбы; потолка нет. Коэффициент — у оружия.
         const float speed_scale = armed ? held_props->speed_damage_scale : 1.0f;
         const float over_walk = std::max(0.0f, input.player.horizontal_speed - Config::player_move_speed);
@@ -880,15 +902,20 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
         static std::mt19937 s_drop_rng(std::random_device{}());
         const auto roll = [&](int lo, int hi) { return std::uniform_int_distribution<int>(lo, hi)(s_drop_rng); };
 
+        // XP is awarded once per death, never on damage and never for /killall.
+        auto reward_xp=[&](const glm::vec3& at, int low, int high) {
+            if (survival) drops.spawn_experience(at, roll(low,high));
+        };
         bool hit = false;
         if (m_target_pig) {
             const float d = survival ? damage : Config::pig_max_health * 100.0f;
             hit = true;
             if (m_target_pig->take_damage(d, input.player.position)) {
+                reward_xp(m_target_pig->get_position(),1,3);
                 m_pig_respawn_cooldown = Config::pig_respawn_delay;
                 if (survival) {
                     drops.spawn_from_mob(m_target_pig->get_position(),
-                        Item_Stack{Block_Types::Raw_Porkchop, roll(Config::pig_drop_min, Config::pig_drop_max)});
+                        Item_Stack{Block_Types::Raw_Porkchop, roll(Config::pig_drop_min, Config::pig_drop_max + input.held_stack.enchant_looting)});
                 }
             }
         } else if (m_target_passive) {
@@ -896,10 +923,12 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
             const float d = survival ? damage : st.max_health * 100.0f;
             hit = true;
             if (m_target_passive->take_damage(d, input.player.position)) {
+                reward_xp(m_target_passive->get_position(),1,3);
                 m_passive_respawn_cooldown[index_of(m_target_passive->kind())] = st.respawn_delay;
-                if (survival && st.drop_item != Block_Types::Air) {
+                if (survival && st.drop_item != Block_Types::Air &&
+                    (m_target_passive->kind() != Passive_Kind::Sheep || m_target_passive->has_wool())) {
                     drops.spawn_from_mob(m_target_passive->get_position(),
-                        Item_Stack{st.drop_item, roll(st.drop_min, st.drop_max)});
+                        Item_Stack{st.drop_item, roll(st.drop_min, st.drop_max + input.held_stack.enchant_looting)});
                 }
                 if (survival && m_target_passive->kind() == Passive_Kind::Cow) {
                     drops.spawn_from_mob(m_target_passive->get_position(),
@@ -910,10 +939,11 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
             const float d = survival ? damage : Config::horse_max_health * 100.0f;
             hit = true;
             if (m_target_horse->take_damage(d, input.player.position)) {
+                reward_xp(m_target_horse->get_position(),1,3);
                 m_horse_respawn_cooldown = Config::horse_respawn_delay;
                 if (survival) {
                     drops.spawn_from_mob(m_target_horse->get_position(),
-                        Item_Stack{Block_Types::Raw_Horse_Meat, roll(Config::horse_drop_min, Config::horse_drop_max)});
+                        Item_Stack{Block_Types::Raw_Horse_Meat, roll(Config::horse_drop_min, Config::horse_drop_max + input.held_stack.enchant_looting)});
                     drops.spawn_from_mob(m_target_horse->get_position(),
                         Item_Stack{Block_Types::Leather, roll(Config::horse_leather_min, Config::horse_leather_max)});
                 }
@@ -923,17 +953,18 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
             const float d = survival ? damage : st.max_health * 100.0f;
             hit = true;
             if (m_target_hostile->take_damage(d, input.player.position)) {
+                reward_xp(m_target_hostile->get_position(),4,7);
                 m_hostile_respawn_cooldown[index_of(m_target_hostile->kind())] = Config::hostile_respawn_delay;
             }
         } else if (m_target_boss) {
             // В креативе босс умирает от одного удара: иначе его нельзя проверить без выживания.
             const float d = survival ? damage : boss_stats(m_target_boss->kind()).max_health * 100.0f;
             hit = true;
-            m_target_boss->take_damage(d, input.player.position);
+            if (m_target_boss->take_damage(d, input.player.position)) reward_xp(m_target_boss->get_position(),30,50);
         } else if (m_target_knight) {
             const float d = survival ? damage : Knight_Ai::MAX_HEALTH * 100.0f;
             hit = true;
-            m_target_knight->take_damage(d, input.player.position);
+            if (m_target_knight->take_damage(d, input.player.position)) reward_xp(m_target_knight->get_position(),30,50);
             m_target_knight->observe_player_hit(input.player.position);
         }
         if (hit && survival) result.damage_held_tool = true;
@@ -1118,6 +1149,61 @@ int Mobs_Update::summon_hostile(Hostile_Kind kind, int count, const glm::vec3& a
         ++spawned;
     }
     return spawned;}
+
+bool Mobs_Update::is_spawn_egg(Block_Types type) {
+    switch (type) {
+        case Block_Types::Pig_Spawn_Egg: case Block_Types::Cow_Spawn_Egg:
+        case Block_Types::Sheep_Spawn_Egg: case Block_Types::Horse_Spawn_Egg:
+        case Block_Types::Zombie_Spawn_Egg: case Block_Types::Skeleton_Spawn_Egg:
+        case Block_Types::Spider_Spawn_Egg: case Block_Types::Stone_Colossus_Spawn_Egg:
+        case Block_Types::Shadow_Stalker_Spawn_Egg: case Block_Types::Knight_Spawn_Egg:
+            return true;
+        default: return false;
+    }
+}
+
+bool Mobs_Update::spawn_from_egg(Block_Types type, const glm::vec3& feet, Chunk_Manager& chunks) {
+    static int egg_counter = 0;
+    const std::string name = "Egg spawn #" + std::to_string(++egg_counter);
+    if (type == Block_Types::Pig_Spawn_Egg) {
+        auto mob = std::make_unique<Pig>(name, feet);
+        if (!mob->load_model("assets/mobs/pig.glb")) return false;
+        m_pigs.push_back(std::move(mob)); return true;
+    }
+    if (type == Block_Types::Cow_Spawn_Egg || type == Block_Types::Sheep_Spawn_Egg) {
+        const Passive_Kind kind = type == Block_Types::Sheep_Spawn_Egg ? Passive_Kind::Sheep : Passive_Kind::Cow;
+        auto mob = std::make_unique<Passive_Animal>(kind, name, feet);
+        if (!mob->load_model()) return false;
+        passive_list(kind).push_back(std::move(mob)); return true;
+    }
+    if (type == Block_Types::Horse_Spawn_Egg) {
+        auto mob = std::make_unique<Horse>(name, feet);
+        if (!mob->load_model("assets/mobs/horse.glb")) return false;
+        m_horses.push_back(std::move(mob)); return true;
+    }
+    Hostile_Kind kind;
+    if (type == Block_Types::Zombie_Spawn_Egg) kind = Hostile_Kind::Zombie;
+    else if (type == Block_Types::Skeleton_Spawn_Egg) kind = Hostile_Kind::Skeleton;
+    else if (type == Block_Types::Spider_Spawn_Egg) kind = Hostile_Kind::Spider;
+    else if (type == Block_Types::Stone_Colossus_Spawn_Egg ||
+             type == Block_Types::Shadow_Stalker_Spawn_Egg) {
+        // Spawn eggs appear at the clicked position; /boss deliberately spawns farther away.
+        const Boss_Kind boss_kind = type == Block_Types::Stone_Colossus_Spawn_Egg
+            ? Boss_Kind::Stone_Colossus : Boss_Kind::Shadow_Stalker;
+        auto boss = std::make_unique<Boss>(boss_kind, name, feet);
+        if (!boss->load_model()) return false;
+        m_bosses.push_back(std::move(boss));
+        return true;
+    } else if (type == Block_Types::Knight_Spawn_Egg) {
+        // Knight needs a safe 5x5-chunk arena: reuse its existing safe spawn finder.
+        return summon_boss(Boss_Kind::Knight, feet, chunks);
+    }
+    else return false;
+    if (!m_hostiles_enabled) return false;
+    auto mob = std::make_unique<Hostile_Mob>(kind, name, feet);
+    if (!mob->load_model()) return false;
+    m_hostiles.push_back(std::move(mob)); return true;
+}
 
 int Mobs_Update::summon_pigs(int count, const glm::vec3& around) {
     static int s_summon_counter = 0;
@@ -1313,7 +1399,9 @@ namespace {
 }
 
 bool Mobs_Update::natural_spawn_allowed(const char* species, const glm::vec3& position) const {
-    if (!m_biome_at) return true;
+    // The biome lookup can trigger world-generation work. With no configured bans
+    // its result cannot affect the decision, so avoid it entirely.
+    if (kSpawnBans.empty() || !m_biome_at) return true;
     const std::string biome = m_biome_at(static_cast<int>(std::floor(position.x)),
                                          static_cast<int>(std::floor(position.y)),
                                          static_cast<int>(std::floor(position.z)));
@@ -1340,10 +1428,13 @@ void Mobs_Update::spawn_missing_hostiles(Hostile_Kind kind, const glm::vec3& pla
     if (m_hostile_respawn_cooldown[index] > 0.0f) return;
 
     // Одна попытка за тик: точка в кольце вокруг игрока, поверхность под ней и биом.
-    const std::optional<glm::vec3> spawn_position = find_ground_spawn(
+    std::optional<glm::vec3> spawn_position;
+    { OC_ZONE("Hostile spawn::find ground"); spawn_position = find_ground_spawn(
         player_position, std::min(16.0f, m_spawn_radius * 0.7f), m_spawn_radius, Spawn_Group::Hostile, false, 1.0f, chunks, s_rng);
+    }
     if (!spawn_position) return; // незагруженный чанк или неподходящий биом — в другой раз
-    if (!natural_spawn_allowed(st.label, *spawn_position)) return;
+    { OC_ZONE("Hostile spawn::species restrictions");
+      if (!natural_spawn_allowed(st.label, *spawn_position)) return; }
 
     // Враги появляются только там, где освещение меньше порога: свет в клетке над землёй —
     // максимум из блочного света и солнечного (солнечный гаснет к ночи вместе с sky_brightness).
@@ -1360,7 +1451,9 @@ void Mobs_Update::spawn_missing_hostiles(Hostile_Kind kind, const glm::vec3& pla
     static int s_counter[3] = {0, 0, 0};
     auto hostile = std::make_unique<Hostile_Mob>(kind,
         std::string(st.label) + " #" + std::to_string(++s_counter[index]), *spawn_position);
-    if (!hostile->load_model()) {
+    bool model_loaded;
+    { OC_ZONE("Hostile spawn::load model"); model_loaded = hostile->load_model(); }
+    if (!model_loaded) {
         LOG_ERROR(std::string("spawn_missing_hostiles: failed to load ") + st.model_path);
         m_hostile_respawn_cooldown[index] = 30.0f;
         return;

@@ -10,16 +10,16 @@ namespace Panel_Layouts {
         // --- инвентарь: Creative ---
         // Сверху палитра блоков (3 ряда по 9), под ней листалка страниц, ниже — тот же
         // хранилище + хотбар, что и в Survival: предметы из палитры попадают в них.
-        constexpr float k_creative_height = 174.0f;
-        constexpr float k_creative_palette_y = 18.0f;
+        constexpr float k_creative_height = 198.0f;
+        constexpr float k_creative_palette_y = 42.0f;
         // Отдельная строка листания теперь помещается между палитрой и хранилищем:
         // кнопки не накрывают верхние слоты первой строки.
-        constexpr float k_creative_storage_y = 92.0f;
-        constexpr float k_creative_hotbar_y = 150.0f;
-        constexpr glm::vec2 k_creative_page_prev{8.0f, 72.0f};
-        constexpr glm::vec2 k_creative_page_next{152.0f, 72.0f};
+        constexpr float k_creative_storage_y = 116.0f;
+        constexpr float k_creative_hotbar_y = 174.0f;
+        constexpr glm::vec2 k_creative_page_prev{8.0f, 96.0f};
+        constexpr glm::vec2 k_creative_page_next{152.0f, 96.0f};
         // Верх текста: центр строки совпадает с центром квадратных кнопок 16x16.
-        constexpr glm::vec2 k_creative_page_text{88.0f, 76.0f};
+        constexpr glm::vec2 k_creative_page_text{88.0f, 100.0f};
 
         // --- инвентарь: Survival ---
         constexpr float k_survival_height = 166.0f;
@@ -84,16 +84,20 @@ namespace Panel_Layouts {
         }
     }
 
-    Hud_Panel_Layout inventory_creative(size_t page_count, size_t current_page, int hotbar_start) {
+    Hud_Panel_Layout inventory_creative(size_t page_count, size_t current_page, int hotbar_start,
+                                       int category, const std::string& category_name) {
         Hud_Panel_Layout layout;
         layout.size = {k_panel_width, k_creative_height};
+        layout.category_tabs = true;
+        layout.selected_category = category;
         if (page_count > 1) {
             layout.page_controls = true;
             layout.page_prev_pos = k_creative_page_prev;
             layout.page_next_pos = k_creative_page_next;
-            layout.page_text = tr("panel.page", {std::to_string(current_page + 1), std::to_string(page_count)});
+            layout.page_text = category_name + " " + std::to_string(current_page + 1) + "/" + std::to_string(page_count);
             layout.page_text_pos = k_creative_page_text;
         }
+        if (page_count <= 1) layout.labels.push_back({category_name, {40.0f, 99.0f}});
         for (int i = 0; i < Panel_Slot_Ids::k_creative_palette_count; ++i) {
             layout.slots.push_back({{k_panel_margin + k_slot_pitch * static_cast<float>(i % k_slots_per_row),
                                      k_creative_palette_y + k_slot_pitch * static_cast<float>(i / k_slots_per_row)},
@@ -147,6 +151,17 @@ namespace Panel_Layouts {
         layout.progress.push_back({k_table_arrow, 0.0f, false});
         layout.slots.push_back({k_table_output, Panel_Slot_Ids::k_container_output, true});
         finish_container(layout, k_container_default_storage_y, show_player_storage, player_id_offset, hotbar_start);
+        return layout;
+    }
+
+    Hud_Panel_Layout enchanting_table(int player_offset, int hotbar_start) {
+        Hud_Panel_Layout layout;
+        layout.enchant_choices = true;
+        layout.slots.push_back({{19.0f,37.0f},0,false}); // item
+        layout.slots.push_back({{46.0f,37.0f},1,false}); // lapis
+        layout.labels.push_back({"Item",{15.0f,26.0f}});
+        layout.labels.push_back({"Lapis",{43.0f,26.0f}});
+        finish_container(layout, 114.0f, true, player_offset, hotbar_start);
         return layout;
     }
 

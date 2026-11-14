@@ -152,7 +152,10 @@ public:
     int summon_horses(int count, const glm::vec3& around);       // /summon horse
     int summon_zombies(int count, const glm::vec3& around);      // /summon zombie
     int summon_skeletons(int count, const glm::vec3& around);    // /summon skeleton
-    int summon_spiders(int count, const glm::vec3& around);      // /summon spider
+    int summon_spiders(int count, const glm::vec3& around);
+    // Spawn eggs are inventory-only items, not world blocks.
+    static bool is_spawn_egg(Block_Types type);
+    bool spawn_from_egg(Block_Types type, const glm::vec3& feet, Chunk_Manager& chunks);      // /summon spider
     bool summon_boss(Boss_Kind kind, const glm::vec3& around, Chunk_Manager& chunks); // /boss
     // /breed: сразу «влюбляет» взрослых животных вида (pig|cow|sheep|horse). Возвращает число затронутых.
     int breed_all(const std::string& species);

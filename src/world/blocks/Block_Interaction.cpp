@@ -79,6 +79,21 @@ void invalidate_block_mesh(int wx, int wy, int wz, Chunk_Manager& chunk_manager,
     invalidate_chunk_and_neighbors(wx, wy, wz, chunk_manager, renderer);
 }
 
+namespace {
+// A door occupies exactly two cells, sharing its block id, facing and open bit.
+// Meta bit 3 marks the upper half. Do not create a second drop for that half.
+void remove_door_companion(const glm::ivec3& at, Block_Types type, uint8_t meta,
+                           Chunk_Manager& manager, Renderer& renderer) {
+    if (get_block_props(type).shape != Block_Shape::Door) return;
+    const int other_y = at.y + ((meta & 8u) != 0u ? -1 : 1);
+    if (manager.get_block_world(at.x, other_y, at.z) != type) return;
+    const uint8_t other_meta = manager.get_block_meta_world(at.x, other_y, at.z);
+    if (((meta ^ other_meta) & 8u) == 0u) return;
+    if (manager.set_block_world(at.x, other_y, at.z, Block_Types::Air))
+        invalidate_chunk_and_neighbors(at.x, other_y, at.z, manager, renderer);
+}
+}
+
 Block_Interaction::Block_Interaction() = default;
 
 std::vector<glm::ivec3> Block_Interaction::explode(const glm::ivec3& center, float radius,
@@ -117,7 +132,11 @@ std::vector<glm::ivec3> Block_Interaction::explode(const glm::ivec3& center, flo
     std::vector<glm::ivec3> destroyed;
     for (const auto& m : marked) {
         const glm::ivec3 b(m[0], m[1], m[2]);
+        const Block_Types type = chunk_manager.get_block_world(b.x, b.y, b.z);
+        if (type == Block_Types::Air) continue; // a previous door half may have cleared this cell
+        const uint8_t meta = chunk_manager.get_block_meta_world(b.x, b.y, b.z);
         if (chunk_manager.set_block_world(b.x, b.y, b.z, Block_Types::Air)) {
+            remove_door_companion(b, type, meta, chunk_manager, renderer);
             invalidate_chunk_and_neighbors(b.x, b.y, b.z, chunk_manager, renderer);
             destroyed.push_back(b);
         }
@@ -141,7 +160,7 @@ float Block_Interaction::get_survival_break_time(Block_Types block, const Item_S
     if (!held.is_empty()) {
         const Block_Properties& tool = get_block_props(held.type);
         if (tool.tool_type != Tool_Type::None && tool.tool_type == props.effective_tool) {
-            time /= std::max(1.0f, tool.tool_speed);
+            time /= std::max(1.0f, tool.tool_speed) * (1.0f + 0.35f*held.enchant_efficiency*held.enchant_efficiency);
         }
     }
     // Руду без нужной кирки ломать долго (и дропа не будет).
@@ -256,6 +275,7 @@ void Block_Interaction::update(float delta_time,
                 event.position = m_mining_pos;
                 event.type = m_mining_type;
                 event.harvested = can_harvest(m_mining_type, held_stack);
+                event.fortune_level = held_stack.enchant_fortune;
                 // Содержимое сундука/печи/верстака снимаем сейчас: set_block_world ниже удалит
                 // Block_Entity вместе с блоком. Своя половина двойного сундука — только своя.
                 if (const Block_Entity* entity = chunk_manager.get_block_entity(
@@ -265,8 +285,11 @@ void Block_Interaction::update(float delta_time,
                     }
                 }
 
+                const uint8_t broken_meta = chunk_manager.get_block_meta_world(
+                    m_mining_pos.x, m_mining_pos.y, m_mining_pos.z);
                 if (chunk_manager.set_block_world(m_mining_pos.x, m_mining_pos.y, m_mining_pos.z,
                                                   Block_Types::Air)) {
+                    remove_door_companion(m_mining_pos, m_mining_type, broken_meta, chunk_manager, renderer);
                     m_broken_blocks.push_back(std::move(event));
                     player.add_exhaustion(Config::exhaustion_break_block);
                     // Инструмент в руке изнашивается (на добыче «пустышек» вроде травы — нет).
@@ -306,11 +329,14 @@ void Block_Interaction::update(float delta_time,
 
         const glm::ivec3 broken_pos(m_current_hit.block_x, m_current_hit.block_y, m_current_hit.block_z);
         const Block_Types broken_type = m_current_hit.block_type;
+        const uint8_t broken_meta = chunk_manager.get_block_meta_world(
+            broken_pos.x, broken_pos.y, broken_pos.z);
         if (!chunk_manager.set_block_world(
             broken_pos.x, broken_pos.y, broken_pos.z, Block_Types::Air)) {
             return;
         }
 
+        remove_door_companion(broken_pos, broken_type, broken_meta, chunk_manager, renderer);
         Broken_Block_Event event;
         event.position = broken_pos;
         event.type = broken_type;
@@ -343,6 +369,31 @@ void Block_Interaction::update(float delta_time,
             m_redstone_interact = glm::ivec3(m_current_hit.block_x, m_current_hit.block_y, m_current_hit.block_z);
             m_action_cooldown = k_action_delay;
             m_current_hit.hit = false;
+            return;
+        }
+
+        // Двери, калитки и люки переключаются по ПКМ: bit 2 of meta = open.
+        // Для дверей переключаются обе половины атомарно по отношению к их сохранённым координатам.
+        const Block_Shape clicked_shape = get_block_props(m_current_hit.block_type).shape;
+        if (clicked_shape == Block_Shape::Door || clicked_shape == Block_Shape::FenceGate ||
+            clicked_shape == Block_Shape::Trapdoor) {
+            const glm::ivec3 at(m_current_hit.block_x,m_current_hit.block_y,m_current_hit.block_z);
+            const uint8_t meta = chunk_manager.get_block_meta_world(at.x,at.y,at.z);
+            const uint8_t new_meta = static_cast<uint8_t>(meta ^ 4u);
+            if (chunk_manager.set_block_world(at.x,at.y,at.z,m_current_hit.block_type,new_meta)) {
+                invalidate_chunk_and_neighbors(at.x,at.y,at.z,chunk_manager,renderer);
+                if (clicked_shape == Block_Shape::Door) {
+                    const int other_y = at.y + ((meta & 8u) != 0u ? -1 : 1);
+                    if (chunk_manager.get_block_world(at.x,other_y,at.z)==m_current_hit.block_type) {
+                        const uint8_t other_meta=chunk_manager.get_block_meta_world(at.x,other_y,at.z);
+                        if (((other_meta ^ meta) & 8u) != 0u &&
+                            chunk_manager.set_block_world(at.x,other_y,at.z,m_current_hit.block_type,
+                                                           static_cast<uint8_t>(other_meta^4u)))
+                            invalidate_chunk_and_neighbors(at.x,other_y,at.z,chunk_manager,renderer);
+                    }
+                }
+                m_action_cooldown=k_action_delay;
+            }
             return;
         }
 
@@ -452,6 +503,23 @@ void Block_Interaction::update(float delta_time,
                 }
             }
 
+            // Тонкие напольные формы должны иметь опору снизу, а лестница крепится
+            // строго к боковой грани твёрдого блока (meta задаёт грань крепления).
+            if (place_props.shape == Block_Shape::Ladder) {
+                const int sx = m_current_hit.block_x - m_current_hit.place_x;
+                const int sy = m_current_hit.block_y - m_current_hit.place_y;
+                const int sz = m_current_hit.block_z - m_current_hit.place_z;
+                if (sy != 0 || (std::abs(sx) + std::abs(sz)) != 1 ||
+                    !get_block_props(m_current_hit.block_type).is_solid) return;
+                if (sx != 0) placed_meta = sx > 0 ? Block_Meta::facing_east : Block_Meta::facing_west;
+                else placed_meta = sz > 0 ? Block_Meta::facing_south : Block_Meta::facing_north;
+            }
+            if (place_props.shape == Block_Shape::PressurePlate || place_props.shape == Block_Shape::Carpet ||
+                place_props.shape == Block_Shape::Rail || place_props.shape == Block_Shape::SnowLayer) {
+                if (m_current_hit.place_y != m_current_hit.block_y + 1 ||
+                    !get_block_props(m_current_hit.block_type).is_solid) return;
+            }
+
             // Красная логика: рычаг/кнопка/зажиматель — на грань опоры, повторитель — выходом от игрока,
             // провод — на твёрдую опору снизу. Без опоры не ставится (см. Logic_Manager::placement).
             const bool is_redstone_node = Logic_Manager::is_node(m_place_block);
@@ -476,6 +544,15 @@ void Block_Interaction::update(float delta_time,
                 placed_meta = node_meta;
             }
 
+            const bool placing_door = place_props.shape == Block_Shape::Door;
+            if (placing_door) {
+                const int upper_y = m_current_hit.place_y + 1;
+                if (upper_y > Config::world_max_y ||
+                    chunk_manager.get_block_world(m_current_hit.place_x,upper_y,m_current_hit.place_z) != Block_Types::Air ||
+                    player.intersects_block_aabb(m_current_hit.place_x, upper_y, m_current_hit.place_z)) {
+                    return;
+                }
+            }
             if (!chunk_manager.set_block_world(
                 m_current_hit.place_x,
                 m_current_hit.place_y,
@@ -484,6 +561,17 @@ void Block_Interaction::update(float delta_time,
                 placed_meta
             )) {
                 return;
+            }
+            if (placing_door) {
+                // Unlike two independently placed doors, upper/lower halves share one item.
+                if (!chunk_manager.set_block_world(m_current_hit.place_x, m_current_hit.place_y + 1,
+                        m_current_hit.place_z, m_place_block, static_cast<uint8_t>(placed_meta | 8u))) {
+                    chunk_manager.set_block_world(m_current_hit.place_x, m_current_hit.place_y,
+                                                  m_current_hit.place_z, Block_Types::Air);
+                    return;
+                }
+                invalidate_chunk_and_neighbors(m_current_hit.place_x, m_current_hit.place_y+1,
+                                               m_current_hit.place_z,chunk_manager,renderer);
             }
             if (is_redstone_node) {
                 m_redstone_placed = glm::ivec3(m_current_hit.place_x, m_current_hit.place_y, m_current_hit.place_z);

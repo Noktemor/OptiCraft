@@ -22,6 +22,7 @@
 #include "world/blocks/Block_Entity.h"
 #include "world/crafting/Recipe.h"
 #include "world/crafting/Smelting.h"
+#include "world/enchanting/Enchanting.h"
 #include "entities/player/Inventory.h"
 
 class Container_Session {
@@ -43,6 +44,7 @@ public:
 
     bool is_open() const { return m_entity != nullptr; }
     const Block_Entity* get_entity() const { return m_entity; }
+    Block_Entity* get_entity_mutable() { return m_entity; }
     Block_Entity_Type get_type() const { return m_entity ? m_entity->type : Block_Entity_Type::None; }
     size_t get_container_slot_count() const { return m_entity ? m_entity->slots.size() : 0; }
 
@@ -85,6 +87,10 @@ public:
         }
 
         if (index < own_count) {
+            if (m_entity->type == Block_Entity_Type::Enchanting_Table && !m_carried.is_empty()) {
+                if (index==0 && !Enchanting::supports(Enchanting::Kind::Unbreaking,m_carried)) return;
+                if (index==1 && m_carried.type!=Block_Types::Lapis_Lazuli) return;
+            }
             if (m_entity->type == Block_Entity_Type::Furnace) {
                 // Выход печи — только забрать: класть туда руками нельзя (как в Minecraft).
                 if (index == Block_Entity_Slots::furnace_output && !m_carried.is_empty()) {
@@ -157,7 +163,11 @@ public:
 
         // Куда можно класть: печь — топливо или вход; остальные — любые слоты.
         std::vector<Item_Stack*> targets;
-        if (m_entity->type == Block_Entity_Type::Furnace) {
+        if (m_entity->type == Block_Entity_Type::Enchanting_Table) {
+            if (source->type==Block_Types::Lapis_Lazuli) targets.push_back(&m_entity->slots[1]);
+            else if (Enchanting::supports(Enchanting::Kind::Unbreaking,*source)) targets.push_back(&m_entity->slots[0]);
+            else return;
+        } else if (m_entity->type == Block_Entity_Type::Furnace) {
             const bool fuel = Smelting_Registry::get_instance().get_fuel_time(source->type) > 0.0f;
             targets.push_back(&m_entity->slots[fuel ? Block_Entity_Slots::furnace_fuel : Block_Entity_Slots::furnace_input]);
         } else {

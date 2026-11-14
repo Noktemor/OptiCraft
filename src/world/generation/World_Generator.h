@@ -9,8 +9,11 @@
 #include "world/generation/Cave_Network.h"
 #include "world/generation/River_Network.h"
 #include "world/generation/Structure_Placement.h"
+#include "world/generation/Gpu_Worldgen_Data.h"
 
+#include <array>
 #include <memory>
+#include <optional>
 
 #include <cstdint>
 #include <random>
@@ -147,6 +150,10 @@ public:
     // Prepare shared X/Z-only fields once, then generate individual Y levels concurrently.
     std::shared_ptr<Prepared_Column> prepare_chunk_column(
         int chunk_x, int chunk_z, const std::vector<int>& chunk_ys) const;
+    // Immutable 32x32 height field already computed for this column. The pointer stays valid
+    // while the caller holds the Prepared_Column shared_ptr. nullptr for non-ground/noise worlds.
+    // Reuse it for the first skylight pass instead of recalculating OpenSimplex2S for every Y chunk.
+    const int* prepared_terrain_heights(const std::shared_ptr<Prepared_Column>& prepared) const;
     void generate_prepared_chunk(const std::shared_ptr<Prepared_Column>& prepared,
                                  size_t index, Chunk_Block_Grid& output) const;
     // Variant used by the streaming manager: also initialize per-Y metadata while the
@@ -154,10 +161,27 @@ public:
     void generate_prepared_chunk(const std::shared_ptr<Prepared_Column>& prepared,
                                  size_t index, Chunk& chunk) const;
 
+    // GPU-assisted generation of underground material IDs. Only the main/GL thread
+    // calls extract_gpu_* and adopt_gpu_materials, before publishing build tasks.
+    // The CPU remains authoritative for caves, rivers, biome surfaces, structures and saves.
+    bool extract_gpu_material_columns(const std::shared_ptr<Prepared_Column>& prepared,
+        std::array<Gpu_Material_Column, Config::chunk_size * Config::chunk_size>& out,
+        std::vector<int>& chunk_ys, std::vector<size_t>& original_indices,
+        int& chunk_x, int& chunk_z) const;
+    bool export_gpu_noise_tables(Gpu_Noise_Tables& out) const;
+    bool adopt_gpu_materials(const std::shared_ptr<Prepared_Column>& prepared,
+                             std::vector<uint32_t>&& materials) const;
+
+
     // Быстрая проверка "может ли в этом чанке вообще что-то быть": если весь
     // столбец пород лежит ниже чанка, а вода — тем более, чанк гарантированно
     // пустой и его не надо ни генерировать, ни мешить.
-    bool chunk_is_definitely_air(int chunk_x, int chunk_y, int chunk_z) const;
+    // For a column being generated across multiple Y levels, this conservative ceiling
+    // can be computed once and passed to chunk_is_definitely_air. INT_MAX means the
+    // whole vertical column must remain eligible (e.g. a village marker is present).
+    int conservative_column_air_ceiling(int chunk_x, int chunk_z) const;
+    bool chunk_is_definitely_air(int chunk_x, int chunk_y, int chunk_z,
+                                 std::optional<int> cached_air_ceiling = std::nullopt) const;
 
     // Regional cave/hydrology data can take far longer than the per-column voxel fill.
     // Chunk_Manager uses these non-blocking probes to route cold columns through its
@@ -176,6 +200,8 @@ public:
     std::string get_biome_name(int world_x, int world_y, int world_z) const;
     // Биом в точке — тот же, что показывает F3 и что используют спавн мобов.
     Biome_Id biome_id(int world_x, int world_y, int world_z) const;
+    // Non-blocking variant: empty while required regional cave data is unavailable.
+    std::optional<Biome_Id> try_biome_id(int world_x, int world_y, int world_z) const;
     bool cave_at(int world_x, int world_y, int world_z) const;
 
 private:
@@ -314,7 +340,8 @@ private:
                                 const River_Network::Column* river_column,
                                 const Cave_Kind* cave_kind,
                                 const Subsurface_Coordinates* material_coordinates = nullptr,
-                                double ore_y = 0.0) const;
+                                double ore_y = 0.0,
+                                Block_Types gpu_material = Block_Types::Air) const;
 };
 
 #endif // OPTICRAFT_WORLD_GENERATOR_H

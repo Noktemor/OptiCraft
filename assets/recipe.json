@@ -35,6 +35,24 @@
       "Palm Log",
       "Cherry Log",
       "Aspen Log"
+    ],
+    "wool": [
+      "White Wool",
+      "Orange Wool",
+      "Magenta Wool",
+      "Light Blue Wool",
+      "Yellow Wool",
+      "Lime Wool",
+      "Pink Wool",
+      "Gray Wool",
+      "Light Gray Wool",
+      "Cyan Wool",
+      "Purple Wool",
+      "Blue Wool",
+      "Brown Wool",
+      "Green Wool",
+      "Red Wool",
+      "Black Wool"
     ]
   },
   "recipes": [
@@ -2059,6 +2077,3782 @@
       "output": {
         "item": "Aspen Slab",
         "count": 6
+      }
+    },
+    {
+      "name": "generated_iron_block",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Iron Block",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_gold_block",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Gold Ingot"
+      },
+      "output": {
+        "item": "Gold Block",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_copper_block",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Copper Ingot"
+      },
+      "output": {
+        "item": "Copper Block",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_birch_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Birch Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Birch Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_birch_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Birch Planks"
+      },
+      "output": {
+        "item": "Birch Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_birch_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Birch Planks"
+      },
+      "output": {
+        "item": "Birch Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_birch_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Birch Planks"
+      },
+      "output": {
+        "item": "Birch Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_birch_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Birch Planks"
+      },
+      "output": {
+        "item": "Birch Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_birch_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Birch Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Birch Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_birch_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Birch Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Birch Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_birch_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Birch Planks"
+      },
+      "output": {
+        "item": "Birch Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_spruce_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Spruce Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Spruce Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_spruce_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Spruce Planks"
+      },
+      "output": {
+        "item": "Spruce Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_spruce_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Spruce Planks"
+      },
+      "output": {
+        "item": "Spruce Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_spruce_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Spruce Planks"
+      },
+      "output": {
+        "item": "Spruce Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_spruce_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Spruce Planks"
+      },
+      "output": {
+        "item": "Spruce Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_spruce_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Spruce Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Spruce Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_spruce_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Spruce Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Spruce Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_spruce_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Spruce Planks"
+      },
+      "output": {
+        "item": "Spruce Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_jungle_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Jungle Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Jungle Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_jungle_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Jungle Planks"
+      },
+      "output": {
+        "item": "Jungle Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_jungle_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Jungle Planks"
+      },
+      "output": {
+        "item": "Jungle Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_jungle_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Jungle Planks"
+      },
+      "output": {
+        "item": "Jungle Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_jungle_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Jungle Planks"
+      },
+      "output": {
+        "item": "Jungle Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_jungle_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Jungle Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Jungle Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_jungle_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Jungle Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Jungle Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_jungle_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Jungle Planks"
+      },
+      "output": {
+        "item": "Jungle Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_acacia_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Acacia Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Acacia Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_acacia_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Acacia Planks"
+      },
+      "output": {
+        "item": "Acacia Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_acacia_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Acacia Planks"
+      },
+      "output": {
+        "item": "Acacia Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_acacia_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Acacia Planks"
+      },
+      "output": {
+        "item": "Acacia Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_acacia_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Acacia Planks"
+      },
+      "output": {
+        "item": "Acacia Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_acacia_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Acacia Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Acacia Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_acacia_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Acacia Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Acacia Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_acacia_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Acacia Planks"
+      },
+      "output": {
+        "item": "Acacia Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_oak_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Oak Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Oak Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_oak_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Oak Planks"
+      },
+      "output": {
+        "item": "Oak Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_oak_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Oak Planks"
+      },
+      "output": {
+        "item": "Oak Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_oak_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Oak Planks"
+      },
+      "output": {
+        "item": "Oak Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_oak_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Oak Planks"
+      },
+      "output": {
+        "item": "Oak Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_oak_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oak Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Oak Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_oak_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Oak Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Oak Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_oak_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Oak Planks"
+      },
+      "output": {
+        "item": "Oak Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_slimewood_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Slimewood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Slimewood Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_slimewood_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Slimewood Planks"
+      },
+      "output": {
+        "item": "Slimewood Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_slimewood_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Slimewood Planks"
+      },
+      "output": {
+        "item": "Slimewood Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_slimewood_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Slimewood Planks"
+      },
+      "output": {
+        "item": "Slimewood Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_slimewood_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Slimewood Planks"
+      },
+      "output": {
+        "item": "Slimewood Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_slimewood_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Slimewood Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Slimewood Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_slimewood_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Slimewood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Slimewood Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_slimewood_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Slimewood Planks"
+      },
+      "output": {
+        "item": "Slimewood Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_beech_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Beech Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Beech Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_beech_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Beech Planks"
+      },
+      "output": {
+        "item": "Beech Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_beech_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Beech Planks"
+      },
+      "output": {
+        "item": "Beech Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_beech_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Beech Planks"
+      },
+      "output": {
+        "item": "Beech Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_beech_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Beech Planks"
+      },
+      "output": {
+        "item": "Beech Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_beech_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Beech Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Beech Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_beech_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Beech Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Beech Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_beech_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Beech Planks"
+      },
+      "output": {
+        "item": "Beech Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_redwood_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Redwood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Redwood Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_redwood_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Redwood Planks"
+      },
+      "output": {
+        "item": "Redwood Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_redwood_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Redwood Planks"
+      },
+      "output": {
+        "item": "Redwood Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_redwood_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Redwood Planks"
+      },
+      "output": {
+        "item": "Redwood Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_redwood_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Redwood Planks"
+      },
+      "output": {
+        "item": "Redwood Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_redwood_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Redwood Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Redwood Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_redwood_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Redwood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Redwood Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_redwood_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Redwood Planks"
+      },
+      "output": {
+        "item": "Redwood Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_mangrove_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Mangrove Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Mangrove Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_mangrove_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Mangrove Planks"
+      },
+      "output": {
+        "item": "Mangrove Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_mangrove_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Mangrove Planks"
+      },
+      "output": {
+        "item": "Mangrove Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_mangrove_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Mangrove Planks"
+      },
+      "output": {
+        "item": "Mangrove Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_mangrove_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Mangrove Planks"
+      },
+      "output": {
+        "item": "Mangrove Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_mangrove_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Mangrove Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Mangrove Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_mangrove_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Mangrove Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Mangrove Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_mangrove_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Mangrove Planks"
+      },
+      "output": {
+        "item": "Mangrove Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_willow_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Willow Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Willow Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_willow_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Willow Planks"
+      },
+      "output": {
+        "item": "Willow Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_willow_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Willow Planks"
+      },
+      "output": {
+        "item": "Willow Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_willow_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Willow Planks"
+      },
+      "output": {
+        "item": "Willow Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_willow_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Willow Planks"
+      },
+      "output": {
+        "item": "Willow Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_willow_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Willow Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Willow Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_willow_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Willow Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Willow Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_willow_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Willow Planks"
+      },
+      "output": {
+        "item": "Willow Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_skywood_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Skywood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Skywood Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_skywood_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Skywood Planks"
+      },
+      "output": {
+        "item": "Skywood Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_skywood_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Skywood Planks"
+      },
+      "output": {
+        "item": "Skywood Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_skywood_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Skywood Planks"
+      },
+      "output": {
+        "item": "Skywood Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_skywood_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Skywood Planks"
+      },
+      "output": {
+        "item": "Skywood Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_skywood_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Skywood Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Skywood Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_skywood_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Skywood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Skywood Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_skywood_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Skywood Planks"
+      },
+      "output": {
+        "item": "Skywood Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_glowwood_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Glowwood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Glowwood Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_glowwood_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Glowwood Planks"
+      },
+      "output": {
+        "item": "Glowwood Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_glowwood_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Glowwood Planks"
+      },
+      "output": {
+        "item": "Glowwood Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_glowwood_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Glowwood Planks"
+      },
+      "output": {
+        "item": "Glowwood Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_glowwood_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Glowwood Planks"
+      },
+      "output": {
+        "item": "Glowwood Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_glowwood_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Glowwood Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Glowwood Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_glowwood_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Glowwood Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Glowwood Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_glowwood_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Glowwood Planks"
+      },
+      "output": {
+        "item": "Glowwood Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_baobab_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Baobab Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Baobab Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_baobab_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Baobab Planks"
+      },
+      "output": {
+        "item": "Baobab Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_baobab_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Baobab Planks"
+      },
+      "output": {
+        "item": "Baobab Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_baobab_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Baobab Planks"
+      },
+      "output": {
+        "item": "Baobab Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_baobab_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Baobab Planks"
+      },
+      "output": {
+        "item": "Baobab Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_baobab_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Baobab Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Baobab Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_baobab_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Baobab Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Baobab Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_baobab_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Baobab Planks"
+      },
+      "output": {
+        "item": "Baobab Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_palm_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Palm Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Palm Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_palm_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Palm Planks"
+      },
+      "output": {
+        "item": "Palm Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_palm_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Palm Planks"
+      },
+      "output": {
+        "item": "Palm Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_palm_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Palm Planks"
+      },
+      "output": {
+        "item": "Palm Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_palm_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Palm Planks"
+      },
+      "output": {
+        "item": "Palm Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_palm_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Palm Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Palm Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_palm_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Palm Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Palm Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_palm_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Palm Planks"
+      },
+      "output": {
+        "item": "Palm Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_cherry_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Cherry Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Cherry Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_cherry_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Cherry Planks"
+      },
+      "output": {
+        "item": "Cherry Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cherry_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Cherry Planks"
+      },
+      "output": {
+        "item": "Cherry Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_cherry_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Cherry Planks"
+      },
+      "output": {
+        "item": "Cherry Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_cherry_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Cherry Planks"
+      },
+      "output": {
+        "item": "Cherry Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cherry_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Cherry Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Cherry Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cherry_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Cherry Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Cherry Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_cherry_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Cherry Planks"
+      },
+      "output": {
+        "item": "Cherry Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_aspen_fence",
+      "type": "shaped",
+      "pattern": [
+        "PSP",
+        "PSP"
+      ],
+      "key": {
+        "P": "Aspen Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Aspen Fence",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_aspen_fence_gate",
+      "type": "shaped",
+      "pattern": [
+        "SPS",
+        "SPS"
+      ],
+      "key": {
+        "S": "Stick",
+        "P": "Aspen Planks"
+      },
+      "output": {
+        "item": "Aspen Fence Gate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_aspen_door",
+      "type": "shaped",
+      "pattern": [
+        "PP",
+        "PP",
+        "PP"
+      ],
+      "key": {
+        "P": "Aspen Planks"
+      },
+      "output": {
+        "item": "Aspen Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_aspen_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "P": "Aspen Planks"
+      },
+      "output": {
+        "item": "Aspen Trapdoor",
+        "count": 2
+      }
+    },
+    {
+      "name": "generated_aspen_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "PP"
+      ],
+      "key": {
+        "P": "Aspen Planks"
+      },
+      "output": {
+        "item": "Aspen Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_aspen_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Aspen Planks",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Aspen Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_aspen_sign",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "PPP",
+        " S "
+      ],
+      "key": {
+        "P": "Aspen Planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Aspen Sign",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_aspen_hanging_sign",
+      "type": "shaped",
+      "pattern": [
+        "C C",
+        "PPP",
+        "PPP"
+      ],
+      "key": {
+        "C": "Chain",
+        "P": "Aspen Planks"
+      },
+      "output": {
+        "item": "Aspen Hanging Sign",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_cobblestone_stairs",
+      "type": "shaped",
+      "pattern": [
+        "S  ",
+        "SS ",
+        "SSS"
+      ],
+      "key": {
+        "S": "Cobblestone"
+      },
+      "output": {
+        "item": "Cobblestone Stairs",
+        "count": 4
+      }
+    },
+    {
+      "name": "generated_cobblestone_slab",
+      "type": "shaped",
+      "pattern": [
+        "SSS"
+      ],
+      "key": {
+        "S": "Cobblestone"
+      },
+      "output": {
+        "item": "Cobblestone Slab",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_cobblestone_wall",
+      "type": "shaped",
+      "pattern": [
+        "SSS",
+        "SSS"
+      ],
+      "key": {
+        "S": "Cobblestone"
+      },
+      "output": {
+        "item": "Cobblestone Wall",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_mossy_stone_stairs",
+      "type": "shaped",
+      "pattern": [
+        "S  ",
+        "SS ",
+        "SSS"
+      ],
+      "key": {
+        "S": "Mossy Stone"
+      },
+      "output": {
+        "item": "Mossy Stone Stairs",
+        "count": 4
+      }
+    },
+    {
+      "name": "generated_mossy_stone_slab",
+      "type": "shaped",
+      "pattern": [
+        "SSS"
+      ],
+      "key": {
+        "S": "Mossy Stone"
+      },
+      "output": {
+        "item": "Mossy Stone Slab",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_mossy_stone_wall",
+      "type": "shaped",
+      "pattern": [
+        "SSS",
+        "SSS"
+      ],
+      "key": {
+        "S": "Mossy Stone"
+      },
+      "output": {
+        "item": "Mossy Stone Wall",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_deep_stone_stairs",
+      "type": "shaped",
+      "pattern": [
+        "S  ",
+        "SS ",
+        "SSS"
+      ],
+      "key": {
+        "S": "Deep Stone"
+      },
+      "output": {
+        "item": "Deep Stone Stairs",
+        "count": 4
+      }
+    },
+    {
+      "name": "generated_deep_stone_slab",
+      "type": "shaped",
+      "pattern": [
+        "SSS"
+      ],
+      "key": {
+        "S": "Deep Stone"
+      },
+      "output": {
+        "item": "Deep Stone Slab",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_deep_stone_wall",
+      "type": "shaped",
+      "pattern": [
+        "SSS",
+        "SSS"
+      ],
+      "key": {
+        "S": "Deep Stone"
+      },
+      "output": {
+        "item": "Deep Stone Wall",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_brick_stairs",
+      "type": "shaped",
+      "pattern": [
+        "S  ",
+        "SS ",
+        "SSS"
+      ],
+      "key": {
+        "S": "Brick Block"
+      },
+      "output": {
+        "item": "Brick Stairs",
+        "count": 4
+      }
+    },
+    {
+      "name": "generated_brick_slab",
+      "type": "shaped",
+      "pattern": [
+        "SSS"
+      ],
+      "key": {
+        "S": "Brick Block"
+      },
+      "output": {
+        "item": "Brick Slab",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_brick_wall",
+      "type": "shaped",
+      "pattern": [
+        "SSS",
+        "SSS"
+      ],
+      "key": {
+        "S": "Brick Block"
+      },
+      "output": {
+        "item": "Brick Wall",
+        "count": 6
+      }
+    },
+    {
+      "name": "generated_stone_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "SS"
+      ],
+      "key": {
+        "S": "Stone"
+      },
+      "output": {
+        "item": "Stone Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cobblestone_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "SS"
+      ],
+      "key": {
+        "S": "Cobblestone"
+      },
+      "output": {
+        "item": "Cobblestone Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cobblestone_button",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Cobblestone",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Cobblestone Button",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_iron_bars",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Iron Bars",
+        "count": 16
+      }
+    },
+    {
+      "name": "generated_glass_pane",
+      "type": "shaped",
+      "pattern": [
+        "GGG",
+        "GGG"
+      ],
+      "key": {
+        "G": "Glass"
+      },
+      "output": {
+        "item": "Glass Pane",
+        "count": 16
+      }
+    },
+    {
+      "name": "generated_ladder",
+      "type": "shaped",
+      "pattern": [
+        "S S",
+        "SSS",
+        "S S"
+      ],
+      "key": {
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Ladder",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_white_carpet",
+      "type": "shaped",
+      "pattern": [
+        "WW"
+      ],
+      "key": {
+        "W": "White Wool"
+      },
+      "output": {
+        "item": "White Carpet",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_red_carpet",
+      "type": "shaped",
+      "pattern": [
+        "WW"
+      ],
+      "key": {
+        "W": "Red Wool"
+      },
+      "output": {
+        "item": "Red Carpet",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_snow_layer",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Snow Block",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Snow Layer",
+        "count": 8
+      }
+    },
+    {
+      "name": "generated_rail",
+      "type": "shaped",
+      "pattern": [
+        "I I",
+        "ISI",
+        "I I"
+      ],
+      "key": {
+        "I": "Iron Ingot",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Rail",
+        "count": 16
+      }
+    },
+    {
+      "name": "generated_chain",
+      "type": "shaped",
+      "pattern": [
+        "N",
+        "I",
+        "N"
+      ],
+      "key": {
+        "N": "Iron Ingot",
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Chain",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_lantern",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "ITI",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot",
+        "T": "Torch"
+      },
+      "output": {
+        "item": "Lantern",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_soul_lantern",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "ISI",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot",
+        "S": "Sun Stone"
+      },
+      "output": {
+        "item": "Soul Lantern",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_cauldron",
+      "type": "shaped",
+      "pattern": [
+        "I I",
+        "I I",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Cauldron",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_hopper",
+      "type": "shaped",
+      "pattern": [
+        "I I",
+        "ICI",
+        " I "
+      ],
+      "key": {
+        "I": "Iron Ingot",
+        "C": "Chest"
+      },
+      "output": {
+        "item": "Hopper",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_white_bed",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "White Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "White Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_red_bed",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Red Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Red Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_candle",
+      "type": "shaped",
+      "pattern": [
+        "T",
+        "C"
+      ],
+      "key": {
+        "T": "Torch",
+        "C": "Coal"
+      },
+      "output": {
+        "item": "Candle",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_end_rod",
+      "type": "shaped",
+      "pattern": [
+        "S",
+        "S"
+      ],
+      "key": {
+        "S": "Sun Stone"
+      },
+      "output": {
+        "item": "End Rod",
+        "count": 4
+      }
+    },
+    {
+      "name": "generated_flower_pot",
+      "type": "shaped",
+      "pattern": [
+        "B B",
+        " B "
+      ],
+      "key": {
+        "B": "Brick Block"
+      },
+      "output": {
+        "item": "Flower Pot",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_bell",
+      "type": "shaped",
+      "pattern": [
+        "GGG",
+        " S ",
+        " S "
+      ],
+      "key": {
+        "G": "Gold Ingot",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Bell",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_grindstone",
+      "type": "shaped",
+      "pattern": [
+        "S S",
+        " T ",
+        "P P"
+      ],
+      "key": {
+        "S": "Stick",
+        "T": "Stone",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Grindstone",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_lectern",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        " S ",
+        "PPP"
+      ],
+      "key": {
+        "P": "#planks",
+        "S": "Stick"
+      },
+      "output": {
+        "item": "Lectern",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_iron_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "II"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Iron Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_iron_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Iron Trapdoor",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_iron_door",
+      "type": "shaped",
+      "pattern": [
+        "II",
+        "II",
+        "II"
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Iron Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_gold_bars",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Gold Ingot"
+      },
+      "output": {
+        "item": "Gold Bars",
+        "count": 16
+      }
+    },
+    {
+      "name": "generated_gold_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "II"
+      ],
+      "key": {
+        "I": "Gold Ingot"
+      },
+      "output": {
+        "item": "Gold Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_gold_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Gold Ingot"
+      },
+      "output": {
+        "item": "Gold Trapdoor",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_gold_door",
+      "type": "shaped",
+      "pattern": [
+        "II",
+        "II",
+        "II"
+      ],
+      "key": {
+        "I": "Gold Ingot"
+      },
+      "output": {
+        "item": "Gold Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_copper_bars",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Copper Ingot"
+      },
+      "output": {
+        "item": "Copper Bars",
+        "count": 16
+      }
+    },
+    {
+      "name": "generated_copper_pressure_plate",
+      "type": "shaped",
+      "pattern": [
+        "II"
+      ],
+      "key": {
+        "I": "Copper Ingot"
+      },
+      "output": {
+        "item": "Copper Pressure Plate",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_copper_trapdoor",
+      "type": "shaped",
+      "pattern": [
+        "III",
+        "III"
+      ],
+      "key": {
+        "I": "Copper Ingot"
+      },
+      "output": {
+        "item": "Copper Trapdoor",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_copper_door",
+      "type": "shaped",
+      "pattern": [
+        "II",
+        "II",
+        "II"
+      ],
+      "key": {
+        "I": "Copper Ingot"
+      },
+      "output": {
+        "item": "Copper Door",
+        "count": 3
+      }
+    },
+    {
+      "name": "generated_red_wool",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "White Wool",
+          "count": 1
+        },
+        {
+          "item": "Rose",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Red Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "generated_brick_block_from_mud",
+      "type": "shaped",
+      "pattern": [
+        "MM",
+        "MM"
+      ],
+      "key": {
+        "M": "Mud"
+      },
+      "output": {
+        "item": "Brick Block",
+        "count": 1
+      }
+    },
+    {
+      "name": "shears_from_iron",
+      "type": "shaped",
+      "pattern": [
+        " I",
+        "I "
+      ],
+      "key": {
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Shears",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_from_rose",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Rose",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Red Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_flower",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Flower",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Yellow Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_cornflower",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Cornflower",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Blue Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_blue_orchid",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Blue Orchid",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Blue Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_white_tulip",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "White Tulip",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "White Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_orange_tulip",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Orange Tulip",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Orange Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_pink_tulip",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Pink Tulip",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Pink Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_lilac",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Lilac",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Magenta Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_oxeye_daisy",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oxeye Daisy",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Gray Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_from_charcoal",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Charcoal",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Black Dye",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_from_mushroom",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Mushroom",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Brown Dye",
+        "count": 1
+      }
+    },
+    {
+      "name": "blue_dye_from_sky_flower",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Sky Flower",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Blue Dye",
+        "count": 1
+      }
+    },
+    {
+      "name": "white_dye_from_oxeye",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oxeye Daisy",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "White Dye",
+        "count": 1
+      }
+    },
+    {
+      "name": "light_gray_dye_from_azure",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Azure Bluet",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Gray Dye",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_mix_orange",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Red Dye",
+          "count": 1
+        },
+        {
+          "item": "Yellow Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Orange Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_purple",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Red Dye",
+          "count": 1
+        },
+        {
+          "item": "Blue Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Purple Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_green",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Blue Dye",
+          "count": 1
+        },
+        {
+          "item": "Yellow Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Green Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_cyan",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Blue Dye",
+          "count": 1
+        },
+        {
+          "item": "Green Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Cyan Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_lime",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Green Dye",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Lime Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_light_blue",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Blue Dye",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Blue Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_pink",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Red Dye",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Pink Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_magenta",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Purple Dye",
+          "count": 1
+        },
+        {
+          "item": "Pink Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Magenta Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_gray",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Black Dye",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Gray Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_light_gray",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Gray Dye",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Gray Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_brown",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Orange Dye",
+          "count": 1
+        },
+        {
+          "item": "Black Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Brown Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_mix_yellow",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Orange Dye",
+          "count": 1
+        },
+        {
+          "item": "Green Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Yellow Dye",
+        "count": 2
+      }
+    },
+    {
+      "name": "dye_wool_white",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "White Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "White Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_orange",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Orange Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Orange Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_magenta",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Magenta Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Magenta Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_light_blue",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Light Blue Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Blue Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_yellow",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Yellow Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Yellow Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_lime",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Lime Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Lime Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_pink",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Pink Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Pink Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_gray",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Gray Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Gray Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_light_gray",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Light Gray Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Light Gray Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_cyan",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Cyan Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Cyan Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_purple",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Purple Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Purple Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_blue",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Blue Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Blue Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_brown",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Brown Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Brown Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_green",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Green Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Green Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_red",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Red Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Red Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "dye_wool_black",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "#wool",
+          "count": 1
+        },
+        {
+          "item": "Black Dye",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Black Wool",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_orange",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Orange Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Orange Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_magenta",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Magenta Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Magenta Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_light_blue",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Light Blue Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Light Blue Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_yellow",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Yellow Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Yellow Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_lime",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Lime Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Lime Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_pink",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Pink Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Pink Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_gray",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Gray Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Gray Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_light_gray",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Light Gray Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Light Gray Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_cyan",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Cyan Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Cyan Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_purple",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Purple Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Purple Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_blue",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Blue Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Blue Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_brown",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Brown Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Brown Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_green",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Green Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Green Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "bed_black",
+      "type": "shaped",
+      "pattern": [
+        "WWW",
+        "PPP"
+      ],
+      "key": {
+        "W": "Black Wool",
+        "P": "#planks"
+      },
+      "output": {
+        "item": "Black Bed",
+        "count": 1
+      }
+    },
+    {
+      "name": "sugar_cane_to_paper",
+      "type": "shaped",
+      "pattern": [
+        "SSS"
+      ],
+      "key": {
+        "S": "Sugar Cane"
+      },
+      "output": {
+        "item": "Paper",
+        "count": 3
+      }
+    },
+    {
+      "name": "book",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Paper",
+          "count": 3
+        },
+        {
+          "item": "Leather",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Book",
+        "count": 1
+      }
+    },
+    {
+      "name": "enchanting_table_tier_1",
+      "type": "shaped",
+      "pattern": [
+        " B ",
+        "DOD",
+        "OOO"
+      ],
+      "key": {
+        "B": "Book",
+        "D": "Diamond",
+        "O": "Deep Stone"
+      },
+      "output": {
+        "item": "Enchanting Table I",
+        "count": 1
       }
     }
   ]

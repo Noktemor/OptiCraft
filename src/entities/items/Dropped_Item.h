@@ -27,6 +27,7 @@ class Chunk_Manager;
 
 struct Dropped_Item {
     Item_Stack stack;
+    int experience = 0; // XP orb (not a normal inventory item); 0 = conventional drop
     glm::vec3 position{0.0f};  // центр НИЖНЕЙ грани хитбокса (как у игрока и свиней)
     glm::vec3 velocity{0.0f};
     float age = 0.0f;          // секунд с момента выпадения; по достижении lifetime удаляется
@@ -76,6 +77,7 @@ public:
 
     // Дроп из моба: слегка подбрасывается вверх и в стороны.
     void spawn_from_mob(const glm::vec3& mob_position, const Item_Stack& stack);
+    void spawn_experience(const glm::vec3& position, int amount);
 
     // Физика, слияние, подбор, время жизни. pickup_inventory == nullptr — подбирать нельзя
     // (Creative или игрок мёртв): предметы просто лежат и исчезают по таймеру.

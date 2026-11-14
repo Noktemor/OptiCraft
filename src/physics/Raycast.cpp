@@ -59,7 +59,8 @@ Raycast_Hit Raycast::cast(const glm::vec3& origin,
 
         // Луч останавливается на твёрдых блоках И на флоре (трава, цветы, посевы): она не
         // твёрдая для коллизий, но игрок должен мочь навести на неё и сломать.
-        const bool targetable = props.is_solid || props.mesh_style == Block_Mesh_Style::XStyle;
+        const bool targetable = props.is_solid || props.shape != Block_Shape::None ||
+                                props.mesh_style == Block_Mesh_Style::XStyle;
         // Блоки с точным хитбоксом (кнопка, провод): луч попадает только в их боксы, остальная часть клетки
         // прозрачна для прицела.
         bool box_hit = true;
@@ -69,7 +70,7 @@ Raycast_Hit Raycast::cast(const glm::vec3& origin,
         if (block != Block_Types::Air && block != Block_Types::Water && targetable &&
             shape_has_precise_hitbox(props.shape)) {
             box_hit = false;
-            Shape_Box boxes[8];
+            Shape_Box boxes[16];
             uint8_t shape_meta = chunk_manager.get_block_meta_world(x, y, z);
             if (props.shape == Block_Shape::Stairs) {
                 static constexpr glm::ivec3 dirs[4] = {{0,0,-1},{1,0,0},{0,0,1},{-1,0,0}};
@@ -83,6 +84,15 @@ Raycast_Hit Raycast::cast(const glm::vec3& origin,
                 shape_meta = stairs_effective_meta(shape_meta, front_stairs,
                     chunk_manager.get_block_meta_world(front.x, front.y, front.z), back_stairs,
                     chunk_manager.get_block_meta_world(back.x, back.y, back.z));
+            }
+            if (props.shape == Block_Shape::Fence || props.shape == Block_Shape::Wall || props.shape == Block_Shape::Pane) {
+                const auto connected = [&](int ox, int oz) {
+                    const auto& neighbor = get_block_props(chunk_manager.get_block_world(x + ox, y, z + oz));
+                    return shapes_connect(props.shape, neighbor.shape,
+                        neighbor.is_solid && !neighbor.is_transparent && neighbor.shape == Block_Shape::None);
+                };
+                shape_meta = shape_connection_meta(props.shape, connected(0,-1), connected(1,0),
+                                                    connected(0,1), connected(-1,0));
             }
             const int count = shape_boxes(props.shape, shape_meta, boxes);
             const glm::vec3 cell(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));

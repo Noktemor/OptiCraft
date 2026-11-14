@@ -143,6 +143,18 @@
       "output": "Charcoal",
       "count": 1,
       "time": 10
+    },
+    {
+      "input": "Sand",
+      "output": "Glass",
+      "count": 1,
+      "time": 10
+    },
+    {
+      "input": "Cactus",
+      "output": "Green Dye",
+      "count": 1,
+      "time": 10
     }
   ],
   "fuels": [

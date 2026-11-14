@@ -112,6 +112,28 @@ enum class Block_Types : Block_ID {
     // Факел: тонкий светящийся блок (уровень света 10), не твёрдый, пропускает свет.
     Torch = 125,
 
+    // Dyeing / mob interaction: stable IDs from assets/blocks.json.
+    Enchanting_Table_I = 501,
+    Lapis_Ore = 502, Lapis_Lazuli = 503, Experience_Orb = 504,
+    Sugar_Cane = 505, Paper = 506, Book = 507,
+    // Future tiers: deliberately without JSON entries until implemented.
+    Enchanting_Table_II = 508, Enchanting_Table_III = 509, Enchanting_Table_IV = 510,
+    Shears = 439,
+    Pig_Spawn_Egg = 491,
+    Cow_Spawn_Egg = 492,
+    Sheep_Spawn_Egg = 493,
+    Horse_Spawn_Egg = 494,
+    Zombie_Spawn_Egg = 495,
+    Skeleton_Spawn_Egg = 496,
+    Spider_Spawn_Egg = 497,
+    Stone_Colossus_Spawn_Egg = 498,
+    Shadow_Stalker_Spawn_Egg = 499,
+    Knight_Spawn_Egg = 500,
+
+    // Цветы для естественной генерации и красителей.
+    Cornflower = 440, Orange_Tulip = 441, Pink_Tulip = 442, White_Tulip = 443,
+    Lilac = 444, Oxeye_Daisy = 445, Azure_Bluet = 446,
+
     // Каменные ступеньки и полублок: не куб, а набор боксов (см. Block_Shapes.h).
     Stone_Stairs = 126,
     Stone_Slab = 127,
@@ -223,7 +245,9 @@ enum class Block_Types : Block_ID {
     // Динамит: взрывается по сигналу красной логики (соседний включённый узел).
     Dynamite = 8,
 
-    Count = 257
+    White_Wool = 261, // шерсть из овцы; прочие новые блоки описаны в assets/blocks.json
+
+    Count = 257 // старый размер именованной части enum, НЕ предел реестра
 };
 
 // Максимальная ёмкость реестра блоков: данные из blocks.json могут занимать любые id в этом
@@ -257,7 +281,16 @@ enum class Block_Shape : uint8_t {
     Stairs = 2,
     Plate = 3,  // пластинка 1/16 толщиной на всю клетку (повторитель)
     Button = 4, // кнопка 3x2x2 пикселя на грани опоры (meta = грань крепления, как в Logic_Manager)
-    Wire = 5    // провод: пластинка 12x2x12 пикселей по центру клетки у пола
+    Wire = 5,   // провод: пластинка 12x2x12 пикселей по центру клетки у пола
+    Fence = 6, Wall = 7, FenceGate = 8,
+    Door = 9, Trapdoor = 10, PressurePlate = 11,
+    Pane = 12, Ladder = 13, Carpet = 14, SnowLayer = 15,
+    Sign = 16, HangingSign = 17, Rail = 18, Chain = 19,
+    Lantern = 20, Cauldron = 21, Hopper = 22,
+    Bed = 23, Candle = 24, Rod = 25, FlowerPot = 26,
+    Bell = 27, Grindstone = 28, Lectern = 29,
+    TorchPost = 30,
+    Count = 31
 };
 
 enum class Block_Mesh_Style : uint8_t {

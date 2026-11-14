@@ -1,5 +1,6 @@
 #include "world/blocks/Block_Entity_Store.h"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include "world/blocks/Block_Types.h"
@@ -26,6 +27,13 @@ namespace {
             << ",\"item\":\"" << escape_json_string(name) << "\""
             << ",\"count\":" << stack.count;
         if (stack.damage > 0) out << ",\"damage\":" << stack.damage;
+        if (stack.enchant_durability) out << ",\"unbreaking\":" << stack.enchant_durability;
+        if (stack.enchant_efficiency) out << ",\"efficiency\":" << stack.enchant_efficiency;
+        if (stack.enchant_fortune) out << ",\"fortune\":" << stack.enchant_fortune;
+        if (stack.enchant_sharpness) out << ",\"sharpness\":" << stack.enchant_sharpness;
+        if (stack.enchant_protection) out << ",\"protection\":" << stack.enchant_protection;
+        if (stack.enchant_looting) out << ",\"looting\":" << stack.enchant_looting;
+        if (stack.enchant_feather_falling) out << ",\"feather_falling\":" << stack.enchant_feather_falling;
         out << "},";
     }
 }
@@ -94,6 +102,17 @@ bool load(const std::filesystem::path& path, Block_Entity_Map& out_entities) {
                 if (const Json_Value* damage_value = slot_entry.find("damage")) {
                     stack.damage = std::max(0, json_read_int(*damage_value, 0));
                 }
+                auto read_enchant=[&](const char* key,int max){
+                    const Json_Value* v=slot_entry.find(key);
+                    return v ? std::clamp(json_read_int(*v,0),0,max) : 0;
+                };
+                stack.enchant_durability=read_enchant("unbreaking",3);
+                stack.enchant_efficiency=read_enchant("efficiency",5);
+                stack.enchant_fortune=read_enchant("fortune",3);
+                stack.enchant_sharpness=read_enchant("sharpness",5);
+                stack.enchant_protection=read_enchant("protection",5);
+                stack.enchant_looting=read_enchant("looting",3);
+                stack.enchant_feather_falling=read_enchant("feather_falling",4);
                 entity.slots[slot_index] = stack;
             }
         }

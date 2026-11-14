@@ -4,9 +4,36 @@
 
 #include "entities/player/Inventory.h"
 #include "world/crafting/Recipe.h"
+#include "world/enchanting/Enchanting.h"
 #include <algorithm>
 #include <array>
 #include <sstream>
+#include <cctype>
+
+namespace {
+    bool includes_any(const std::string& s, std::initializer_list<const char*> tokens) {
+        for (const char* token : tokens) if (s.find(token) != std::string::npos) return true;
+        return false;
+    }
+
+    size_t creative_category(const Block_Properties& props) {
+        std::string n = props.name;
+        std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c){return static_cast<char>(std::tolower(c));});
+        if (includes_any(n, {"spawn egg"})) return 5; // Mobs
+        if (includes_any(n, {"copper", "lever", "repeater", "signal", "button",
+                             "pressure plate", "piston", "wire", "hopper", "rail", "dynamite"})) return 4;
+        if (includes_any(n, {"flower", "rose", "tulip", "orchid", "daisy", "bluet",
+                             "lilac", "grass", "dirt", "log", "leaves", "sapling",
+                             "cactus", "vine", "seed", "crop", "mushroom", "fern",
+                             "lily", "berry", "moss", "mud", "root"})) return 2;
+        if (includes_any(n, {"enchanting table", "wool", "bed", "glass", "fence", "gate", "stairs", "slab",
+                             "wall", "lantern", "carpet", "sign", "door", "chain",
+                             "candle", "bell", "grindstone", "lectern", "pot", "torch",
+                             "pane", "ladder", "cauldron", "snow layer"})) return 1;
+        if (props.is_item) return 3;
+        return 0;
+    }
+}
 
 Inventory::Inventory() {
     // Верхняя граница — вся ёмкость реестра (k_max_block_types), а не фиксированный
@@ -19,6 +46,7 @@ Inventory::Inventory() {
         if (get_block_props(id).name.empty()) continue; // пропуск незанятых/зарезервированных id
         if (!get_block_props(id).show_in_creative) continue;
         m_all_blocks.push_back(static_cast<Block_Types>(id));
+        m_creative_sections[creative_category(get_block_props(id))].push_back(static_cast<Block_Types>(id));
     }
 
     // Инвентарь начинается пустым в обоих режимах: хотбар и хранилище наполняются
@@ -45,18 +73,31 @@ Item_Stack Inventory::get_hotbar_slot(size_t index) const {
     return m_hotbar[index];
 }
 
+const char* Inventory::creative_category_name(size_t index) {
+    static constexpr const char* labels[] = {"Building", "Decoration", "Nature", "Equipment", "Copper logic", "Mobs"};
+    return index < k_creative_category_count ? labels[index] : "Unknown";
+}
+
+void Inventory::set_creative_category(size_t category) {
+    if (category >= k_creative_category_count || m_creative_category == category) return;
+    m_creative_category = category;
+    m_creative_page = 0;
+}
+
 // --- Панель 9 x 4 ----------------------------------------------------------
 Block_Types Inventory::creative_block_at(size_t panel_index) const {
     if (panel_index >= k_panel_storage_slots) return Block_Types::Air;
     const size_t absolute = m_creative_page * k_panel_storage_slots + panel_index;
-    if (absolute >= m_all_blocks.size()) return Block_Types::Air;
-    return m_all_blocks[absolute];
+    const auto& section = m_creative_sections[m_creative_category];
+    if (absolute >= section.size()) return Block_Types::Air;
+    return section[absolute];
 }
 
 size_t Inventory::get_page_count() const {
     if (m_mode != Game_Mode::Creative) return 1;
-    if (m_all_blocks.empty()) return 1;
-    return (m_all_blocks.size() + k_panel_storage_slots - 1) / k_panel_storage_slots;
+    const size_t size = m_creative_sections[m_creative_category].size();
+    if (size == 0) return 1;
+    return (size + k_panel_storage_slots - 1) / k_panel_storage_slots;
 }
 
 void Inventory::next_page() {
@@ -251,6 +292,12 @@ void Inventory::click_armor_slot(size_t index, bool right) {
     else left_click_stack(m_armor[index], m_carried);
 }
 
+int Inventory::total_enchant_protection() const {
+    int n = 0;
+    for (const Item_Stack& piece : m_armor) if (!piece.is_empty()) n += piece.enchant_protection;
+    return n;
+}
+
 int Inventory::armor_points() const {
     if (m_mode != Game_Mode::Survival) return 0;
     int points = 0;
@@ -322,12 +369,13 @@ void Inventory::merge_into(std::vector<Item_Stack>& slots, Block_Types type, int
     }
 }
 
-void Inventory::fill_empty(std::vector<Item_Stack>& slots, Block_Types type, int& remaining, int damage) {
+void Inventory::fill_empty(std::vector<Item_Stack>& slots, Block_Types type, int& remaining, int damage, const Item_Stack* full_stack) {
     const int max_stack = max_stack_for(type);
     for (Item_Stack& slot : slots) {
         if (remaining <= 0) return;
         if (slot.is_empty()) {
             const int take = std::min(max_stack, remaining);
+            if (full_stack) slot = *full_stack;
             slot.type = type;
             slot.count = take;
             slot.damage = damage;
@@ -365,7 +413,12 @@ bool Inventory::damage_selected_tool(int amount) {
     if (slot.is_empty()) return false;
     const int max_durability = effective_max_durability(slot);
     if (max_durability <= 0) return false;
-    slot.damage += amount;
+    // Unbreaking: each durability point is consumed with probability 1/(level+1).
+    for (int i = 0; i < amount; ++i) {
+        static uint32_t luck = 0xBAA77EEDu;
+        luck ^= luck << 13; luck ^= luck >> 17; luck ^= luck << 5;
+        if (slot.enchant_durability <= 0 || luck % static_cast<uint32_t>(slot.enchant_durability+1) == 0) ++slot.damage;
+    }
     if (slot.damage >= max_durability) {
         slot = Item_Stack{};
         return true;
@@ -399,8 +452,8 @@ int Inventory::try_add_stack(const Item_Stack& stack) {
     // Minecraft), и только потом — в пустые слоты.
     merge_into(m_hotbar, type, remaining);
     merge_into(m_storage, type, remaining);
-    fill_empty(m_hotbar, type, remaining, stack.damage);
-    fill_empty(m_storage, type, remaining, stack.damage);
+    fill_empty(m_hotbar, type, remaining, stack.damage, &stack);
+    fill_empty(m_storage, type, remaining, stack.damage, &stack);
 
     return amount - remaining;
 }
@@ -430,26 +483,74 @@ bool Inventory::remove_resource(Block_Types type, int amount) {
     return true;
 }
 
+int Inventory::xp_required_for_level(int lv) {
+    lv = std::clamp(lv, 0, 10000);
+    if (lv <= 16) return lv*lv + 6*lv;
+    if (lv <= 31) return (5*lv*lv-81*lv+720)/2;
+    return static_cast<int>(std::min<int64_t>((9LL*lv*lv-325LL*lv+4440)/2, 2000000000LL));
+}
+
+int Inventory::xp_level() const {
+    int lo=0, hi=10000;
+    while (lo<hi) {
+        const int mid=(lo+hi+1)/2;
+        if (xp_required_for_level(mid)<=m_experience) lo=mid; else hi=mid-1;
+    }
+    return lo;
+}
+
+float Inventory::xp_progress() const {
+    const int lv=xp_level();
+    const int start=xp_required_for_level(lv);
+    const int end=xp_required_for_level(lv+1);
+    return end>start ? static_cast<float>(m_experience-start)/static_cast<float>(end-start) : 0.0f;
+}
+
+void Inventory::add_xp(int amount) {
+    if (amount<=0) return;
+    m_experience=static_cast<int>(std::min<int64_t>(2000000000LL,static_cast<int64_t>(m_experience)+amount));
+}
+
+bool Inventory::spend_levels(int levels) {
+    if (levels<=0) return true;
+    const int current=xp_level();
+    if (current<levels) return false;
+    m_experience -= xp_required_for_level(current)-xp_required_for_level(current-levels);
+    return true;
+}
+
 std::string Inventory::serialize() const {
     std::ostringstream out;
     out << "sel " << m_selected_index << "\n";
+    out << "xp " << m_experience << "\n";
+    auto write_extra = [&](char group, size_t i, const Item_Stack& stack) {
+        if (stack.enchant_efficiency || stack.enchant_fortune || stack.enchant_sharpness ||
+            stack.enchant_protection || stack.enchant_looting || stack.enchant_feather_falling)
+            out << "ench " << group << " " << i << " " << stack.enchant_efficiency << " "
+                << stack.enchant_fortune << " " << stack.enchant_sharpness << " "
+                << stack.enchant_protection << " " << stack.enchant_looting << " "
+                << stack.enchant_feather_falling << "\n";
+    };
     for (size_t i = 0; i < m_hotbar.size(); ++i) {
         if (m_hotbar[i].is_empty()) continue;
         out << "h " << i << " " << static_cast<int>(m_hotbar[i].type) << " " << m_hotbar[i].count << "\n";
         if (m_hotbar[i].damage > 0) out << "hd " << i << " " << m_hotbar[i].damage << "\n";
         if (m_hotbar[i].enchant_durability > 0) out << "he " << i << " " << m_hotbar[i].enchant_durability << "\n";
+        write_extra('h',i,m_hotbar[i]);
     }
     for (size_t i = 0; i < m_storage.size(); ++i) {
         if (m_storage[i].is_empty()) continue;
         out << "s " << i << " " << static_cast<int>(m_storage[i].type) << " " << m_storage[i].count << "\n";
         if (m_storage[i].damage > 0) out << "sd " << i << " " << m_storage[i].damage << "\n";
         if (m_storage[i].enchant_durability > 0) out << "se " << i << " " << m_storage[i].enchant_durability << "\n";
+        write_extra('s',i,m_storage[i]);
     }
     for (size_t i = 0; i < m_armor.size(); ++i) {
         if (m_armor[i].is_empty()) continue;
         out << "a " << i << " " << static_cast<int>(m_armor[i].type) << "\n";
         if (m_armor[i].damage > 0) out << "ad " << i << " " << m_armor[i].damage << "\n";
         if (m_armor[i].enchant_durability > 0) out << "ae " << i << " " << m_armor[i].enchant_durability << "\n";
+        write_extra('a',i,m_armor[i]);
     }
     return out.str();
 }
@@ -458,7 +559,21 @@ void Inventory::deserialize(const std::string& text) {
     std::istringstream in(text);
     std::string tag;
     while (in >> tag) {
-        if (tag == "sel") {
+        if (tag == "xp") {
+            int v=0; in >> v; m_experience=std::clamp(v,0,2000000000);
+        } else if (tag == "ench") {
+            char group='h'; size_t i=0;int e=0,f=0,sh=0,p=0,l=0,ff=0;
+            in >> group >> i >> e >> f >> sh >> p >> l >> ff;
+            Item_Stack* dest = nullptr;
+            if (group=='h' && i<m_hotbar.size()) dest=&m_hotbar[i];
+            if (group=='s' && i<m_storage.size()) dest=&m_storage[i];
+            if (group=='a' && i<m_armor.size()) dest=&m_armor[i];
+            if (dest && !dest->is_empty()) {
+                dest->enchant_efficiency=std::clamp(e,0,5);dest->enchant_fortune=std::clamp(f,0,3);
+                dest->enchant_sharpness=std::clamp(sh,0,5);dest->enchant_protection=std::clamp(p,0,5);
+                dest->enchant_looting=std::clamp(l,0,3);dest->enchant_feather_falling=std::clamp(ff,0,4);
+            }
+        } else if (tag == "sel") {
             int v = 0; in >> v;
             if (v >= 0 && v < static_cast<int>(k_hotbar_size)) m_selected_index = v;
         } else if (tag == "h" || tag == "s") {
@@ -510,7 +625,7 @@ void Inventory::quick_move_panel(size_t index) {
     std::vector<Item_Stack>& target = index >= k_panel_hotbar_start ? m_storage : m_hotbar;
     int remaining = slot->count;
     merge_into(target, slot->type, remaining);
-    fill_empty(target, slot->type, remaining, slot->damage);
+    fill_empty(target, slot->type, remaining, slot->damage, slot);
     if (remaining <= 0) *slot = Item_Stack{};
     else slot->count = remaining;
 }

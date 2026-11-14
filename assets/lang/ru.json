@@ -1,18 +1,14 @@
 {
   "language.name": "Русский",
-
   "common.cancel": "Отмена",
   "common.delete": "Удалить",
   "common.done": "Готово",
-
   "mode.survival": "Выживание",
   "mode.creative": "Творчество",
-
   "menu.subtitle": "Воксельная песочница",
   "menu.singleplayer": "Одиночная игра",
   "menu.options": "Настройки",
   "menu.quit": "Выйти из игры",
-
   "worlds.title": "Выбор мира",
   "worlds.play": "Играть",
   "worlds.create": "Создать новый мир",
@@ -20,7 +16,6 @@
   "worlds.delete_title": "Удалить этот мир?",
   "worlds.delete_warning": "Мир '{0}' будет удалён навсегда!",
   "worlds.detail": "{0}, {1}, зерно {2}",
-
   "create.title": "Создание мира",
   "create.world_name": "Название мира",
   "create.world_name_default": "Новый мир",
@@ -34,13 +29,10 @@
   "world_type.flat_test": "Тест: плоский",
   "world_type.void_test": "Тест: пустота",
   "create.biome": "Биом: {0}",
-
   "pause.title": "Меню игры",
   "pause.back": "Вернуться в игру",
   "pause.save_quit": "Сохранить и выйти",
-
   "loading.title": "Загрузка мира",
-
   "iso.title": "Создание изометрического снимка",
   "iso.stage.planning": "Планирование области...",
   "iso.stage.generating": "Генерация рельефа: {0} / {1} чанков",
@@ -51,7 +43,6 @@
   "iso.saved": "Изометрический снимок сохранён: {0}",
   "iso.failed": "Не удалось сделать изометрический снимок: {0}",
   "iso.busy": "Предыдущий изометрический снимок ещё сохраняется",
-
   "options.title": "Настройки",
   "options.difficulty": "Сложность: {0}",
   "options.render_distance": "Дальность",
@@ -77,12 +68,17 @@
   "options.level_low": "Слабая",
   "options.level_mid": "Средняя",
   "options.level_high": "Сильная",
-
   "panel.inventory": "Инвентарь",
   "panel.creative_inventory": "Творческий инвентарь",
   "panel.crafting": "Крафт",
   "panel.chest": "Сундук",
   "panel.large_chest": "Большой сундук",
   "panel.furnace": "Печь",
-  "panel.page": "Страница {0} / {1}"
+  "panel.page": "Страница {0} / {1}",
+  "panel.category.building": "Стройка",
+  "panel.category.decoration": "Декор",
+  "panel.category.nature": "Природа",
+  "panel.category.equipment": "Предметы",
+  "panel.category.copper": "Медная логика",
+  "panel.category.mobs": "Мобы"
 }

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 
 enum class Cave_Kind : uint8_t {
     None,            // камень / пещеры нет
@@ -59,6 +60,8 @@ public:
     void clear_cache() const;
     // Async chunk scheduling API: probe without waiting, then warm on a preparation worker.
     bool region_ready_at(int world_x, int world_z) const;
+    // Empty means the required region is not cached and ready; never builds or waits.
+    std::optional<Cave_Kind> try_kind_at(int world_x, int world_y, int world_z) const;
     void prewarm_region_at(int world_x, int world_z) const;
 
     struct Region;

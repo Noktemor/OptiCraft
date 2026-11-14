@@ -27,6 +27,7 @@ struct Broken_Block_Event {
     std::vector<Item_Stack> container_contents;
     // false — инструмент не подходит для этого блока (руда без нужной кирки): дропа нет.
     bool harvested = true;
+    int fortune_level = 0;
     // Creative тоже отправляет событие, чтобы очистить служебное состояние растений/логики,
     // но не создаёт предметы и не выбрасывает содержимое контейнеров.
     bool allow_drops = true;

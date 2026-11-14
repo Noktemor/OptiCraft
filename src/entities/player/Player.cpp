@@ -323,7 +323,7 @@ bool Player::block_hits_box(int x, int y, int z, const glm::vec3& pmin, const gl
     if (props.shape == Block_Shape::None) {
         return true;
     }
-    Shape_Box boxes[8];
+    Shape_Box boxes[16];
     uint8_t shape_meta = chunk_manager.get_block_meta_world(x, y, z);
     if (props.shape == Block_Shape::Stairs) {
         static constexpr glm::ivec3 dirs[4] = {{0,0,-1},{1,0,0},{0,0,1},{-1,0,0}};
@@ -337,6 +337,15 @@ bool Player::block_hits_box(int x, int y, int z, const glm::vec3& pmin, const gl
         shape_meta = stairs_effective_meta(shape_meta, front_stairs,
             chunk_manager.get_block_meta_world(front.x, front.y, front.z), back_stairs,
             chunk_manager.get_block_meta_world(back.x, back.y, back.z));
+    }
+    if (props.shape == Block_Shape::Fence || props.shape == Block_Shape::Wall || props.shape == Block_Shape::Pane) {
+        const auto connected = [&](int ox, int oz) {
+            const auto& neighbor = get_block_props(chunk_manager.get_block_world(x + ox, y, z + oz));
+            return shapes_connect(props.shape, neighbor.shape,
+                neighbor.is_solid && !neighbor.is_transparent && neighbor.shape == Block_Shape::None);
+        };
+        shape_meta = shape_connection_meta(props.shape, connected(0,-1), connected(1,0),
+                                            connected(0,1), connected(-1,0));
     }
     const int count = shape_boxes(props.shape, shape_meta, boxes);
     const glm::vec3 cell(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
@@ -432,8 +441,10 @@ void Player::apply_fall_damage() {
     const float fall_distance = m_fall_start_height - m_position.y;
     if (fall_distance <= Config::fall_damage_safe_height) return;
 
+    // Feather Falling: each level reduces fall damage by 12% (48% at level IV).
+    const float reduction = 1.0f - static_cast<float>(m_feather_falling_level) * 0.12f;
     const int damage = static_cast<int>(std::floor(
-        (fall_distance - Config::fall_damage_safe_height) * Config::fall_damage_per_block));
+        (fall_distance - Config::fall_damage_safe_height) * Config::fall_damage_per_block * reduction));
     if (damage > 0) take_damage(damage);
 }
 

@@ -2,6 +2,7 @@
 #define OPTICRAFT_PANEL_LAYOUTS_H
 
 #include <cstddef>
+#include <string>
 
 #include "hud/Hud.h"
 
@@ -40,13 +41,15 @@ namespace Panel_Layouts {
     void append_player_slots(Hud_Panel_Layout& layout, float x, float y_storage, float y_hotbar,
                              bool storage_visible, int id_offset, int hotbar_start);
 
-    Hud_Panel_Layout inventory_creative(size_t page_count, size_t current_page, int hotbar_start);
+    Hud_Panel_Layout inventory_creative(size_t page_count, size_t current_page, int hotbar_start,
+                                       int category = 0, const std::string& category_name = "Building");
     Hud_Panel_Layout inventory_survival(int hotbar_start);
 
     // Контейнеры. player_id_offset — число слотов самого контейнера (и парной половины сундука).
     Hud_Panel_Layout chest(size_t slot_count, bool show_player_storage, int player_id_offset, int hotbar_start);
     Hud_Panel_Layout crafting_table(size_t slot_count, bool show_player_storage, int player_id_offset, int hotbar_start);
     // flame/arrow — заполненность индикаторов 0..1.
+    Hud_Panel_Layout enchanting_table(int player_offset, int hotbar_start);
     Hud_Panel_Layout furnace(size_t slot_count, float flame, float arrow, bool show_player_storage,
                              int player_id_offset, int hotbar_start);
 

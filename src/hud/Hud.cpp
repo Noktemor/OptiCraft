@@ -451,6 +451,16 @@ void Hud::draw_slot_contents(const std::vector<Hud_Inventory_Slot>& slots,
         draw_slot_icon(slots[i], icon_positions[i].x, icon_positions[i].y, icon_size);
     }
     end_icon_batch();
+    // Subtle purple enchanted outline (both inventory and hotbar).
+    for (size_t i=0;i<n;++i) {
+        if (slots[i].empty || !slots[i].enchanted) continue;
+        const float x=icon_positions[i].x, y=icon_positions[i].y;
+        const glm::vec4 glow(.67f,.38f,1.0f,.78f);
+        draw_rect(x,y,icon_size,scale,glow);
+        draw_rect(x,y,scale,icon_size,glow);
+        draw_rect(x,y+icon_size-scale,icon_size,scale,glow);
+        draw_rect(x+icon_size-scale,y,scale,icon_size,glow);
+    }
     // Полоска прочности под иконкой повреждённого инструмента (зелёная -> красная).
     for (size_t i = 0; i < n; ++i) {
         if (slots[i].empty || slots[i].durability < 0.0f) continue;
@@ -549,6 +559,19 @@ void Hud::draw_player_status(int window_width, int window_height,
             draw_sprite("food_half", x, y, 9.0f * s, 9.0f * s);
         }
     }
+    end_ui();
+}
+
+void Hud::draw_experience(int window_width,int window_height,int level,float fraction) {
+    begin_ui(window_width,window_height);
+    const float s=static_cast<float>(get_gui_scale(window_width,window_height));
+    const float w=182.0f*s;
+    const float x=std::floor((window_width-w)*.5f);
+    const float y=window_height-42.0f*s; // above hearts and food, avoiding overlap
+    draw_rect(x,y,w,5.0f*s,glm::vec4(.04f,.13f,.04f,.94f));
+    draw_rect(x+s,y+s,std::max(0.0f,(w-2.0f*s)*std::clamp(fraction,0.0f,1.0f)),3.0f*s,
+              glm::vec4(.29f,.88f,.19f,1.0f));
+    draw_text_centered(std::to_string(level),window_width*.5f,y-11.0f*s,s,glm::vec4(.55f,1.0f,.32f,1.0f),false);
     end_ui();
 }
 
@@ -830,6 +853,31 @@ int Hud::get_panel_slot_at(int window_width, int window_height, const Hud_Panel_
     return -1;
 }
 
+int Hud::get_panel_enchant_button_at(int window_width, int window_height,
+                                      const Hud_Panel_Layout& layout, float mx, float my) {
+    if (!layout.enchant_choices) return -1;
+    const Hud_Rect panel=get_panel_rect(window_width,window_height,layout);
+    const float s=get_panel_scale(window_width,window_height,layout);
+    for (int i=0;i<3;++i) {
+        const Hud_Rect button{panel.x+76.0f*s,panel.y+(19.0f+24.0f*i)*s,94.0f*s,22.0f*s};
+        if (button.contains(mx,my)) return i;
+    }
+    return -1;
+}
+
+int Hud::get_panel_category_button_at(int window_width, int window_height,
+                                      const Hud_Panel_Layout& layout, float mx, float my) {
+    if (!layout.category_tabs) return -1;
+    const Hud_Rect panel = get_panel_rect(window_width, window_height, layout);
+    const float s = get_panel_scale(window_width, window_height, layout);
+    for (int i = 0; i < 6; ++i) {
+        const Hud_Rect tab{panel.x + (8.0f + 27.0f * i) * s, panel.y + 18.0f * s,
+                           26.0f * s, 17.0f * s};
+        if (tab.contains(mx, my)) return i;
+    }
+    return -1;
+}
+
 int Hud::get_panel_page_button_at(int window_width, int window_height, const Hud_Panel_Layout& layout, float mx, float my) {
     if (!layout.page_controls) return -1;
     const Hud_Rect panel = get_panel_rect(window_width, window_height, layout);
@@ -874,6 +922,41 @@ void Hud::draw_panel_screen(int window_width, int window_height,
             const float fig = 2.0f * s;
             draw_sprite("player", std::floor(panel.x + (r.x + (r.w - 16.0f * 2.0f) * 0.5f) * s),
                         std::floor(panel.y + (r.y + (r.h - 32.0f * 2.0f) * 0.5f) * s), 16.0f * fig, 32.0f * fig);
+        }
+    }
+
+    // Minecraft-like category tabs, with the active section raised and highlighted.
+    if (layout.category_tabs) {
+        static const char* labels[] = {"B", "D", "N", "I", "C", "M"};
+        for (int i = 0; i < 6; ++i) {
+            const float x = panel.x + (8.0f + 27.0f * i) * s;
+            const float y = panel.y + 18.0f * s;
+            const bool active = layout.selected_category == i;
+            const bool hover = get_panel_category_button_at(window_width, window_height, layout, cursor_x, cursor_y) == i;
+            draw_rect(x, y, 26.0f*s, 17.0f*s, glm::vec4(.17f,.15f,.13f,1.0f));
+            draw_rect(x+s, y+s, 24.0f*s, 15.0f*s,
+                      active ? glm::vec4(.71f,.64f,.42f,1.0f) :
+                      hover ? glm::vec4(.54f,.50f,.44f,1.0f) : glm::vec4(.38f,.36f,.33f,1.0f));
+            draw_text_centered(labels[i], x + 13.0f*s, y + 5.0f*s, s,
+                               active ? glm::vec4(.11f,.09f,.07f,1.0f) : glm::vec4(.95f,.93f,.87f,1.0f), false);
+        }
+    }
+
+    if (layout.enchant_choices) {
+        const int hovered=get_panel_enchant_button_at(window_width,window_height,layout,cursor_x,cursor_y);
+        const std::string status="Tier "+std::to_string(layout.enchant_table_tier)+" | LV "+std::to_string(layout.enchant_player_level);
+        draw_text(status,panel.x+75.0f*s,panel.y+8.0f*s,s,glm::vec4(.23f,.14f,.44f,1.0f),false);
+        for (int i=0;i<3;++i) {
+            const float x=panel.x+76.0f*s;
+            const float y=panel.y+(19.0f+24.0f*i)*s;
+            const bool active=layout.enchant_enabled[static_cast<size_t>(i)];
+            draw_rect(x,y,94.0f*s,22.0f*s,glm::vec4(.11f,.08f,.14f,1.0f));
+            draw_rect(x+s,y+s,92.0f*s,20.0f*s,
+                      active ? (hovered==i ? glm::vec4(.56f,.38f,.68f,1.0f) : glm::vec4(.38f,.28f,.48f,1.0f))
+                             : glm::vec4(.32f,.29f,.33f,1.0f));
+            const glm::vec4 color=active ? glm::vec4(.97f,.90f,.64f,1.0f) : glm::vec4(.66f,.63f,.65f,1.0f);
+            draw_text(layout.enchant_names[static_cast<size_t>(i)],x+4.0f*s,y+2.0f*s,s,color,false);
+            draw_text(layout.enchant_costs[static_cast<size_t>(i)],x+4.0f*s,y+12.0f*s,s,color,false);
         }
     }
 

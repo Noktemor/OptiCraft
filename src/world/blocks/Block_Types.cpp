@@ -468,6 +468,31 @@ void Block_Registry::load_from_file(const std::string& path) {
                 else if (sh == "plate") properties.shape = Block_Shape::Plate;
                 else if (sh == "button") properties.shape = Block_Shape::Button;
                 else if (sh == "wire") properties.shape = Block_Shape::Wire;
+                else if (sh == "fence") properties.shape = Block_Shape::Fence;
+                else if (sh == "wall") properties.shape = Block_Shape::Wall;
+                else if (sh == "fence_gate") properties.shape = Block_Shape::FenceGate;
+                else if (sh == "door") properties.shape = Block_Shape::Door;
+                else if (sh == "trapdoor") properties.shape = Block_Shape::Trapdoor;
+                else if (sh == "pressure_plate") properties.shape = Block_Shape::PressurePlate;
+                else if (sh == "pane") properties.shape = Block_Shape::Pane;
+                else if (sh == "ladder") properties.shape = Block_Shape::Ladder;
+                else if (sh == "carpet") properties.shape = Block_Shape::Carpet;
+                else if (sh == "snow_layer") properties.shape = Block_Shape::SnowLayer;
+                else if (sh == "sign") properties.shape = Block_Shape::Sign;
+                else if (sh == "hanging_sign") properties.shape = Block_Shape::HangingSign;
+                else if (sh == "rail") properties.shape = Block_Shape::Rail;
+                else if (sh == "chain") properties.shape = Block_Shape::Chain;
+                else if (sh == "lantern") properties.shape = Block_Shape::Lantern;
+                else if (sh == "cauldron") properties.shape = Block_Shape::Cauldron;
+                else if (sh == "hopper") properties.shape = Block_Shape::Hopper;
+                else if (sh == "bed") properties.shape = Block_Shape::Bed;
+                else if (sh == "candle") properties.shape = Block_Shape::Candle;
+                else if (sh == "rod") properties.shape = Block_Shape::Rod;
+                else if (sh == "flower_pot") properties.shape = Block_Shape::FlowerPot;
+                else if (sh == "bell") properties.shape = Block_Shape::Bell;
+                else if (sh == "grindstone") properties.shape = Block_Shape::Grindstone;
+                else if (sh == "lectern") properties.shape = Block_Shape::Lectern;
+                else if (sh == "torch") properties.shape = Block_Shape::TorchPost;
                 else if (sh != "none") LOG_WARN("Block_Registry: unknown shape '" + sh + "' for '" + properties.name + "'");
             }
             if (const auto* v = entry.find("mesh_style")) {
@@ -518,7 +543,7 @@ void Block_Registry::load_from_file(const std::string& path) {
                                                                    : properties.textures.top;
             }
             properties.uses_meta = properties.orientation != Block_Orientation::None ||
-                                   properties.has_active_state;
+                                   properties.has_active_state || properties.shape != Block_Shape::None;
 
             if (!properties.name.empty()) {
                 if (is_reserved(id)) {

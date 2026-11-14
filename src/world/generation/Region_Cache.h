@@ -73,6 +73,22 @@ public:
                found->second.first.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
     }
 
+    // Return a retained ready value without starting or waiting for construction.
+    // Retaining the future under the lock also makes eviction after this check safe.
+    std::shared_ptr<const T> try_get(int64_t key) {
+        std::shared_future<std::shared_ptr<const T>> future;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto found = m_entries.find(key);
+            if (found == m_entries.end() ||
+                found->second.first.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                return {};
+            m_lru.splice(m_lru.begin(), m_lru, found->second.second);
+            future = found->second.first;
+        }
+        return future.get();
+    }
+
     void clear() {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_lru.clear();

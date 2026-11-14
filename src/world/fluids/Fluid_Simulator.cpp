@@ -206,14 +206,17 @@ namespace {
                 const Fluid_State& state, Block_Types fluid, const Block_Properties& params) {
         const glm::ivec3 below_pos = pos + k_down;
         const Cell below = read_cell(chunks, below_pos);
-        const Fluid_State below_state = compute_new_state(chunks, below_pos, fluid, params);
-
-        if (can_spread_to(below) && !below_state.empty) {
-            place(chunks, sim, below_pos, fluid, below_state, params);
-            if (source_neighbors(chunks, pos, fluid) >= 3) {
-                spread_to_sides(chunks, sim, pos, state, fluid, params);
+        if (can_spread_to(below)) {
+            const Fluid_State below_state = compute_new_state(chunks, below_pos, fluid, params);
+            if (!below_state.empty) {
+                place(chunks, sim, below_pos, fluid, below_state, params);
+                if (source_neighbors(chunks, pos, fluid) >= 3) {
+                    spread_to_sides(chunks, sim, pos, state, fluid, params);
+                }
+                return;
             }
-        } else if (state.source || !is_hole(below, fluid)) {
+        }
+        if (state.source || !is_hole(below, fluid)) {
             spread_to_sides(chunks, sim, pos, state, fluid, params);
         }
     }
@@ -274,6 +277,8 @@ void Fluid_Simulator::update(Chunk_Manager& chunks, float delta_time) {
 
     m_accumulator = std::min(m_accumulator + delta_time, 0.5f);
     int budget = Config::fluid_max_updates_per_frame;
+    int processed = 0;
+    int stale = 0;
 
     while (m_accumulator >= Config::fluid_tick_seconds) {
         m_accumulator -= Config::fluid_tick_seconds;
@@ -284,13 +289,22 @@ void Fluid_Simulator::update(Chunk_Manager& chunks, float delta_time) {
             m_queue.pop();
 
             const auto it = m_scheduled.find(entry.position);
-            if (it == m_scheduled.end() || it->second != entry.due) continue;   // устаревшая запись
+            if (it == m_scheduled.end() || it->second != entry.due) {
+                ++stale;
+                continue;   // устаревшая запись
+            }
             m_scheduled.erase(it);
 
             tick_cell(chunks, *this, entry.position);
+            ++processed;
             --budget;
         }
         if (budget <= 0) break;   // остаток досчитаем в следующем кадре (сроки просрочены — ничего не теряется)
+    }
+    if (processed || stale) {
+        OC_PLOT("Fluid scheduled cells", m_scheduled.size());
+        OC_PLOT("Fluid processed cells", processed);
+        OC_PLOT("Fluid stale entries", stale);
     }
 }
 

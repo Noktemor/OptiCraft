@@ -948,8 +948,12 @@ void Renderer::grow_gpu_pool(uint32_t extra_blocks) {
     const uint32_t old_total = m_gpu_pool.total_blocks;
     const uint32_t new_total = old_total + std::max(extra_blocks, old_total / 2);
     const size_t block_bytes = static_cast<size_t>(kGpuBlockQuads) * sizeof(glm::uvec4);
-    const unsigned int quads = create_ssbo(static_cast<size_t>(new_total) * block_bytes, nullptr, GL_DYNAMIC_DRAW);
+    OC_PLOT("GPU pool quad bytes", static_cast<double>(new_total) * block_bytes);
+    unsigned int quads;
+    { OC_ZONE("GPU pool: allocate quads");
+      quads = create_ssbo(static_cast<size_t>(new_total) * block_bytes, nullptr, GL_DYNAMIC_DRAW); }
     if (m_gpu_quads_ssbo != 0) {
+        OC_ZONE("GPU pool: copy quads");
         glBindBuffer(GL_COPY_READ_BUFFER, m_gpu_quads_ssbo);
         glBindBuffer(GL_COPY_WRITE_BUFFER, quads);
         glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0,
@@ -962,8 +966,11 @@ void Renderer::grow_gpu_pool(uint32_t extra_blocks) {
     // Growing the geometry pool preserves the descriptors already built for resident chunks.
     const size_t old_bounds_bytes = static_cast<size_t>(old_total) * sizeof(Gpu_Meshlet_Bounds);
     const size_t new_bounds_bytes = static_cast<size_t>(new_total) * sizeof(Gpu_Meshlet_Bounds);
-    const GLuint new_bounds = create_ssbo(new_bounds_bytes, nullptr, GL_DYNAMIC_DRAW);
+    GLuint new_bounds;
+    { OC_ZONE("GPU pool: allocate bounds");
+      new_bounds = create_ssbo(new_bounds_bytes, nullptr, GL_DYNAMIC_DRAW); }
     if (m_gpu_meshlet_bounds_ssbo != 0) {
+        OC_ZONE("GPU pool: copy bounds");
         glBindBuffer(GL_COPY_READ_BUFFER, m_gpu_meshlet_bounds_ssbo);
         glBindBuffer(GL_COPY_WRITE_BUFFER, new_bounds);
         if (old_bounds_bytes != 0) {
@@ -2751,9 +2758,9 @@ void Renderer::poll_gpu_phase_timers() {
         w.frame_ms += frame_ms;
         w.frame_max_ms = std::max(w.frame_max_ms, frame_ms);
         w.prepare_ms += delta_ms(kStampStart, kStampPrepared);
-        w.opaque_ms += delta_ms(kStampPrepared, kStampOpaque);
-        w.hiz_ms += delta_ms(kStampOpaque, kStampHiz);
-        w.flora_ms += delta_ms(kStampHiz, kStampFlora);
+        w.hiz_ms += delta_ms(kStampPrepared, kStampHiz);
+        w.opaque_ms += delta_ms(kStampHiz, kStampOpaque);
+        w.flora_ms += delta_ms(kStampOpaque, kStampFlora);
         w.liquid_ms += delta_ms(kStampFlora, kStampEnd);
         OC_PLOT("GPU render_chunks ms", frame_ms);
     }
@@ -3208,7 +3215,6 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
             build_gpu_hiz(view_projection, true);
             if (m_gpu_hiz_valid) {
                 recull_gpu_frame_with_current_depth(opaque_order, spectator, view_projection);
-                gpu_phase_stamp(kStampHiz);
             }
         }
 
@@ -3233,6 +3239,9 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
         glDepthMask(GL_TRUE);
     }
 
+    // Always issue each timestamp, even when the optional prepass is disabled or fails.
+    // Reusing a query without writing it would mix this frame with an older frame.
+    gpu_phase_stamp(kStampHiz);
     bind_solid_program();
     draw_gpu_kind(kKindSolid);
     bind_misc_program();

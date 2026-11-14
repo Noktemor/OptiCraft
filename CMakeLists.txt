@@ -94,6 +94,7 @@ set(SOURCES
         ${SRC_DIR}/world/generation/Structures.cpp
         ${SRC_DIR}/world/generation/Tree_Generator.cpp
         ${SRC_DIR}/world/generation/World_Generator.cpp
+        ${SRC_DIR}/world/generation/Gpu_Worldgen.cpp
         ${SRC_DIR}/world/storage/World_File.cpp
         ${SRC_DIR}/world/fluids/Fluid_Simulator.cpp
         ${SRC_DIR}/world/dimensions/Dimension.cpp

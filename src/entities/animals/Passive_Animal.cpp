@@ -27,7 +27,7 @@ const Passive_Stats& passive_stats(Passive_Kind kind) {
                 Config::sheep_walk_speed, Config::sheep_width, Config::sheep_height, Config::sheep_max_health,
                 Config::sheep_panic_seconds, Config::sheep_panic_speed, Config::sheep_invulnerable_seconds,
                 Config::sheep_death_seconds, Config::sheep_respawn_delay,
-                Block_Types::Wheat, Block_Types::Air, 0, 0, // шерсти и баранины пока нет в блоках — ничего не падает
+                Block_Types::Wheat, Block_Types::White_Wool, 1, 2, // шерсть нужна для ковров и кроватей
                 true,   // овца плавает
         };
     return kind == Passive_Kind::Sheep ? sheep : cow;
@@ -49,6 +49,14 @@ bool Passive_Animal::load_model() {
     const bool ok = m_mob.load(stats().model_path);
     if (ok && m_mob.has_animation("Idle")) m_mob.play_animation("Idle");
     return ok;
+}
+
+bool Passive_Animal::shear() {
+    if (m_kind != Passive_Kind::Sheep || m_dying || m_breeding.is_baby() || !m_has_wool) return false;
+    m_has_wool = false;
+    m_wool_regrow_seconds = 90.0f;
+    m_mob.set_hidden_material_matching("Sheep_Fur");
+    return true;
 }
 
 void Passive_Animal::set_walking(bool walking) {
@@ -172,6 +180,14 @@ void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager) {
         return;
     }
 
+    if (m_kind == Passive_Kind::Sheep && !m_has_wool) {
+        m_wool_regrow_seconds -= dt;
+        if (m_wool_regrow_seconds <= 0.0f) {
+            m_has_wool = true;
+            m_wool_regrow_seconds = 0.0f;
+            m_mob.set_hidden_material_matching("");
+        }
+    }
     m_breeding.update(dt);
     m_mob.set_scale(m_breeding.size_factor());
     m_invulnerable_timer = std::max(0.0f, m_invulnerable_timer - dt);

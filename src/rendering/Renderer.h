@@ -241,8 +241,8 @@ private:
     enum Gpu_Phase_Stamp {
         kStampStart = 0,   // начало render_chunks
         kStampPrepared,    // после prepare_gpu_frame: загрузка мешей, диспетчеризация мешера, culling
+        kStampHiz,         // после depth prepass, Hi-Z и повторного culling
         kStampOpaque,      // после непрозрачных кубов и блоков формы
-        kStampHiz,         // после пирамиды Hi-Z
         kStampFlora,       // после флоры
         kStampEnd,         // после мобов и жидкости
         kStampCount

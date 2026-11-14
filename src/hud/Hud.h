@@ -2,6 +2,7 @@
 #define OPTICRAFT_HUD_H
 
 #include <glm/glm.hpp>
+#include <array>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -68,6 +69,7 @@ struct Hud_Inventory_Slot {
     int count = 0;     // >1 — рисуем число поверх иконки (стак ресурсов в Survival)
     bool empty = false; // true — пустой слот (Survival: ещё не собрано), иконка не рисуется
     float durability = -1.0f; // 0..1 остаток прочности инструмента; < 0 — не инструмент или целый (полоска не рисуется)
+    bool enchanted = false; // purple trim in item slots
     // Блок рисуется как изометрический куб с тремя гранями (как в Minecraft); предметы и
     // растения («крестики») остаются плоскими и используют icon_uv.
     bool as_cube = false;
@@ -163,11 +165,21 @@ struct Hud_Panel_Layout {
     std::vector<Hud_Panel_Slot> slots;
     std::vector<Hud_Panel_Label> labels;
     std::vector<Hud_Panel_Progress> progress;
+    bool enchant_choices = false;
+    int enchant_table_tier = 1;
+    int enchant_player_level = 0;
+    float enchant_xp_progress = 0.0f;
+    std::array<std::string,3> enchant_names{};
+    std::array<std::string,3> enchant_costs{};
+    std::array<bool,3> enchant_enabled{};
     bool player_preview = false;
     Hud_Rect preview_rect;           // в GUI-пикселях панели
     // true — модель игрока рисуется 3D поверх рамки (Game), плоский силуэт не нужен.
     bool preview_model = false;
     // Листание страниц Creative: две кнопки и подпись между ними.
+    bool category_tabs = false;
+    int selected_category = 0;
+    // Tabs are 26x16 GUI px with 1px gap, starting at (8,18).
     bool page_controls = false;
     glm::vec2 page_prev_pos{0, 0};
     glm::vec2 page_next_pos{0, 0};
@@ -206,6 +218,8 @@ public:
     static int get_panel_slot_at(int window_width, int window_height, const Hud_Panel_Layout& layout, float mx, float my);
     // 0 — «назад», 1 — «вперёд», -1 — мимо.
     static int get_panel_page_button_at(int window_width, int window_height, const Hud_Panel_Layout& layout, float mx, float my);
+    static int get_panel_enchant_button_at(int window_width, int window_height, const Hud_Panel_Layout& layout, float mx, float my);
+    static int get_panel_category_button_at(int window_width, int window_height, const Hud_Panel_Layout& layout, float mx, float my);
 
     // --- экраны -------------------------------------------------------------
     void draw_menu_screen(int window_width, int window_height, const Hud_Screen& screen,
@@ -228,6 +242,7 @@ public:
     void draw_crosshair(int window_width, int window_height, bool target_hit);
     // Сердца и куриные ножки над хотбаром (только Survival).
     // air/max_air — воздух под водой: ряд пузырьков рисуется, только если air < max_air.
+    void draw_experience(int window_width,int window_height,int level,float fraction);
     void draw_player_status(int window_width, int window_height,
                             int health, int max_health,
                             int food, int max_food,

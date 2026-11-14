@@ -151,6 +151,16 @@ public:
     const glm::vec3& get_bounds_min() const { return m_bounds_min; }
     const glm::vec3& get_bounds_max() const { return m_bounds_max; }
 
+    // GPU draw ranges preserve each glTF primitive and its material. Required for shearing
+    // (Sheep_Fur is a separate skinned primitive), and fixes multi-material mobs.
+    struct Primitive_Range {
+        size_t first_index = 0;
+        size_t index_count = 0;
+        std::string material_name;
+        std::string texture_role;
+    };
+    const std::vector<Primitive_Range>& get_primitive_ranges() const { return m_primitive_ranges; }
+
     unsigned int get_vao() const { return m_vao; }
     size_t get_index_count() const { return m_index_count; }
 
@@ -162,6 +172,7 @@ private:
     unsigned int m_ebo = 0;
     size_t m_index_count = 0;
 
+    std::vector<Primitive_Range> m_primitive_ranges;
     std::vector<Mob_Vertex> m_cpu_vertices;
     bool m_has_bounds = false;
     glm::vec3 m_bounds_min{0.0f};

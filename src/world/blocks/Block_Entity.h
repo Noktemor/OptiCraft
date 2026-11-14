@@ -25,7 +25,8 @@ enum class Block_Entity_Type : uint8_t {
     None = 0,
     Chest = 1,
     Crafting_Table = 2,
-    Furnace = 3
+    Furnace = 3,
+    Enchanting_Table = 4
 };
 
 // Печь: 2 слота, которыми управляет игрок (вход сверху, топливо снизу — как в Minecraft),
@@ -34,7 +35,8 @@ enum class Block_Entity_Type : uint8_t {
 namespace Block_Entity_Slots {
     constexpr size_t chest = 27;
     constexpr size_t crafting_table = 9; // сетка 3x3, выход не хранится — считается на лету по Recipe_Registry
-    constexpr size_t furnace = 3;        // 0 = вход (верх), 1 = топливо (низ), 2 = выход
+    constexpr size_t furnace = 3;
+    constexpr size_t enchanting_table = 2; // tool + lapis        // 0 = вход (верх), 1 = топливо (низ), 2 = выход
 
     constexpr size_t furnace_input = 0;
     constexpr size_t furnace_fuel = 1;
@@ -68,6 +70,9 @@ struct Block_Entity {
                 break;
             case Block_Entity_Type::Crafting_Table:
                 entity.slots.assign(Block_Entity_Slots::crafting_table, Item_Stack{});
+                break;
+            case Block_Entity_Type::Enchanting_Table:
+                entity.slots.assign(Block_Entity_Slots::enchanting_table, Item_Stack{});
                 break;
             case Block_Entity_Type::Furnace:
                 entity.slots.assign(Block_Entity_Slots::furnace, Item_Stack{});

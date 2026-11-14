@@ -824,9 +824,10 @@ void Application::initialize() {
 void Application::handle_input() {
     OC_ZONE("App::handle_input");
     if (I_Game_State* state = active_state()) {
+        OC_ZONE("App::state handle_input");
         state->handle_input();
     }
-    apply_pending_transition();
+    { OC_ZONE("App::input transition"); apply_pending_transition(); }
 }
 
 void Application::update(float delta_time) {
@@ -834,7 +835,7 @@ void Application::update(float delta_time) {
     if (I_Game_State* state = active_state()) {
         state->update(delta_time);
     }
-    apply_pending_transition();
+    { OC_ZONE("App::update transition"); apply_pending_transition(); }
 }
 
 void Application::render() {
