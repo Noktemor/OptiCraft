@@ -137,7 +137,7 @@ struct DrawArraysIndirectCommand {
 
 - CPU всё ещё обходит видимые chunks/sections и загружает stream descriptors каждый кадр. Это не полностью autonomous GPU scheduler.
 - Число Workgroups сейчас равно числу stream records (батчи по аппаратному максимуму); отдельный GPU-generated `glDispatchComputeIndirect` этап здесь сознательно не добавлен: число streams известно после CPU candidate build, а дополнительный dispatch-builder создал бы ещё один проход.
-- Culling granularity — 32 quads; это начальная настройка, а не гарантированно оптимальный размер для Intel UHD. Слишком мелкий Meshlet увеличит число AABB-тестов и команд, слишком крупный ослабит occlusion culling.
+- Culling granularity — 32 quads; это начальная настройка, а не гарантированно оптимальный размер для любой конфигурации. Слишком мелкий Meshlet увеличит число AABB-тестов и команд, слишком крупный ослабит occlusion culling.
 - Gameplay culler строит Hi-Z каждый кадр из отдельного half-resolution opaque depth target. Это depth prepass для GPU visibility; полноразмерный colour pass всё равно пишет свой depth через `GL_LESS`.
 - F3 chunk/section/triangle counters остаются приблизительными chunk-level статистиками старого culler; они не равны числу фактически выданных Meshlet-команд.
 - GPU command append / MDI не гарантирует прироста FPS. Перестройка bounds, CPU stream upload, memory pressure и лишние workgroups могут оказаться дороже выигрыша от более мелкого culling.
@@ -145,7 +145,7 @@ struct DrawArraysIndirectCommand {
 
 ## Проверка и A/B protocol
 
-В среде разработки новые Compute shaders были скомпилированы и слинкованы в surfaceless Mesa OpenGL 4.5 context. Те же проверки доступны в `tools/meshlet_validation/` и запускаются из корня проекта командами `python3 tools/meshlet_validation/check_glsl_link_egl.py` и `python3 tools/meshlet_validation/test_meshlet_compute.py`. Synthetic GPU dispatch дополнительно проверил:
+Новые Compute shaders скомпилированы и слинкованы. Те же проверки доступны в `tools/meshlet_validation/` и запускаются из корня проекта командами `python3 tools/meshlet_validation/check_glsl_link_egl.py` и `python3 tools/meshlet_validation/test_meshlet_compute.py`. Synthetic GPU dispatch дополнительно проверил:
 
 - solid descriptor: AABB `(0,0,0.998)..(1,1,1.002)`;
 - shaped descriptor: AABB `(1,2,3)..(1.5,2.5,3.5)` из 1/64 box data;
@@ -154,7 +154,7 @@ struct DrawArraysIndirectCommand {
 - compact output: счётчики `[1,1,0,1]` по GPU kind и три команды;
 - Hi-Z policy: LOD stream с `range.w bit 0` остаётся видимым, обычный opaque stream behind искусственной near-depth маски отклоняется, liquid остаётся видимым.
 
-Полная C++ сборка игры в данной среде не подтверждена: CMake останавливается на `FindOpenGL`, так как отсутствуют OpenGL development headers/libraries. Остальные зависимости не проверены после этой ошибки. Сам проект не запускался на Intel UHD, поэтому корректность визуального результата на игровом кадре и FPS-профиль нужно подтвердить на машине пользователя.
+Осталось проверить полную C++ сборку, визуальный результат в игре и профиль FPS.
 
 Для сравнения Standard и GPU Meshlet использовать:
 
@@ -162,5 +162,5 @@ struct DrawArraysIndirectCommand {
 2. Прогреть мир до завершения генерации и начального remesh; затем записать Standard и Meshlet несколько раз, меняя порядок режимов.
 3. Снимать GPU frame time и CPU frame time отдельно; сравнивать p50/p95/p99, а не только средний FPS.
 4. Повторить тесты: неподвижная открытая местность, плотный лес, горы/много заслонений, пещера, быстрый полёт с chunk streaming, shaped blocks, вода/флора.
-5. Отдельно фиксировать render distance 12 и 20 (или выбранные пользователем значения), число visible chunks/sections и число draw calls.
+5. Отдельно фиксировать render distance 12 и 20 (или другие выбранные значения), число visible chunks/sections и число draw calls.
 6. Не считать однократное включение режима честным A/B: первый кадр может перестроить persistent AABB descriptors; после него нужен прогрев.

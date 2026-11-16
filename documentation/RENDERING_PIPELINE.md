@@ -127,12 +127,8 @@ levels. It is a safe distance-selected mesh rebuild, not a zero-cost GPU LOD swi
 Window creation tries OpenGL 4.6, then 4.5, then 4.3 core. Compute meshing, GPU frustum/Hi-Z
 culling, Meshlet AABB construction and indirect commands require OpenGL 4.3. EXT/NV mesh shading
 is optional and is used only by the Standard renderer path when the runtime extension and entry
-points are present. In this development environment the new Compute programs and the existing
-classic vertex/fragment pairs were compiled and linked on a surfaceless Mesa OpenGL 4.5 context;
-synthetic dispatch tests checked solid/shaped AABBs and fixed/compact MDI output. A complete C++ game
-build could not be confirmed because OpenGL/GLFW/GLM development dependencies are absent here.
-No Intel UHD runtime performance result is claimed; the in-game A/B test must be performed on the
-target machine.
+points are present. The new Compute programs and existing classic vertex/fragment pairs compiled and linked;
+synthetic dispatch tests checked solid/shaped AABBs and fixed/compact MDI output. A complete C++ game build and an in-game A/B performance test remain to be verified.
 
 
 The camera-ray visibility pass is a raster depth prepass, not a software voxel ray marcher: each covered screen sample stores the nearest opaque surface along its camera direction. It runs at half resolution; conservative MAX Hi-Z rejects only bounds proven behind every depth sample in the selected region. LOD streams and liquid skip Hi-Z rejection, while the final full-resolution depth test resolves pixel visibility.
