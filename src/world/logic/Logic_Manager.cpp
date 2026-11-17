@@ -2,6 +2,7 @@
 #include "utils/profiling/Profiler.h"
 #include "world/logic/Logic_Manager.h"
 #include "world/chunks/Chunk_Manager.h"
+#include "world/blocks/Block_Entity.h"
 #include <algorithm>
 
 namespace {
@@ -27,6 +28,27 @@ glm::ivec3 facing_offset(uint8_t meta) {
 // Задержка повторителя в редстоун-тиках: биты 2..3 хранят 0..3 → 1..4.
 int repeater_delay(uint8_t meta) { return ((meta >> 2) & 3) + 1; }
 
+// Same-plane wires, plus one explicit extension at the base of a wall wire.
+// Matches wire_shape_meta() and the GPU wire mesh (including the 90-degree riser).
+bool wire_linked(glm::ivec3 a,uint8_t am,glm::ivec3 b,uint8_t bm) {
+    am &= 7u; bm &= 7u;
+    if (am==bm) {
+        const glm::ivec3 d=b-a;
+        if (am==0u) return d.y==0;
+        if (am==1u || am==2u) return d.x==0;
+        if (am==3u || am==4u) return d.z==0;
+        return false;
+    }
+    const glm::ivec3 wall=am==0u?b:a;
+    const glm::ivec3 floor=am==0u?a:b;
+    const uint8_t mounting=am==0u?bm:am;
+    const glm::ivec3 expected=mounting==1u?glm::ivec3(1,0,0):
+        mounting==2u?glm::ivec3(-1,0,0):
+        mounting==3u?glm::ivec3(0,0,1):
+        mounting==4u?glm::ivec3(0,0,-1):glm::ivec3(0,0,0);
+    return mounting>=1u && mounting<=4u && wall-floor==expected;
+}
+
 constexpr uint8_t kAttachMask = 0x07;     // грань крепления (индекс в kDirs)
 constexpr uint8_t kDelayMask = 0x0C;      // биты задержки повторителя
 
@@ -40,6 +62,8 @@ int emit(Block_Types type, uint8_t meta, glm::ivec3 n, glm::ivec3 c) {
             return c == Logic_Manager::support_of(n, type, meta) ? 0 : 15;
         case Block_Types::Repeater_On:
             return c == n + facing_offset(meta) ? 15 : 0;
+        case Block_Types::Observer:
+            return (meta & Block_Meta::active_bit) != 0u && c == n - facing_offset(meta) ? 15 : 0;
         default:
             // Wooden/stone/metal button variants use their original id and the active_bit
             // in metadata instead of allocating an extra pressed block type for each wood.
@@ -122,9 +146,24 @@ bool Logic_Manager::is_node(Block_Types type) {
         case Block_Types::Signal_Clamp_Off:
         case Block_Types::Repeater:
         case Block_Types::Repeater_On:
+        case Block_Types::Observer:
+        case Block_Types::Piston:
+        case Block_Types::Sticky_Piston:
+        case Block_Types::Copper_Lamp:
+        case Block_Types::Copper_Lamp_On:
             return true;
         default:
             return get_block_props(type).shape == Block_Shape::Button;
+    }
+}
+
+bool Logic_Manager::is_interactable(Block_Types t) {
+    switch (t) {
+        case Block_Types::Lever: case Block_Types::Lever_On:
+        case Block_Types::Button: case Block_Types::Button_Pressed:
+        case Block_Types::Repeater: case Block_Types::Repeater_On:
+            return true;
+        default: return get_block_props(t).shape == Block_Shape::Button;
     }
 }
 
@@ -143,8 +182,12 @@ bool Logic_Manager::is_attached(Block_Types type) {
 }
 
 bool Logic_Manager::is_support(Block_Types type) {
-    if (type == Block_Types::Air || is_node(type)) return false;
-    return get_block_props(type).is_solid;
+    if (type == Block_Types::Air) return false;
+    // Mechanism casings are solid supports, unlike wire / small source components.
+    if (type == Block_Types::Piston || type == Block_Types::Sticky_Piston ||
+        type == Block_Types::Copper_Lamp || type == Block_Types::Copper_Lamp_On ||
+        type == Block_Types::Observer) return true;
+    return !is_node(type) && get_block_props(type).is_solid;
 }
 
 Block_Types Logic_Manager::item_of(Block_Types type) {
@@ -158,18 +201,45 @@ Block_Types Logic_Manager::item_of(Block_Types type) {
 }
 
 glm::ivec3 Logic_Manager::support_of(glm::ivec3 pos, Block_Types type, uint8_t meta) {
+    if (is_wire(type)) {
+        switch (meta & 7u) {
+            case 1: return pos + glm::ivec3(1,0,0);
+            case 2: return pos + glm::ivec3(-1,0,0);
+            case 3: return pos + glm::ivec3(0,0,1);
+            case 4: return pos + glm::ivec3(0,0,-1);
+            default: return pos + glm::ivec3(0,-1,0); // old worlds: meta=0 = floor
+        }
+    }
     if (is_attached(type)) return pos + kDirs[meta & kAttachMask];
-    return pos + glm::ivec3(0, -1, 0);   // провод и повторитель стоят на полу
+    return pos + glm::ivec3(0, -1, 0);
 }
 
 // --- Установка --------------------------------------------------------------------------------
 
 bool Logic_Manager::placement(Block_Types type, const World_Access& world, glm::ivec3 place,
                               glm::ivec3 clicked, uint8_t repeater_facing, uint8_t& out_meta) {
-    if (is_wire(type) || type == Block_Types::Repeater) {
+    if (type == Block_Types::Observer || type == Block_Types::Piston ||
+        type == Block_Types::Sticky_Piston || type == Block_Types::Copper_Lamp) {
+        out_meta = (type == Block_Types::Copper_Lamp) ? 0u :
+            static_cast<uint8_t>(repeater_facing & Block_Meta::direction_mask);
+        return true;
+    }
+    if (is_wire(type)) {
+        const glm::ivec3 d=clicked-place;
+        uint8_t mounting=0;
+        if (d == glm::ivec3(0,-1,0)) mounting=0; // floor
+        else if (d == glm::ivec3(1,0,0)) mounting=1;
+        else if (d == glm::ivec3(-1,0,0)) mounting=2;
+        else if (d == glm::ivec3(0,0,1)) mounting=3;
+        else if (d == glm::ivec3(0,0,-1)) mounting=4;
+        else return false;
+        if (!is_support(world.type(clicked.x,clicked.y,clicked.z))) return false;
+        out_meta=mounting;
+        return true;
+    }
+    if (type == Block_Types::Repeater) {
         if (!is_support(world.type(place.x, place.y - 1, place.z))) return false;
-        out_meta = type == Block_Types::Repeater ? static_cast<uint8_t>(repeater_facing & Block_Meta::direction_mask)
-                                                 : 0;
+        out_meta = static_cast<uint8_t>(repeater_facing & Block_Meta::direction_mask);
         return true;
     }
     if (is_attached(type)) {
@@ -186,6 +256,10 @@ bool Logic_Manager::placement(Block_Types type, const World_Access& world, glm::
 }
 
 bool Logic_Manager::has_support_for(const World_Access& world, glm::ivec3 pos, Block_Types type, uint8_t meta) {
+    // Only mounted components need a supporting neighbor. Full-cube mechanisms such
+    // as pistons, observers and lamps must not break when the block below is removed.
+    if (!is_wire(type) && !is_attached(type) &&
+        type != Block_Types::Repeater && type != Block_Types::Repeater_On) return true;
     const glm::ivec3 s = support_of(pos, type, meta);
     return is_support(world.type(s.x, s.y, s.z));
 }
@@ -280,6 +354,63 @@ void Logic_Manager::update(const World_Access& world, float dt) {
     if (guard >= 10) m_accumulator = 0.0f;
 }
 
+// Piston changes are performed in the existing logic tick, no worker queue.
+// Conservative atomic preflight: all destination cells loaded, no block entities or
+// unbreakable/foreign piston heads, at most 12 movable blocks. We do not move entities.
+bool Logic_Manager::piston_set(const World_Access& world, glm::ivec3 pos,
+                               Block_Types type, uint8_t meta, bool extend) {
+    const glm::ivec3 dir=facing_offset(meta);
+    const glm::ivec3 front=pos+dir;
+    if (extend) {
+        if (!world.loaded(front.x,front.y,front.z)) return false;
+        int count=0;
+        glm::ivec3 scan=front;
+        while (world.type(scan.x,scan.y,scan.z)!=Block_Types::Air) {
+            if (++count>12 || !world.loaded(scan.x,scan.y,scan.z)) return false;
+            const Block_Types occupied=world.type(scan.x,scan.y,scan.z);
+            const auto& props=get_block_props(occupied);
+            if (props.unbreakable() || occupied==Block_Types::Piston_Head ||
+                occupied==Block_Types::Piston || occupied==Block_Types::Sticky_Piston ||
+                props.state==Block_State::Liquid || is_node(occupied) ||
+                props.shape==Block_Shape::Door || props.shape==Block_Shape::Bed ||
+                block_entity_type_for(occupied)!=Block_Entity_Type::None) return false;
+            scan+=dir;
+            if (!world.loaded(scan.x,scan.y,scan.z)) return false;
+        }
+        // From farthest to nearest: blocks never overwrite unread sources.
+        for (int i=count-1;i>=0;--i) {
+            const glm::ivec3 src=front+dir*i;
+            const glm::ivec3 dst=src+dir;
+            write_block(world,dst,world.type(src.x,src.y,src.z),world.meta(src.x,src.y,src.z));
+        }
+        write_block(world,front,Block_Types::Piston_Head,static_cast<uint8_t>(meta & 3u));
+        write_block(world,pos,type,static_cast<uint8_t>(meta|Block_Meta::active_bit));
+        return true;
+    }
+    if (!world.loaded(front.x,front.y,front.z)) return false;
+    if (world.type(front.x,front.y,front.z)==Block_Types::Piston_Head) {
+        write_block(world,front,Block_Types::Air,0u);
+    }
+    if (type==Block_Types::Sticky_Piston) {
+        const glm::ivec3 src=front+dir;
+        if (world.loaded(src.x,src.y,src.z)) {
+            const Block_Types movable=world.type(src.x,src.y,src.z);
+            const auto& props=get_block_props(movable);
+            if (movable!=Block_Types::Air && movable!=Block_Types::Piston_Head &&
+                movable!=Block_Types::Piston && movable!=Block_Types::Sticky_Piston &&
+                !props.unbreakable() && props.state!=Block_State::Liquid && !is_node(movable) &&
+                props.shape!=Block_Shape::Door && props.shape!=Block_Shape::Bed &&
+                block_entity_type_for(movable)==Block_Entity_Type::None &&
+                world.type(front.x,front.y,front.z)==Block_Types::Air) {
+                write_block(world,front,movable,world.meta(src.x,src.y,src.z));
+                write_block(world,src,Block_Types::Air,0u);
+            }
+        }
+    }
+    write_block(world,pos,type,static_cast<uint8_t>(meta & ~Block_Meta::active_bit));
+    return true;
+}
+
 void Logic_Manager::step(const World_Access& world) {
     Sim sim{world, {}};
 
@@ -290,6 +421,8 @@ void Logic_Manager::step(const World_Access& world) {
         if (!is_node(world.type(p.x, p.y, p.z))) {
             m_pending.erase(*it);
             m_pulses.erase(*it);
+            m_observed_state.erase(*it);
+            m_observer_pulse.erase(*it);
             it = m_nodes.erase(it);
         } else {
             ++it;
@@ -297,11 +430,12 @@ void Logic_Manager::step(const World_Access& world) {
     }
 
     // 2. Сигнал проводов по состоянию на начало тика: от источников, затем на −1 по проводам.
-    std::vector<glm::ivec3> wires;
+    // Signal attenuation is bounded to 15. Propagate high-to-low with 16 buckets
+    // rather than repeatedly sweeping every wire until no changes remain.
+    std::array<std::vector<glm::ivec3>,16> power_buckets;
     for (const Redstone_Key& k : m_nodes) {
         const glm::ivec3 p = pos_of(k);
         if (!world.loaded(p.x, p.y, p.z) || !is_wire(world.type(p.x, p.y, p.z))) continue;
-        wires.push_back(p);
         int seed = 0;
         for (const glm::ivec3& d : kDirs) {
             const glm::ivec3 n = p + d;
@@ -313,19 +447,19 @@ void Logic_Manager::step(const World_Access& world) {
             }
         }
         sim.wire_power[k] = seed;
+        if (seed > 1) power_buckets[seed].push_back(p);
     }
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (const glm::ivec3& p : wires) {
-            int& power = sim.wire_power[key_of(p)];
+    for (int level=15;level>1;--level) {
+        for (const glm::ivec3& p : power_buckets[level]) {
+            const auto source_it=sim.wire_power.find(key_of(p));
+            if (source_it==sim.wire_power.end() || source_it->second!=level) continue;
             for (const glm::ivec3& d : kDirs) {
-                const auto it = sim.wire_power.find(key_of(p + d));
-                if (it == sim.wire_power.end()) continue;
-                if (it->second - 1 > power) {
-                    power = it->second - 1;
-                    changed = true;
-                }
+                const glm::ivec3 n=p+d;
+                auto it=sim.wire_power.find(key_of(n));
+                if (it==sim.wire_power.end() || it->second>=level-1) continue;
+                if (!wire_linked(p,sim.meta(p),n,sim.meta(n))) continue;
+                it->second=level-1;
+                if (level>2) power_buckets[level-1].push_back(n);
             }
         }
     }
@@ -416,6 +550,91 @@ void Logic_Manager::step(const World_Access& world) {
     // 5. Применить переключения.
     for (const Apply& a : to_apply) {
         write_block(world, a.pos, a.target, world.meta(a.pos.x, a.pos.y, a.pos.z));
+    }
+
+    // 6. Observers: sample the state of the cell on the sensing face. Pulse lasts
+    // one redstone step (2 game ticks); on a new observer initialize, do not pulse.
+    // Polling cannot see changes that occurred and reverted between steps (documented limitation).
+    for (const Redstone_Key& k : m_nodes) {
+        const glm::ivec3 p=pos_of(k);
+        if (!world.loaded(p.x,p.y,p.z) || world.type(p.x,p.y,p.z)!=Block_Types::Observer) continue;
+        const uint8_t m=world.meta(p.x,p.y,p.z);
+        const glm::ivec3 look=p+facing_offset(m);
+        if (!world.loaded(look.x,look.y,look.z)) continue;
+        const uint32_t observed=(static_cast<uint32_t>(world.type(look.x,look.y,look.z))<<8u)
+                               |world.meta(look.x,look.y,look.z);
+        const auto [it,inserted]=m_observed_state.try_emplace(k,observed);
+        const bool modified=!inserted && it->second!=observed;
+        it->second=observed;
+        if ((m & Block_Meta::active_bit)!=0u) {
+            auto pulse=m_observer_pulse.find(k);
+            if (pulse==m_observer_pulse.end() || --pulse->second<=0) {
+                write_block(world,p,Block_Types::Observer,static_cast<uint8_t>(m&~Block_Meta::active_bit));
+                m_observer_pulse.erase(k);
+            }
+        } else if (modified) {
+            write_block(world,p,Block_Types::Observer,static_cast<uint8_t>(m|Block_Meta::active_bit));
+            m_observer_pulse[k]=1;
+        }
+    }
+
+    // 7. Mechanisms and powered doors consume the signal calculated this step.
+    // No new scheduling pipeline: changes are performed using the existing World_Access.
+    std::set<Redstone_Key> door_candidates=m_powered_doors;
+    for (const Redstone_Key& k : m_nodes) {
+        const glm::ivec3 p=pos_of(k);
+        if (!world.loaded(p.x,p.y,p.z)) continue;
+        const Block_Types t=world.type(p.x,p.y,p.z);
+        const uint8_t m=world.meta(p.x,p.y,p.z);
+        if (t==Block_Types::Piston || t==Block_Types::Sticky_Piston) {
+            const bool active=(m&Block_Meta::active_bit)!=0u;
+            const bool powered=sim.full_power(p)>0;
+            if (active!=powered) piston_set(world,p,t,m,powered);
+            else if (active) {
+                const glm::ivec3 front=p+facing_offset(m);
+                if (world.loaded(front.x,front.y,front.z) &&
+                    world.type(front.x,front.y,front.z)!=Block_Types::Piston_Head) {
+                    // Head was destroyed separately; a powered base can retry extension.
+                    write_block(world,p,t,static_cast<uint8_t>(m&~Block_Meta::active_bit));
+                }
+            }
+        } else if (t==Block_Types::Copper_Lamp || t==Block_Types::Copper_Lamp_On) {
+            const Block_Types target=sim.full_power(p)>0 ? Block_Types::Copper_Lamp_On : Block_Types::Copper_Lamp;
+            if (t!=target) write_block(world,p,target,m);
+        }
+        // Find doors adjacent to any tracked source/wire, both upper and lower halves.
+        for (const glm::ivec3& d : kDirs) {
+            const glm::ivec3 q=p+d;
+            if (!world.loaded(q.x,q.y,q.z)) continue;
+            const Block_Types door=world.type(q.x,q.y,q.z);
+            if (get_block_props(door).shape!=Block_Shape::Door) continue;
+            const int bottom=q.y-((world.meta(q.x,q.y,q.z)&8u)!=0u ? 1 : 0);
+            door_candidates.insert({q.x,bottom,q.z});
+        }
+    }
+    for (const Redstone_Key& key : door_candidates) {
+        const glm::ivec3 bottom=pos_of(key);
+        const glm::ivec3 upper=bottom+glm::ivec3(0,1,0);
+        if (!world.loaded(bottom.x,bottom.y,bottom.z) || !world.loaded(upper.x,upper.y,upper.z)) continue;
+        const Block_Types t=world.type(bottom.x,bottom.y,bottom.z);
+        if (get_block_props(t).shape!=Block_Shape::Door || world.type(upper.x,upper.y,upper.z)!=t) {
+            m_powered_doors.erase(key);
+            continue;
+        }
+        const uint8_t lower_meta=world.meta(bottom.x,bottom.y,bottom.z);
+        const uint8_t upper_meta=world.meta(upper.x,upper.y,upper.z);
+        if ((lower_meta&8u)!=0u || (upper_meta&8u)==0u) continue;
+        const bool powered=sim.full_power(bottom)>0 || sim.full_power(upper)>0;
+        const bool was_powered=m_powered_doors.count(key)!=0u;
+        if (powered) m_powered_doors.insert(key);
+        else m_powered_doors.erase(key);
+        // Leave manually opened unpowered doors unchanged. Power drop closes powered doors.
+        if (!powered && !was_powered) continue;
+        const uint8_t open_bit=powered ? 4u : 0u;
+        if ((lower_meta&4u)!=open_bit)
+            write_block(world,bottom,t,static_cast<uint8_t>((lower_meta&~4u)|open_bit));
+        if ((upper_meta&4u)!=open_bit)
+            write_block(world,upper,t,static_cast<uint8_t>((upper_meta&~4u)|open_bit));
     }
 }
 

@@ -189,6 +189,15 @@ enum class Block_Types : Block_ID {
     Repeater = 163,            // выключен
     Repeater_On = 164,         // выдаёт сигнал вперёд
 
+    // Copper logic prototype (IDs above the JSON driven catalog). Direction: bits 0..1 (N/E/S/W);
+    // active_bit=8: observer pulse, piston extension. The head is an independent block.
+    Observer = 511,
+    Piston = 512,
+    Sticky_Piston = 513,
+    Piston_Head = 514,
+    Copper_Lamp = 515,
+    Copper_Lamp_On = 516,
+
     // Мантийный камень: нижний слой мира, нельзя сломать и взорвать (аналог бедрока).
     Mantle_Stone = 165,
     // Дополнительные виды древесины для новых природных зон.
@@ -281,7 +290,7 @@ enum class Block_Shape : uint8_t {
     Stairs = 2,
     Plate = 3,  // пластинка 1/16 толщиной на всю клетку (повторитель)
     Button = 4, // кнопка 3x2x2 пикселя на грани опоры (meta = грань крепления, как в Logic_Manager)
-    Wire = 5,   // провод: пластинка 12x2x12 пикселей по центру клетки у пола
+    Wire = 5,   // тонкий соединяемый провод: прямой стержень, узел на поворотах, крепление к стенам
     Fence = 6, Wall = 7, FenceGate = 8,
     Door = 9, Trapdoor = 10, PressurePlate = 11,
     Pane = 12, Ladder = 13, Carpet = 14, SnowLayer = 15,
@@ -290,7 +299,8 @@ enum class Block_Shape : uint8_t {
     Bed = 23, Candle = 24, Rod = 25, FlowerPot = 26,
     Bell = 27, Grindstone = 28, Lectern = 29,
     TorchPost = 30,
-    Count = 31
+    PistonHead = 31,
+    Count = 32
 };
 
 enum class Block_Mesh_Style : uint8_t {

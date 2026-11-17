@@ -265,13 +265,16 @@ bool Sapling_Manager::try_grow(const glm::ivec3& origin, int size, Chunk_Manager
     const Tree_Generator::Block_Setter collect = [&plan](int x, int y, int z, Block_Types type) {
         plan.emplace_back(glm::ivec3(x, y, z), type);
     };
-    Fast_Rng rng(static_cast<uint64_t>(m_rng()));
+    const uint64_t variant_seed = static_cast<uint64_t>(m_rng());
+    Fast_Rng rng(variant_seed);
     const Block_Types species = chunk_manager.get_block_world(origin.x, origin.y, origin.z);
     if (species != Block_Types::Spruce_Sapling) {
-        Tree_Generator::place_tree(tree_of(species), origin.x, base_y, origin.z, collect, rng);
+        Tree_Generator::place_tree(tree_of(species), origin.x, base_y, origin.z,
+                                   collect, rng, variant_seed);
     } else {
         switch (size) {
-            case 1:  Tree_Generator::place_spruce_tree(origin.x, base_y, origin.z, collect, rng); break;
+            case 1:  Tree_Generator::place_tree(Tree_Type::Spruce, origin.x, base_y, origin.z,
+                                                collect, rng, variant_seed); break;
             case 2:  Tree_Generator::place_spruce_medium(cx, base_y, cz, collect, rng); break;
             default: Tree_Generator::place_spruce_large(cx, base_y, cz, collect, rng); break;
         }

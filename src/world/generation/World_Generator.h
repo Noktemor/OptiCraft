@@ -133,6 +133,8 @@ public:
     // Может ли декорирование вообще изменить этот чанк. false — ни одна из колонок, чьи декорации
     // попадают в чанк (с нахлёстом), не доходит до его высот: цикл по ним можно пропустить целиком.
     bool may_decorate_chunk(int chunk_x, int chunk_y, int chunk_z) const;
+    // Existing finalization stage: apply immutable settlement plans clipped to this chunk.
+    void place_villages_in_chunk(Chunk& chunk) const;
     Block_Types get_block(int world_x, int world_y, int world_z) const;
     void decorate_column(Chunk& chunk, int world_x, int world_z) const;
     bool is_solid(int world_x, int world_y, int world_z) const;
@@ -178,7 +180,7 @@ public:
     // пустой и его не надо ни генерировать, ни мешить.
     // For a column being generated across multiple Y levels, this conservative ceiling
     // can be computed once and passed to chunk_is_definitely_air. INT_MAX means the
-    // whole vertical column must remain eligible (e.g. a village marker is present).
+    // large village templates must not be culled by terrain-only estimates.
     int conservative_column_air_ceiling(int chunk_x, int chunk_z) const;
     bool chunk_is_definitely_air(int chunk_x, int chunk_y, int chunk_z,
                                  std::optional<int> cached_air_ceiling = std::nullopt) const;
@@ -333,10 +335,6 @@ private:
                                 int world_x, int world_y, int world_z) const;
     Block_Types block_in_column(const Column& column,
                                 int world_x, int world_y, int world_z,
-                                bool village_center) const;
-    Block_Types block_in_column(const Column& column,
-                                int world_x, int world_y, int world_z,
-                                bool village_center,
                                 const River_Network::Column* river_column,
                                 const Cave_Kind* cave_kind,
                                 const Subsurface_Coordinates* material_coordinates = nullptr,

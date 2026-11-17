@@ -26,32 +26,21 @@ namespace {
     constexpr int MOUSE_BUTTON_LEFT = 0;
     constexpr int MOUSE_BUTTON_RIGHT = 1;
 
+    // Legacy notification used by block actions. Chunk_Manager::set_block_world(),
+    // set_block_meta_world() and set_blocks_world_batch() already mark the affected
+    // sections and neighbouring chunks dirty and queue the mesh rebuild. Deleting
+    // Renderer GPU residency here destroyed BOTH active and pending COW generations,
+    // causing an entire chunk section to disappear until the asynchronous upload.
+    // Keep this helper as a compatibility shim for existing gameplay call sites;
+    // actual GPU cache invalidation is reserved for chunk unload/world replacement.
     void invalidate_chunk_and_neighbors(int wx, int wy, int wz,
                                         Chunk_Manager& chunk_manager,
                                         Renderer& renderer) {
-        renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx, wy, wz));
-
-        const int lx = wx - Math_Helpers::floor_div(wx, Config::chunk_size) * Config::chunk_size;
-        const int ly = wy - Math_Helpers::floor_div(wy, Config::chunk_height) * Config::chunk_height;
-        const int lz = wz - Math_Helpers::floor_div(wz, Config::chunk_size) * Config::chunk_size;
-
-        if (lx == 0) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx - 1, wy, wz));
-        } else if (lx == Config::chunk_size - 1) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx + 1, wy, wz));
-        }
-
-        if (ly == 0) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx, wy - 1, wz));
-        } else if (ly == Config::chunk_height - 1) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx, wy + 1, wz));
-        }
-
-        if (lz == 0) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx, wy, wz - 1));
-        } else if (lz == Config::chunk_size - 1) {
-            renderer.invalidate_chunk_cache(chunk_manager.get_chunk_coords_for_world(wx, wy, wz + 1));
-        }
+        (void)wx;
+        (void)wy;
+        (void)wz;
+        (void)chunk_manager;
+        (void)renderer;
     }
 
     // Пересечение луча с AABB (slab-метод). Возвращает расстояние вдоль луча или -1, если промах.
@@ -91,6 +80,26 @@ void remove_door_companion(const glm::ivec3& at, Block_Types type, uint8_t meta,
     if (((meta ^ other_meta) & 8u) == 0u) return;
     if (manager.set_block_world(at.x, other_y, at.z, Block_Types::Air))
         invalidate_chunk_and_neighbors(at.x, other_y, at.z, manager, renderer);
+}
+void remove_piston_companion(const glm::ivec3& at, Block_Types type, uint8_t meta,
+                             Chunk_Manager& manager, Renderer& renderer) {
+    static constexpr glm::ivec3 facing[4]={{0,0,-1},{1,0,0},{0,0,1},{-1,0,0}};
+    if (type==Block_Types::Piston || type==Block_Types::Sticky_Piston) {
+        if ((meta&Block_Meta::active_bit)==0u) return;
+        const glm::ivec3 head=at+facing[meta&3u];
+        if (manager.get_block_world(head.x,head.y,head.z)!=Block_Types::Piston_Head) return;
+        if (manager.set_block_world(head.x,head.y,head.z,Block_Types::Air))
+            invalidate_chunk_and_neighbors(head.x,head.y,head.z,manager,renderer);
+    } else if (type==Block_Types::Piston_Head) {
+        const glm::ivec3 base=at-facing[meta&3u];
+        const Block_Types base_type=manager.get_block_world(base.x,base.y,base.z);
+        if (base_type!=Block_Types::Piston && base_type!=Block_Types::Sticky_Piston) return;
+        const uint8_t base_meta=manager.get_block_meta_world(base.x,base.y,base.z);
+        if ((base_meta&3u)!=(meta&3u) || (base_meta&Block_Meta::active_bit)==0u) return;
+        if (manager.set_block_world(base.x,base.y,base.z,base_type,
+                                    static_cast<uint8_t>(base_meta&~Block_Meta::active_bit)))
+            invalidate_chunk_and_neighbors(base.x,base.y,base.z,manager,renderer);
+    }
 }
 }
 
@@ -137,6 +146,7 @@ std::vector<glm::ivec3> Block_Interaction::explode(const glm::ivec3& center, flo
         const uint8_t meta = chunk_manager.get_block_meta_world(b.x, b.y, b.z);
         if (chunk_manager.set_block_world(b.x, b.y, b.z, Block_Types::Air)) {
             remove_door_companion(b, type, meta, chunk_manager, renderer);
+            remove_piston_companion(b, type, meta, chunk_manager, renderer);
             invalidate_chunk_and_neighbors(b.x, b.y, b.z, chunk_manager, renderer);
             destroyed.push_back(b);
         }
@@ -290,6 +300,7 @@ void Block_Interaction::update(float delta_time,
                 if (chunk_manager.set_block_world(m_mining_pos.x, m_mining_pos.y, m_mining_pos.z,
                                                   Block_Types::Air)) {
                     remove_door_companion(m_mining_pos, m_mining_type, broken_meta, chunk_manager, renderer);
+                    remove_piston_companion(m_mining_pos, m_mining_type, broken_meta, chunk_manager, renderer);
                     m_broken_blocks.push_back(std::move(event));
                     player.add_exhaustion(Config::exhaustion_break_block);
                     // Инструмент в руке изнашивается (на добыче «пустышек» вроде травы — нет).
@@ -337,6 +348,7 @@ void Block_Interaction::update(float delta_time,
         }
 
         remove_door_companion(broken_pos, broken_type, broken_meta, chunk_manager, renderer);
+        remove_piston_companion(broken_pos, broken_type, broken_meta, chunk_manager, renderer);
         Broken_Block_Event event;
         event.position = broken_pos;
         event.type = broken_type;
@@ -364,8 +376,7 @@ void Block_Interaction::update(float delta_time,
 
         // Рычаг, кнопка, зажиматель, повторитель: ПКМ переключает/меняет, блок не ставится.
         // Провод — нет: по нему ставят другие блоки.
-        if (Logic_Manager::is_node(m_current_hit.block_type) &&
-            !Logic_Manager::is_wire(m_current_hit.block_type)) {
+        if (Logic_Manager::is_interactable(m_current_hit.block_type)) {
             m_redstone_interact = glm::ivec3(m_current_hit.block_x, m_current_hit.block_y, m_current_hit.block_z);
             m_action_cooldown = k_action_delay;
             m_current_hit.hit = false;

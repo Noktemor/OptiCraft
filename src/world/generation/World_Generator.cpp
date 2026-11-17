@@ -5,6 +5,8 @@
 
 #include "world/chunks/Chunk.h"
 #include "world/generation/Tree_Generator.h"
+#include "world/generation/Village_Layout.h"
+#include "world/generation/Structure_Pack.h"
 #include "utils/logging/Logger.h"
 
 #include <algorithm>
@@ -255,6 +257,9 @@ World_Generator::World_Generator(const std::string& generation_folder, uint32_t 
         seed, [this](int world_x, int world_z) { return get_height(world_x, world_z); },
         m_river_network.get(), kSeaLevel);
 
+    // Parse the immutable archive before chunk worker threads enter worldgen.
+    // No I/O happens inside an individual village's placement loop.
+    if (m_dimension->villages) (void)Structure_Pack::instance();
 }
 
 World_Generator::~World_Generator() = default;
@@ -954,24 +959,12 @@ Block_Types World_Generator::subsurface_block_for(
 Block_Types World_Generator::block_in_column(const Column& column,
                                              int world_x, int world_y,
                                              int world_z) const {
-    const bool village_center = m_dimension->villages &&
-        world_y > column.height &&
-        world_y <= column.height + Structure_Placement::kMarkerHeight &&
-        m_structures->village_center_at(world_x, world_z);
-    return block_in_column(column, world_x, world_y, world_z, village_center);
+    return block_in_column(column, world_x, world_y, world_z, nullptr, nullptr);
 }
 
 Block_Types World_Generator::block_in_column(const Column& column,
                                              int world_x, int world_y,
                                              int world_z,
-                                             bool village_center) const {
-    return block_in_column(column, world_x, world_y, world_z, village_center, nullptr, nullptr);
-}
-
-Block_Types World_Generator::block_in_column(const Column& column,
-                                             int world_x, int world_y,
-                                             int world_z,
-                                             bool village_center,
                                              const River_Network::Column* river_column,
                                              const Cave_Kind* cave_kind,
                                              const Subsurface_Coordinates* material_coordinates,
@@ -981,13 +974,6 @@ Block_Types World_Generator::block_in_column(const Column& column,
     if (!m_dimension->ground) return Block_Types::Air;
 
     const int height = column.height;
-
-    // Маркер деревни: столб над центром деревни (пока только для проверки размещения).
-    if (m_dimension->villages && world_y > height &&
-        world_y <= height + Structure_Placement::kMarkerHeight &&
-        village_center) {
-        return Block_Types::Diamond;
-    }
 
     // Над поверхностью. Вода наливается ВЕЗДЕ, где пусто и ниже уровня моря.
     if (world_y > height) {
@@ -1246,7 +1232,6 @@ struct World_Generator::Prepared_Column {
     // initial skylight pass on every chunk Y, including parallel build jobs.
     std::array<int, Layer> terrain_heights{};
     std::array<int, Layer> solid_top{};
-    std::array<uint8_t, Layer> village_center{};
     std::array<River_Network::Column, Layer> river_columns{};
     std::array<Subsurface_Coordinates, Layer> subsurface_coordinates{};
     // Indexed [chunk_index][y][z][x], read-only after preparation.
@@ -1307,13 +1292,6 @@ std::shared_ptr<World_Generator::Prepared_Column> World_Generator::prepare_chunk
                 if (m_dimension->rivers)
                     prepared->river_columns[ci] = m_river_network->column_at(wx, wz);
                 prepared->solid_top[ci] = std::max(prepared->columns[ci].height, kSeaLevel);
-                const bool is_village_center = m_dimension->villages &&
-                    m_structures->village_center_at(wx, wz);
-                prepared->village_center[ci] = static_cast<uint8_t>(is_village_center);
-                if (is_village_center) {
-                    prepared->solid_top[ci] = std::max(prepared->solid_top[ci],
-                        prepared->columns[ci].height + Structure_Placement::kMarkerHeight);
-                }
             }
         }
     }
@@ -1537,13 +1515,13 @@ void World_Generator::generate_prepared_chunk_impl(
                     const River_Network::Column* river_column = m_dimension->rivers
                         ? &prepared->river_columns[cidx] : nullptr;
                     // GPU result replaces only the ore/material phase. Rivers, cave masks,
-                    // villages and surface decisions are still resolved by the exact CPU path.
+                    // biomes and surface decisions are still resolved by the exact CPU path.
                     const size_t voxel_index = index * Voxels +
                         static_cast<size_t>(y) * Layer + cidx;
                     const uint32_t gpu_material = !has_gpu_materials ? 0u :
                         prepared->gpu_materials[voxel_index];
                     block = block_in_column(prepared->columns[cidx], world_x, world_y, world_z,
-                        prepared->village_center[cidx] != 0, river_column, cave_kind,
+                        river_column, cave_kind,
                         &prepared->subsurface_coordinates[cidx], ore_noise_y,
                         static_cast<Block_Types>(gpu_material));
                 }
@@ -1596,23 +1574,6 @@ int World_Generator::conservative_column_air_ceiling(int chunk_x, int chunk_z) c
     if (m_dimension->terrain != Terrain_Mode::Noise || !m_dimension->ground)
         return std::numeric_limits<int>::max();
 
-    // Never cull a village marker. This predicate is intentionally the same as the
-    // original per-Y chunk_is_definitely_air probe, only executed once per X/Z stack.
-    if (m_dimension->villages) {
-        const int x0 = chunk_x * Config::chunk_size;
-        const int z0 = chunk_z * Config::chunk_size;
-        const int last_x = x0 + Config::chunk_size - 1;
-        const int last_z = z0 + Config::chunk_size - 1;
-        for (int cz = floordiv_int(z0, Structure_Placement::kCellSize);
-             cz <= floordiv_int(last_z, Structure_Placement::kCellSize); ++cz)
-            for (int cx = floordiv_int(x0, Structure_Placement::kCellSize);
-                 cx <= floordiv_int(last_x, Structure_Placement::kCellSize); ++cx) {
-                const auto site = m_structures->village_in_cell(cx, cz);
-                if (site && site->x >= x0 && site->x <= last_x && site->z >= z0 && site->z <= last_z)
-                    return std::numeric_limits<int>::max();
-            }
-    }
-
     const int start_x = chunk_x * Config::chunk_size;
     const int start_z = chunk_z * Config::chunk_size;
     const int last = Config::chunk_size - 1;
@@ -1624,8 +1585,27 @@ int World_Generator::conservative_column_air_ceiling(int chunk_x, int chunk_z) c
     for (const auto& p : probes)
         highest = std::max(highest, column_at(start_x + p[0], start_z + p[1]).height);
 
-    // Identical safety margin for terrain variation and trees; no worldgen change.
-    return highest + Config::chunk_size + 24;
+    // Keep the terrain's original conservative bound. Do not add the entire
+    // terrain margin again on top of a known village roof: that would create
+    // many unnecessary high-Y chunks around each settlement.
+    int ceiling = highest + Config::chunk_size + 24;
+    if (m_dimension->villages) {
+        constexpr int R = Structure_Placement::kRadiusMax + 12;
+        for (int cz = floordiv_int(start_z - R, Structure_Placement::kCellSize);
+             cz <= floordiv_int(start_z + Config::chunk_size - 1 + R, Structure_Placement::kCellSize); ++cz)
+            for (int cx = floordiv_int(start_x - R, Structure_Placement::kCellSize);
+                 cx <= floordiv_int(start_x + Config::chunk_size - 1 + R, Structure_Placement::kCellSize); ++cx) {
+                const auto site = m_structures->village_in_cell(cx, cz);
+                if (!site) continue;
+                const int near_x = std::clamp(site->x, start_x, start_x + Config::chunk_size - 1);
+                const int near_z = std::clamp(site->z, start_z, start_z + Config::chunk_size - 1);
+                const int dx = site->x - near_x, dz = site->z - near_z;
+                if (static_cast<int64_t>(dx) * dx + static_cast<int64_t>(dz) * dz <=
+                    static_cast<int64_t>(site->radius + 12) * (site->radius + 12))
+                    ceiling = std::max(ceiling, get_height(site->x, site->z) + 24);
+            }
+    }
+    return ceiling;
 }
 
 bool World_Generator::chunk_is_definitely_air(int chunk_x, int chunk_y, int chunk_z,
@@ -1645,6 +1625,95 @@ bool World_Generator::chunk_is_definitely_air(int chunk_x, int chunk_y, int chun
     const int ceiling = cached_air_ceiling
         ? *cached_air_ceiling : conservative_column_air_ceiling(chunk_x, chunk_z);
     return start_y > ceiling;
+}
+
+// Village templates are overlaid in the existing chunk-finalization pass, after
+// vegetation and before final palette compaction/heightmap update. A worker may
+// modify ONLY its own chunk; plans/templates are immutable across workers.
+void World_Generator::place_villages_in_chunk(Chunk& chunk) const {
+    if (!m_dimension->villages || !m_dimension->ground ||
+        m_dimension->terrain != Terrain_Mode::Noise) return;
+    // Avoid even the pack lookup for the deep/very high chunk stacks.
+    const int world_start_y = chunk.get_chunk_y() * Config::chunk_height;
+    if (world_start_y > 240 || world_start_y + Config::chunk_height < kSeaLevel - 20) return;
+    const auto& pack = Structure_Pack::instance();
+    if (!pack.ready()) return; // Corrupt/missing asset: worldgen stays usable.
+
+    constexpr int N = Config::chunk_size;
+    constexpr int H = Config::chunk_height;
+    const int x0 = chunk.get_chunk_x() * N;
+    const int y0 = chunk.get_chunk_y() * H;
+    const int z0 = chunk.get_chunk_z() * N;
+    const int x1 = x0 + N - 1, y1 = y0 + H - 1, z1 = z0 + N - 1;
+    constexpr int reach = Structure_Placement::kRadiusMax + 12;
+    // Both nearby and negative-coordinate cells are handled with floor division.
+    for (int cz = floordiv_int(z0 - reach, Structure_Placement::kCellSize);
+         cz <= floordiv_int(z1 + reach, Structure_Placement::kCellSize); ++cz) {
+        for (int cx = floordiv_int(x0 - reach, Structure_Placement::kCellSize);
+             cx <= floordiv_int(x1 + reach, Structure_Placement::kCellSize); ++cx) {
+            auto plan = m_structures->village_plan_in_cell(cx, cz);
+            if (!plan || plan->max_x < x0 || plan->min_x > x1 ||
+                plan->max_z < z0 || plan->min_z > z1 ||
+                plan->max_y < y0 || plan->min_y > y1) continue;
+
+            // Cobblestone road with 3-wide footprint. Smooth paths follow the
+            // sampled ground height; clear ordinary vegetation above the surface.
+            for (const auto& road : plan->roads) {
+                if (road.x + 1 < x0 || road.x - 1 > x1 ||
+                    road.z + 1 < z0 || road.z - 1 > z1 ||
+                    road.y > y1 + 4 || road.y + 4 < y0) continue;
+                for (int dz = -1; dz <= 1; ++dz) {
+                    const int wz = road.z + dz;
+                    if (wz < z0 || wz > z1) continue;
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int wx = road.x + dx;
+                        if (wx < x0 || wx > x1) continue;
+                        for (int dy = 0; dy <= 4; ++dy) {
+                            const int wy = road.y + dy;
+                            if (wy < y0 || wy > y1 || wy < Config::world_min_y ||
+                                wy > Config::world_max_y) continue;
+                            chunk.set_block(wx - x0, wy - y0, wz - z0,
+                                dy == 0 ? Block_Types::Cobblestone : Block_Types::Air);
+                        }
+                    }
+                }
+            }
+
+            // The same loop handles 9x9 houses and the 65x65 fortress template;
+            // an instance is clipped, never copied to a neighbouring chunk.
+            for (const Structure_Instance& inst : plan->buildings) {
+                const Structure_Template* t = inst.custom_template
+                    ? inst.custom_template.get() : pack.get(inst.template_id);
+                if (!t) continue;
+                const int extent = std::max(t->width, t->depth) + 1;
+                if (inst.entrance_world_x + extent < x0 ||
+                    inst.entrance_world_x - extent > x1 ||
+                    inst.entrance_world_z + extent < z0 ||
+                    inst.entrance_world_z - extent > z1 ||
+                    inst.base_world_y - 8 > y1 ||
+                    inst.base_world_y + t->height < y0) continue;
+                for (const Structure_Voxel& voxel : t->voxels) {
+                    int x, y, z;
+                    Structure_Pack::world_position(*t, inst, voxel, x, y, z);
+                    if (x < x0 || x > x1 || y < y0 || y > y1 ||
+                        z < z0 || z > z1 || y < Config::world_min_y ||
+                        y > Config::world_max_y) continue;
+                    const int lx = x - x0, ly = y - y0, lz = z - z0;
+                    chunk.set_block(lx, ly, lz, voxel.type);
+                    // Meta 0 is significant when a north-facing door is rotated:
+                    // rotate low 2 facing bits and keep the upper-door flag.
+                    if (voxel.type != Block_Types::Air &&
+                        (voxel.meta != 0 || (voxel.flags & 1u))) {
+                        const uint8_t meta = (voxel.flags & 1u)
+                            ? static_cast<uint8_t>((voxel.meta & ~Block_Meta::direction_mask) |
+                                ((voxel.meta + inst.rotation) & Block_Meta::direction_mask))
+                            : voxel.meta;
+                        chunk.set_meta(lx, ly, lz, meta);
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,7 +1817,8 @@ void World_Generator::decorate_column(Chunk& chunk, int world_x, int world_z) co
             if (island_top + 1 <= Config::world_max_y && chunk_max_y >= island_top + 1 &&
                 chunk_min_y <= island_top + 16) {
                 Fast_Rng sky_rng(hash_position3(world_x, island_top, world_z, m_seed, 0x5A73));
-                Tree_Generator::place_skywood_tree(world_x, island_top, world_z, put_if_air, sky_rng);
+                Tree_Generator::place_tree(Tree_Type::Skywood, world_x, island_top, world_z,
+                                           put_if_air, sky_rng, m_seed);
                 if ((hash_position(world_x, world_z, m_seed, 0x5A74) % 5u) == 0u)
                     put_if_air(world_x, island_top + 1, world_z, Block_Types::Sky_Flower);
             }
@@ -2075,7 +2145,8 @@ void World_Generator::decorate_column(Chunk& chunk, int world_x, int world_z) co
         (tree_type == Tree_Type::Slimewood
             ? is_sparse_tree_anchor(world_x, world_z, m_seed)
             : is_tree_anchor(world_x, world_z, m_seed, anchor_radius) &&
-              passes_tree_density(world_x, world_z, m_seed, tree_density))) {
+              passes_tree_density(world_x, world_z, m_seed, tree_density)) &&
+        (!m_dimension->villages || !m_structures->village_territory_at(world_x, world_z))) {
         const auto setter = [&](int x, int y, int z, Block_Types type) {
             // Воксель вне этого чанка не меняется — полный get_block (колонка + шум) для него не нужен.
             const int lx = x - chunk.get_chunk_x() * Config::chunk_size;
@@ -2090,10 +2161,11 @@ void World_Generator::decorate_column(Chunk& chunk, int world_x, int world_z) co
             if (get_block(x, y, z) != Block_Types::Air) return;
             chunk.set_block(lx, ly, lz, type);
         };
-        Tree_Generator::place_tree(tree_type, world_x, terrain_height, world_z, setter, rng);
+        Tree_Generator::place_tree(tree_type, world_x, terrain_height, world_z, setter, rng, m_seed);
     }
 
-    if (biome == Biome_Id::Desert && tree_roll == 0) {
+    if (biome == Biome_Id::Desert && tree_roll == 0 &&
+        (!m_dimension->villages || !m_structures->village_territory_at(world_x, world_z))) {
         const auto setter = [&](int x, int y, int z, Block_Types type) {
             const int lx = x - chunk.get_chunk_x() * Config::chunk_size;
             const int ly = y - chunk_min_y;
@@ -2103,7 +2175,7 @@ void World_Generator::decorate_column(Chunk& chunk, int world_x, int world_z) co
                 lz >= 0 && lz < Config::chunk_size)
                 chunk.set_block(lx, ly, lz, type);
         };
-        Tree_Generator::place_tree(Tree_Type::Palm, world_x, terrain_height, world_z, setter, rng);
+        Tree_Generator::place_tree(Tree_Type::Palm, world_x, terrain_height, world_z, setter, rng, m_seed);
     }
 
     // Засухоустойчивые растения пустынь: кактусы появляются редко и только на песке.

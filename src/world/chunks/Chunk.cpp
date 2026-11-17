@@ -306,6 +306,10 @@ void Chunk::finish_generation(bool already_known_air, bool layer_metadata_precom
         }
     }
 
+    // The same finalization phase applies villages AFTER trees/flora, so buildings,
+    // cleared interiors and streets have deterministic priority. No extra worldgen job.
+    m_world_generator->place_villages_in_chunk(*this);
+
     // Декорации меняют сетку через set() — выкидываем ставшие ненужными записи палитры.
     m_blocks.compact();
     if (!layer_metadata_precomputed) recalculate_metadata();

@@ -29,7 +29,13 @@ class Tree_Generator {
 public:
     using Block_Setter = std::function<void(int x, int y, int z, Block_Types type)>;
 
-    static void place_tree(Tree_Type type, int x, int y, int z, Block_Setter setter, Fast_Rng& rng);
+    // Uses prebuilt variants from the .tree archive if available; same setter pipeline as before.
+    // world_seed fixes the 36-slot spatial cycle independently of worker execution order.
+    static void place_tree(Tree_Type type, int x, int y, int z, Block_Setter setter,
+                           Fast_Rng& rng, uint64_t world_seed = 0);
+    // Original procedural implementation: offline pack builder and fail-safe fallback.
+    static void place_tree_legacy(Tree_Type type, int x, int y, int z,
+                                  Block_Setter setter, Fast_Rng& rng);
     static void place_oak_tree(int x, int y, int z, Block_Setter setter, Fast_Rng& rng);
     static void place_palm_tree(int x, int y, int z, Block_Setter setter, Fast_Rng& rng);
     static void place_acacia_tree(int x, int y, int z, Block_Setter setter, Fast_Rng& rng);

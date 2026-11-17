@@ -347,6 +347,11 @@ bool Player::block_hits_box(int x, int y, int z, const glm::vec3& pmin, const gl
         shape_meta = shape_connection_meta(props.shape, connected(0,-1), connected(1,0),
                                             connected(0,1), connected(-1,0));
     }
+    if (props.shape == Block_Shape::Wire) {
+        shape_meta = wire_shape_meta(shape_meta, glm::ivec3(x,y,z),
+            [&](glm::ivec3 n){ return chunk_manager.get_block_world(n.x,n.y,n.z); },
+            [&](glm::ivec3 n){ return chunk_manager.get_block_meta_world(n.x,n.y,n.z); });
+    }
     const int count = shape_boxes(props.shape, shape_meta, boxes);
     const glm::vec3 cell(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
     for (int b = 0; b < count; ++b) {

@@ -12,6 +12,7 @@
 #include "utils/profiling/Profiler.h"
 #include "core/game/Game.h"
 #include "world/structures/Dungeon_Layout.h"
+#include "world/generation/Tree_Pack.h"
 #include "core/app/Application.h"
 #include "hud/layouts/Panel_Layouts.h"
 #include "utils/text/Localization.h"
@@ -122,6 +123,18 @@ bool Game::initialize() {
     // Триггерим загрузку blocks.json прямо здесь (Block_Registry — ленивый синглтон,
     // конструируется при первом обращении) — важно сделать это ПОСЛЕ атласов выше.
     Block_Registry::get_instance();
+
+    // Preload the immutable tree template archive before any chunk workers begin.
+    // Generation/plant growth read it without I/O or locking; missing/corrupt archive
+    // automatically uses the existing procedural Tree_Generator implementation.
+    const Tree_Pack& tree_pack = Tree_Pack::instance();
+    if (!tree_pack.enabled()) {
+        LOG_INFO("Tree pack disabled (OPTICRAFT_TREE_PACK=on to try it)");
+    } else if (tree_pack.valid()) {
+        LOG_INFO("Tree pack ready: " + std::to_string(tree_pack.template_count()) + " variants");
+    } else {
+        LOG_WARN("Tree pack unavailable: using procedural tree fallback");
+    }
 
     if (!m_renderer_ptr->initialize("blocks_main")) {
         LOG_ERROR("Failed to initialize renderer");
@@ -489,10 +502,13 @@ void Game::load_options() {
             else if (key == "film_grain") m_film_grain = std::clamp(std::stof(value), 0.0f, 1.0f);
             else if (key == "vignette") m_vignette_level = std::clamp(std::stoi(value), 0, Config::vignette_level_count - 1);
             else if (key == "meshlet_renderer") m_meshlet_renderer_enabled = std::stoi(value) != 0;
+            else if (key == "gpu_backend_mode") m_gpu_backend_mode = std::clamp(std::stoi(value), -1, 1);
             else if (key == "language") Localization::get().set_language(value);
         } catch (...) {}
     }
     Hud::set_gui_scale_setting(m_gui_scale_setting);
+    m_renderer_ptr->set_gpu_compatibility_mode(m_gpu_backend_mode < 0
+        ? m_renderer_ptr->is_gpu_compatibility_recommended() : m_gpu_backend_mode == 1);
     m_renderer_ptr->set_flora_render_distance(m_flora_distance);
     m_renderer_ptr->set_render_distance(m_render_distance);
     m_renderer_ptr->set_meshlet_renderer_enabled(m_meshlet_renderer_enabled);
@@ -515,6 +531,7 @@ void Game::save_options() const {
          << "film_grain=" << m_film_grain << "\n"
          << "vignette=" << m_vignette_level << "\n"
          << "meshlet_renderer=" << (get_meshlet_renderer_enabled() ? 1 : 0) << "\n"
+         << "gpu_backend_mode=" << m_gpu_backend_mode << "\n"
          << "language=" << Localization::get().get_language() << "\n";
 }
 
@@ -566,6 +583,17 @@ void Game::set_vignette_level(int level) {
 
 bool Game::is_meshlet_renderer_available() const {
     return m_renderer_ptr && m_renderer_ptr->is_meshlet_renderer_available();
+}
+
+void Game::set_gpu_backend_mode(int mode) {
+    m_gpu_backend_mode = std::clamp(mode, -1, 1);
+    if (m_renderer_ptr) {
+        const bool compatibility = m_gpu_backend_mode < 0
+            ? m_renderer_ptr->is_gpu_compatibility_recommended() : m_gpu_backend_mode == 1;
+        m_renderer_ptr->set_gpu_compatibility_mode(compatibility);
+        m_meshlet_renderer_enabled = m_renderer_ptr->is_meshlet_renderer_enabled();
+    }
+    save_options();
 }
 
 void Game::set_meshlet_renderer_enabled(bool enabled) {

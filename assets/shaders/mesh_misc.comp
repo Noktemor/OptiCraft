@@ -263,6 +263,42 @@ void main() {
                     if (connects) meta |= (1u << dir);
                 }
             }
+            // Copper wire shape=5: resolve arms directly from the packed neighbor channels.
+            // Avoids storing connection masks in chunk metadata or scheduling extra remesh passes.
+            if (shape == 5u) {
+                uint mount = raw_meta & 7u;
+                if (mount > 4u) mount = 0u; // legacy floor wires
+                const ivec3 floor_dirs[4] = ivec3[4](ivec3(0,0,-1),ivec3(1,0,0),ivec3(0,0,1),ivec3(-1,0,0));
+                const ivec3 wall_x_dirs[4] = ivec3[4](ivec3(0,0,-1),ivec3(0,1,0),ivec3(0,0,1),ivec3(0,-1,0));
+                const ivec3 wall_z_dirs[4] = ivec3[4](ivec3(0,-1,0),ivec3(1,0,0),ivec3(0,1,0),ivec3(-1,0,0));
+                uint arms=0u;
+                for (uint dir=0u;dir<4u;++dir) {
+                    const ivec3 step = (mount==1u || mount==2u) ? wall_x_dirs[dir] :
+                                        (mount==3u || mount==4u) ? wall_z_dirs[dir] : floor_dirs[dir];
+                    const ivec3 n = cell + step;
+                    const uint nid=block_at(hb,n.x,n.y,n.z);
+                    const uint ns=(block_flags[nid] >> FLAG_SHAPE_SHIFT) & 31u;
+                    const uint nm=meta_at(hb,n.x,n.y,n.z)&7u;
+                    const uint wall_for_dir[4]=uint[4](4u,1u,3u,2u);
+                    const bool other_wire=ns==5u && (nm==mount ||
+                                                     (mount==0u && nm==wall_for_dir[dir]));
+                    const bool component=ns==4u || nid==157u || nid==158u ||
+                        nid==159u || nid==160u || nid==161u || nid==162u ||
+                        nid==163u || nid==164u;
+                    if(other_wire || component) arms|=1u<<dir;
+                }
+                uint riser=0u;
+                if(mount!=0u) {
+                    const ivec3 away=mount==1u ? ivec3(-1,0,0) :
+                                      mount==2u ? ivec3(1,0,0) :
+                                      mount==3u ? ivec3(0,0,-1) : ivec3(0,0,1);
+                    const ivec3 n=cell+away;
+                    const uint nid=block_at(hb,n.x,n.y,n.z);
+                    if(((block_flags[nid] >> FLAG_SHAPE_SHIFT)&31u)==5u &&
+                        (meta_at(hb,n.x,n.y,n.z)&7u)==0u) riser=128u;
+                }
+                meta=mount | (arms << 3u) | riser;
+            }
             const uvec2 index = shape_index[shape * 256u + meta];
             for (uint b = 0u; b < index.x; ++b) {
                 uvec2 box = shape_boxes[index.y + b];

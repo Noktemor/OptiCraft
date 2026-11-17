@@ -1,4 +1,5 @@
 #include "world/generation/Tree_Generator.h"
+#include "world/generation/Tree_Pack.h"
 
 #include <algorithm>
 #include <cmath>
@@ -58,7 +59,13 @@ namespace {
 }
 
 void Tree_Generator::place_tree(Tree_Type type, int x, int y, int z,
-                                Block_Setter setter, Fast_Rng& rng) {
+                                Block_Setter setter, Fast_Rng& rng, uint64_t world_seed) {
+    if (Tree_Pack::instance().place(type, x, y, z, setter, world_seed)) return;
+    place_tree_legacy(type, x, y, z, setter, rng);
+}
+
+void Tree_Generator::place_tree_legacy(Tree_Type type, int x, int y, int z,
+                                       Block_Setter setter, Fast_Rng& rng) {
     switch (type) {
         case Tree_Type::Oak:       place_oak_tree(x, y, z, setter, rng); break;
         case Tree_Type::Palm:      place_palm_tree(x, y, z, setter, rng); break;

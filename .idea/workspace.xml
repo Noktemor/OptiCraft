@@ -20,6 +20,7 @@
   </component>
   <component name="CMakeRunConfigurationManager">
     <generated>
+      <config projectName="OptiCraft" targetName="treepack" />
       <config projectName="OptiCraft" targetName="embed" folderName="ExternalProjectTargets/embed" />
       <config projectName="OptiCraft" targetName="json2bin" />
       <config projectName="OptiCraft" targetName="OptiCraft" />
@@ -33,11 +34,22 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="версия 0,11 стабильная">
+    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="документация">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GPU_WORLDGEN_README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/STREAMING_UPDATE_README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/blocks.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/blocks.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/lang/en.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/en.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/lang/en.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/en.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/lang/ru.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/ru.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/lang/ru.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/ru.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/recipe.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/recipe.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/texture/texture_atlas.png" beforeDir="false" afterPath="$PROJECT_DIR$/assets/texture/texture_atlas.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/CHECKLIST.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/CHECKLIST.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/ENCHANTING_SYSTEM.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/ENCHANTING_SYSTEM.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" afterDir="false" />
@@ -52,6 +64,32 @@
       <change beforePath="$PROJECT_DIR$/documentation/WORLDGEN_PERFORMANCE.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/WORLDGEN_PERFORMANCE.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/history_version.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/history_version.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/problems.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/problems.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/app/Application.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Application.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/player/Player.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/player/Player.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/physics/Raycast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/physics/Raycast.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/crafting/Sapling_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/crafting/Sapling_Manager.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Structure_Placement.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Structure_Placement.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Structure_Placement.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Structure_Placement.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Generator.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Generator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/logic/Logic_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/logic/Logic_Manager.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/logic/Logic_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/logic/Logic_Manager.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/village_probe/village_probe.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/village_probe/village_probe.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -96,23 +134,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0000000000000002" />
-      <entry key="MS500" value="1.0008140857863963" />
-      <entry key="S2" value="1.3348071388140585" />
-      <entry key="S5" value="2.6473389592867997" />
-      <entry key="S10" value="4.751379035785356" />
-      <entry key="S30" value="9.109984885941047" />
-      <entry key="S60" value="11.278667374424309" />
-      <entry key="M2" value="14.339731971910737" />
-      <entry key="M5" value="25.086796192349425" />
-      <entry key="M10" value="37.05093712342895" />
-      <entry key="M15" value="47.9079603364329" />
-      <entry key="M30" value="90.94530445649028" />
-      <entry key="H1" value="202.65472956348003" />
-      <entry key="H2" value="549.5858043401416" />
-      <entry key="H4" value="1467.1556471152392" />
-      <entry key="D1" value="4643.006639688425" />
-      <entry key="W1" value="5828.790317974479" />
+      <entry key="MS100" value="1.0013825556840141" />
+      <entry key="MS500" value="1.4656871711013006" />
+      <entry key="S2" value="2.6195174229345795" />
+      <entry key="S5" value="4.1474706158401915" />
+      <entry key="S10" value="6.340883893917023" />
+      <entry key="S30" value="10.862640002798495" />
+      <entry key="S60" value="13.12741339863405" />
+      <entry key="M2" value="16.244886838474944" />
+      <entry key="M5" value="27.022077794504266" />
+      <entry key="M10" value="39.003681310239486" />
+      <entry key="M15" value="49.86744813705938" />
+      <entry key="M30" value="92.907198851396" />
+      <entry key="H1" value="204.61251239204117" />
+      <entry key="H2" value="551.5287255782588" />
+      <entry key="H4" value="1469.0795399086512" />
+      <entry key="D1" value="4644.966514781678" />
+      <entry key="W1" value="5830.783122182666" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -121,36 +159,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="1.6081954856187178E-205" />
-      <entry key="M2" value="4.0102312721570573E-103" />
-      <entry key="M5" value="1.0996836492090857E-41" />
-      <entry key="M10" value="3.316162807192799E-21" />
-      <entry key="M15" value="2.224608259781675E-14" />
-      <entry key="M30" value="1.5402446624198887E-7" />
-      <entry key="H1" value="5.06574687314458E-4" />
-      <entry key="H2" value="0.03862175458940726" />
-      <entry key="H4" value="0.3786308151805918" />
-      <entry key="D1" value="2.687745450126352" />
-      <entry key="W1" value="3.778736391438806" />
+      <entry key="S60" value="1.5883102926557907E-205" />
+      <entry key="M2" value="3.9853610785670533E-103" />
+      <entry key="M5" value="1.0969506000676571E-41" />
+      <entry key="M10" value="3.3120394058154035E-21" />
+      <entry key="M15" value="2.2227637876557366E-14" />
+      <entry key="M30" value="1.5396060044786564E-7" />
+      <entry key="H1" value="5.064696515694204E-4" />
+      <entry key="H2" value="0.03861775036735109" />
+      <entry key="H4" value="0.37861118684966116" />
+      <entry key="D1" value="2.6877222273745276" />
+      <entry key="W1" value="3.7787317272544287" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.7631296044802798" />
-      <entry key="MS500" value="0.9481745456049572" />
-      <entry key="S2" value="1.3197838178658687" />
-      <entry key="S5" value="2.638461352421383" />
-      <entry key="S10" value="4.74420951472238" />
-      <entry key="S30" value="9.105325764235115" />
-      <entry key="S60" value="11.275735577680033" />
-      <entry key="M2" value="14.337980022074138" />
-      <entry key="M5" value="25.085827998081626" />
-      <entry key="M10" value="37.05030336413693" />
-      <entry key="M15" value="47.90740793389144" />
-      <entry key="M30" value="90.94467073259587" />
-      <entry key="H1" value="202.65445814727943" />
-      <entry key="H2" value="549.6234888255001" />
-      <entry key="H4" value="1467.5330548128657" />
-      <entry key="D1" value="4645.693629352295" />
-      <entry key="W1" value="5832.568913143753" />
+      <entry key="MS100" value="0.8655469285833338" />
+      <entry key="MS500" value="1.4090404606405253" />
+      <entry key="S2" value="2.589887916884453" />
+      <entry key="S5" value="4.130926417188621" />
+      <entry key="S10" value="6.329553538528168" />
+      <entry key="S30" value="10.856482798599531" />
+      <entry key="S60" value="13.123704636014656" />
+      <entry key="M2" value="16.242737398620957" />
+      <entry key="M5" value="27.020948243295816" />
+      <entry key="M10" value="39.002966387014716" />
+      <entry key="M15" value="49.866841542234155" />
+      <entry key="M30" value="92.90653805729896" />
+      <entry key="H1" value="204.6122273636726" />
+      <entry key="H2" value="551.5663993218573" />
+      <entry key="H4" value="1469.4569246238755" />
+      <entry key="D1" value="4647.653480659729" />
+      <entry key="W1" value="5834.561712606558" />
     </decayedShown>
   </component>
   <component name="ProjectApplicationVersion">
@@ -204,7 +242,7 @@
       <recent name="$PROJECT_DIR$/cmake-build-debug/assets/mobs" />
     </key>
   </component>
-  <component name="RunManager" selected="Shell Script.OptiCraft session + report">
+  <component name="RunManager" selected="CMake Application.OptiCraft">
     <configuration name="OptiCraft" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -220,9 +258,15 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration name="treepack" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="treepack" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="treepack">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <list>
       <item itemvalue="CMake Application.embed" />
       <item itemvalue="CMake Application.OptiCraft" />
+      <item itemvalue="CMake Application.treepack" />
       <item itemvalue="CMake Application.json2bin" />
       <item itemvalue="Shell Script.OptiCraft + Tracy" />
       <item itemvalue="Shell Script.OptiCraft session + report" />
@@ -322,7 +366,8 @@
     <MESSAGE value="попытка исправить накопившиеся проблемы рендера" />
     <MESSAGE value="исправление болячек рендера" />
     <MESSAGE value="версия 0,11 стабильная" />
-    <option name="LAST_COMMIT_MESSAGE" value="версия 0,11 стабильная" />
+    <MESSAGE value="документация" />
+    <option name="LAST_COMMIT_MESSAGE" value="документация" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

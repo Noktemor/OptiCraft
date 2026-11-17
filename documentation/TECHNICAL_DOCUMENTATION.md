@@ -1909,7 +1909,7 @@ Renderer invalidates/upload cache
 10. `assets/shaders/` --- фактическое поведение GPU passes.
 11. `assets/recipe.json` --- рецепты верстака.
 
-`README.md` содержит описание проекта и актуальной версии; он не
+`README.md` содержит историю версий и пользовательские заметки; он не
 должен рассматриваться как более точное описание текущей реализации, чем
 исходный код.
 
@@ -2246,7 +2246,7 @@ streaming limits и mesh section calculations.
 - При наличии `ARB_indirect_parameters` GPU уплотняет видимые команды opaque solid/shaped и записывает точное количество команд в parameter buffer. EXT/NV mesh-task indirect-count либо классический `MultiDrawArraysIndirectCountARB` передают драйверу только плотный диапазон непустых команд. В отсутствие API остаётся fixed-count indirect fallback.
 - Flora/liquid не compact-ятся: их команды сохраняют детерминированный обратный порядок для alpha blending. Это сознательный компромисс между GPU compaction и корректностью прозрачности.
 - LOD-порог/постановка задач выбираются на CPU по позиции игрока; GPU исполняет culling, compaction indirect-команд, compute meshing, task/mesh shading и растеризацию. Это не означает, что генерация мира или физика перенесены на GPU.
-- Проверено: `git diff --check` проходит. Осталось проверить полную CMake-сборку, компиляцию GLSL и запуск игры.
+- Проверка в текущей среде: `git diff --check` проходит. Полная CMake-сборка и компиляция GLSL не выполнены: отсутствуют OpenGL/GLX development headers/libraries, GLM C++ headers и GLSL compiler. Поведение на пользовательском GPU необходимо подтвердить запуском и логом драйвера.
 - Расширенный HUD (`F3` + `F4`) показывает отдельные CPU-времена `update` и `render`. Это позволяет отличить нагрузку игровой симуляции (тики, AI, жидкости, блок-сущности) от CPU-части OpenGL submission; эти значения не являются временем выполнения GPU-шэйдеров.
 - В `F3+F4` также выводятся асинхронные `GPU chunk pass` миллисекунды (кольцо `GL_TIME_ELAPSED` query без ожидания результата), отдельно от CPU `update` и `render`. Если update близок к 100 мс — ограничение в симуляции; если GPU chunk pass близок к 100 мс — GPU перегружен; если CPU render высокий при низком GPU-времени — узкое место в подготовке/отправке команд.
 

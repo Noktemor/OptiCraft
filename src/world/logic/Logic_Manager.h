@@ -61,6 +61,7 @@ public:
 
     // --- Классификация блоков ---
     static bool is_wire(Block_Types type);
+    static bool is_interactable(Block_Types type); // lever, button and repeater; NOT observer/piston
     // Любой элемент красной логики (провод, рычаг, кнопка, зажиматель, повторитель, и их состояния).
     static bool is_node(Block_Types type);
     // Крепятся к грани блока-опоры (рычаг, кнопка, зажиматель). Грань — в метаданных (0..5).
@@ -121,6 +122,12 @@ private:
     };
     std::map<Redstone_Key, Pending> m_pending;   // отложенные переключения зажимателя и повторителя
     std::map<Redstone_Key, int> m_pulses;         // сколько тиков кнопка ещё нажата
+    std::map<Redstone_Key, uint32_t> m_observed_state; // last sampled watched block type/meta
+    std::map<Redstone_Key, int> m_observer_pulse;  // active observer pulse duration
+    std::set<Redstone_Key> m_powered_doors;       // only redstone-controlled doors, keyed by bottom half
+
+    bool piston_set(const World_Access& world, glm::ivec3 pos, Block_Types type, uint8_t meta,
+                    bool extend);
     float m_accumulator = 0.0f;
 };
 

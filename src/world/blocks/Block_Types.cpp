@@ -468,6 +468,7 @@ void Block_Registry::load_from_file(const std::string& path) {
                 else if (sh == "plate") properties.shape = Block_Shape::Plate;
                 else if (sh == "button") properties.shape = Block_Shape::Button;
                 else if (sh == "wire") properties.shape = Block_Shape::Wire;
+                else if (sh == "piston_head") properties.shape = Block_Shape::PistonHead;
                 else if (sh == "fence") properties.shape = Block_Shape::Fence;
                 else if (sh == "wall") properties.shape = Block_Shape::Wall;
                 else if (sh == "fence_gate") properties.shape = Block_Shape::FenceGate;

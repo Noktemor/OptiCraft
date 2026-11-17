@@ -11,6 +11,7 @@
 //    полблока, дальше ещё полблока — за шаг из двух половин поднимается ровно один блок.
 
 #include <cstdint>
+#include <functional>
 #include <glm/glm.hpp>
 #include "world/blocks/Block_Types.h"
 
@@ -35,6 +36,12 @@ uint8_t stairs_high_side(uint8_t meta);
 // применяется в GPU, raycast и физике (сосед может быть полнотелым кубом).
 bool shapes_connect(Block_Shape own, Block_Shape neighbor, bool neighbor_full_cube);
 uint8_t shape_connection_meta(Block_Shape own, bool north, bool east, bool south, bool west);
+
+// Dynamic wire mesh: 3-bit mount in stored metadata, four connection bits evaluated from neighbors.
+// Reader returns type+metadata of a world cell; works for raycasts, without modifying the world.
+uint8_t wire_shape_meta(uint8_t mount, const glm::ivec3& pos,
+                        const std::function<Block_Types(glm::ivec3)>& type,
+                        const std::function<uint8_t(glm::ivec3)>& meta);
 
 // Противоположное направление (для установки: ступенька высокой стороной от игрока).
 uint8_t opposite_facing(uint8_t meta);

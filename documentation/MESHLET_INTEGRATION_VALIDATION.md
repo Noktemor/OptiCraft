@@ -29,7 +29,7 @@ Results in this environment:
 
 - `git diff --check`: passed.
 - Russian and English localization JSON parsing: passed.
-- OpenGL context creation: passed.
+- Surfaceless Mesa 25.0.7 OpenGL 4.5 context: passed.
 - Shader compile/link: `gpu_build_meshlets.comp`, `gpu_cull_meshlets.comp`, `gpu_cull_commands.comp`, `terrain_gpu_vertex.glsl + terrain_gpu_fragment.glsl`, `terrain_gpu_misc_vertex.glsl + terrain_gpu_misc_fragment.glsl`: passed.
 - Synthetic GPU dispatch: solid AABB `(0,0,0.998)..(1,1,1.002)` passed.
 - Synthetic GPU dispatch: shaped AABB `(1,2,3)..(1.5,2.5,3.5)` from the engine's packed 1/64 box coordinates passed.
@@ -40,7 +40,7 @@ Results in this environment:
 ## Not verified in this environment
 
 - Full C++ project build: CMake configuration stops at `FindOpenGL` because OpenGL development headers/libraries are unavailable in this environment. Compilation of the complete game therefore cannot be claimed.
-- Full OptiCraft gameplay: not tested.
+- Real OptiCraft gameplay on Intel UHD: not run here.
 - FPS improvement: not measured. The Meshlet path may reduce vertex work in scenes with substantial partial occlusion, but stream uploads and additional culling/command work can cost more in open scenes. A/B measurement on the target GPU is required.
 
 ## A/B procedure

@@ -314,6 +314,15 @@ private:
     // Optional EXT/NV task+mesh pipelines. The GL 4.3 compute/vertex-pulling path remains the fallback.
     unsigned int m_gpu_mesh_solid_program = 0;
     unsigned int m_gpu_mesh_misc_program = 0;
+    // NVIDIA's task/mesh path and current-frame Hi-Z are optional accelerators, not
+    // prerequisites for the compute mesher. Auto-select conservative GL 4.3 indirect
+    // vertex pulling on NVIDIA; the user can switch profiles in the Options menu.
+    // No second meshing or chunk-upload pipeline is created by this setting.
+    bool m_gpu_compatibility_recommended = false;
+    bool m_gpu_compatibility_mode = false;
+    bool use_task_mesh_shaders() const {
+        return m_gpu_mesh_shader_ready && !m_gpu_compatibility_mode && !m_meshlet_renderer_enabled;
+    }
     bool m_gpu_mesh_shader_ready = false;
     // EXT and NV expose the same indirect entry-point signature; mode selects command layout.
     using MultiDrawMeshTasksIndirect = void (GLAD_API_PTR *)(GLintptr, GLsizei, GLsizei);
@@ -486,6 +495,23 @@ private:
     std::array<Gpu_Frame_List, kGpuKindCount> m_gpu_lists{};
 
 public:
+    void set_gpu_compatibility_mode(bool enabled) {
+        if (m_gpu_compatibility_mode == enabled) return;
+        m_gpu_compatibility_mode = enabled;
+        // Counts must agree with the active draw API: mesh-task indirect-count and
+        // DrawArrays indirect-count availability can differ even on the same driver.
+        // The conservative NVIDIA path also avoids indirect-count/atomic
+        // command compaction. This isolates a second driver-sensitive draw path;
+        // fixed-count MDI still uses the same GPU frustum-culling compute shader.
+        m_gpu_compact_opaque_commands = !m_gpu_compatibility_mode &&
+            (use_task_mesh_shaders()
+                 ? m_gl_multi_draw_mesh_tasks_indirect_count != nullptr
+                 : m_gl_multi_draw_arrays_indirect_count != nullptr);
+        if (enabled) m_meshlet_renderer_enabled = false;
+        m_gpu_hiz_valid = false;
+    }
+    bool is_gpu_compatibility_mode() const { return m_gpu_compatibility_mode; }
+    bool is_gpu_compatibility_recommended() const { return m_gpu_compatibility_recommended; }
     void set_occlusion_enabled(bool enabled) { m_occlusion_enabled = enabled; } // toggles current-frame GPU visibility
     // Изометрический снимок: чанки грузятся на GPU все сразу, кадр ждёт счётчиков квадов (без этого часть
     // чанков доехала бы до видеокарты в следующих кадрах, а снимок должен быть полным).
@@ -496,13 +522,23 @@ public:
                                  int kind = 0);
     bool is_occlusion_enabled() const { return m_occlusion_enabled; }
     void set_meshlet_renderer_enabled(bool enabled) {
-        if (enabled && !m_meshlet_renderer_ready) enabled = false;
+        if (enabled && (!m_meshlet_renderer_ready || m_gpu_compatibility_mode)) enabled = false;
         if (m_meshlet_renderer_enabled == enabled) return;
         m_meshlet_renderer_enabled = enabled;
+        // Switching meshlet/legacy mode changes the indirect draw API and therefore
+        // whether GPU command compaction is supported. Keep culling and drawing in sync.
+        // The conservative NVIDIA path also avoids indirect-count/atomic
+        // command compaction. This isolates a second driver-sensitive draw path;
+        // fixed-count MDI still uses the same GPU frustum-culling compute shader.
+        m_gpu_compact_opaque_commands = !m_gpu_compatibility_mode &&
+            (use_task_mesh_shaders()
+                 ? m_gl_multi_draw_mesh_tasks_indirect_count != nullptr
+                 : m_gl_multi_draw_arrays_indirect_count != nullptr);
+        m_gpu_hiz_valid = false;
         if (enabled) m_meshlet_bounds_dirty = true; // rebuild descriptors for already resident chunks
     }
     bool is_meshlet_renderer_enabled() const { return m_meshlet_renderer_enabled; }
-    bool is_meshlet_renderer_available() const { return m_meshlet_renderer_ready; }
+    bool is_meshlet_renderer_available() const { return m_meshlet_renderer_ready && !m_gpu_compatibility_mode; }
 
     Renderer();
     ~Renderer();

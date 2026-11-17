@@ -1,6 +1,7 @@
 #include "world/generation/Structure_Placement.h"
 
 #include "world/generation/River_Network.h"
+#include "world/generation/Village_Layout.h"
 
 #include <algorithm>
 #include <atomic>
@@ -39,7 +40,7 @@ uint64_t hash3(uint32_t seed, int a, int b, uint64_t salt) {
 }
 
 inline int64_t cell_key(int cx, int cz) {
-    return (static_cast<int64_t>(cx) << 32) ^ static_cast<uint32_t>(cz);
+    return static_cast<int64_t>((static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32) | static_cast<uint32_t>(cz));
 }
 
 struct Last_Cell {
@@ -62,6 +63,7 @@ Structure_Placement::~Structure_Placement() = default;
 void Structure_Placement::clear_cache() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_cells.clear();
+    m_plans.clear();
     t_last_cell.valid = false;
 }
 
@@ -151,4 +153,24 @@ bool Structure_Placement::village_center_at(int world_x, int world_z) const {
     }
     const auto& site = t_last_cell.site;
     return site && site->x == world_x && site->z == world_z;
+}
+
+std::shared_ptr<const Village_Plan> Structure_Placement::village_plan_in_cell(int cell_x, int cell_z) const {
+    const int64_t key = cell_key(cell_x, cell_z);
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto it = m_plans.find(key);
+        if (it != m_plans.end()) return it->second;
+    }
+    const auto site = village_in_cell(cell_x, cell_z);
+    if (!site) return nullptr;
+    // Compute outside the lock: sampling the height field may be non-trivial.
+    auto plan = std::make_shared<const Village_Plan>(make_village_plan(m_seed, *site, m_height));
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // Bounded cache. An evicted layout can always be rebuilt from seed + cell.
+        if (m_plans.size() >= 256) m_plans.clear();
+        auto [it, inserted] = m_plans.emplace(key, plan);
+        return it->second;
+    }
 }

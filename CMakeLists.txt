@@ -87,12 +87,15 @@ set(SOURCES
         ${SRC_DIR}/world/generation/Cave_Network.cpp
         ${SRC_DIR}/world/generation/River_Network.cpp
         ${SRC_DIR}/world/generation/Structure_Placement.cpp
+        ${SRC_DIR}/world/generation/Structure_Pack.cpp
+        ${SRC_DIR}/world/generation/Village_Layout.cpp
         ${SRC_DIR}/world/blocks/Block_Interaction.cpp
         ${SRC_DIR}/world/chunks/Chunk.cpp
         ${SRC_DIR}/world/chunks/Chunk_Manager.cpp
         ${SRC_DIR}/world/generation/Generation_Type.cpp
         ${SRC_DIR}/world/generation/Structures.cpp
         ${SRC_DIR}/world/generation/Tree_Generator.cpp
+        ${SRC_DIR}/world/generation/Tree_Pack.cpp
         ${SRC_DIR}/world/generation/World_Generator.cpp
         ${SRC_DIR}/world/generation/Gpu_Worldgen.cpp
         ${SRC_DIR}/world/storage/World_File.cpp
@@ -145,6 +148,15 @@ add_executable(json2bin
         ${SRC_DIR}/utils/logging/Logger.cpp
 )
 target_include_directories(json2bin PRIVATE ${SRC_DIR})
+
+# =============== Офлайновый сборщик assets/trees/trees.tree ===============
+# Не входит в обычную сборку/игровой исполняемый файл. Запускается вручную при
+# изменении исходных вариантов деревьев; не участвует в генерации чанков.
+add_executable(treepack EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/treepack/treepack.cpp
+        ${SRC_DIR}/world/generation/Tree_Generator.cpp
+        ${SRC_DIR}/world/generation/Tree_Pack.cpp)
+target_include_directories(treepack PRIVATE ${SRC_DIR})
 
 # =============== Создаём исполняемый файл ===============
 add_executable(${PROJECT_NAME}
@@ -206,12 +218,16 @@ target_sources(${PROJECT_NAME} PRIVATE
         ${SRC_DIR}/world/generation/Cave_Network.h
         ${SRC_DIR}/world/generation/River_Network.h
         ${SRC_DIR}/world/generation/Structure_Placement.h
+        ${SRC_DIR}/world/generation/Structure_Pack.h
+        ${SRC_DIR}/world/generation/Village_Layout.h
+        ${SRC_DIR}/world/generation/Structure_Adapters.h
         ${SRC_DIR}/world/blocks/Block_Interaction.h
         ${SRC_DIR}/world/chunks/Chunk.h
         ${SRC_DIR}/world/chunks/Chunk_Manager.h
         ${SRC_DIR}/world/generation/Generation_Type.h
         ${SRC_DIR}/world/generation/Structures.h
         ${SRC_DIR}/world/generation/Tree_Generator.h
+        ${SRC_DIR}/world/generation/Tree_Pack.h
         ${SRC_DIR}/world/generation/World_Generator.h
         ${SRC_DIR}/world/storage/World_File.h
         ${SRC_DIR}/world/storage/Region_File.h

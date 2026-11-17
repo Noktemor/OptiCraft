@@ -5854,6 +5854,76 @@
         "item": "Enchanting Table I",
         "count": 1
       }
+    },
+    {
+      "name": "copper_observer",
+      "type": "shaped",
+      "pattern": [
+        "CCC",
+        "RRR",
+        "CCC"
+      ],
+      "key": {
+        "C": "Cobblestone",
+        "R": "Copper Wire"
+      },
+      "output": {
+        "item": "Observer",
+        "count": 1
+      }
+    },
+    {
+      "name": "copper_piston",
+      "type": "shaped",
+      "pattern": [
+        "PPP",
+        "CIC",
+        "CCC"
+      ],
+      "key": {
+        "P": "#planks",
+        "C": "Cobblestone",
+        "I": "Iron Ingot"
+      },
+      "output": {
+        "item": "Piston",
+        "count": 1
+      }
+    },
+    {
+      "name": "sticky_copper_piston",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Piston",
+          "count": 1
+        },
+        {
+          "item": "Slime Block",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Sticky Piston",
+        "count": 1
+      }
+    },
+    {
+      "name": "copper_lamp",
+      "type": "shaped",
+      "pattern": [
+        " C ",
+        "CTC",
+        " C "
+      ],
+      "key": {
+        "C": "Copper Ingot",
+        "T": "Torch"
+      },
+      "output": {
+        "item": "Copper Lamp",
+        "count": 1
+      }
     }
   ]
 }

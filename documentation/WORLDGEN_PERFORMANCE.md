@@ -45,7 +45,9 @@ A full application build could not be completed here because the environment lac
 
 ## Verification rerun (2026-10-29, available sandbox)
 
-These are standalone regional microbenchmarks, not full nine-chunk-column timings.
+These are standalone regional microbenchmarks on a virtualized AMD EPYC host with only three
+CPU vCPUs exposed. They are not measurements on the target Intel i5-13420H and are not full
+nine-chunk-column timings.
 
 | Test | Observed time | Output hash |
 |---|---:|---|
@@ -66,7 +68,8 @@ hashes; they do not turn an arbitrary cold-region request into a sub-27-ms opera
 
 This pass compares the original archive source tree and the final source tree using the same
 standalone harnesses, compiler flags (`g++ -std=c++20 -O3 -DNDEBUG -march=native`), seed,
-height callback, and coordinates. Every row's output hash
+height callback, and coordinates on the same virtualized host. The machine had only three CPU
+vCPUs exposed, so absolute timings are not an Intel i5-13420H guarantee. Every row's output hash
 matched the original source tree.
 
 | Test | Original source | Final source | Output hash |

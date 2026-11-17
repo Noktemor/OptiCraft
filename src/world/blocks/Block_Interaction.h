@@ -16,7 +16,8 @@ class Player;
 class Crop_Manager;
 class Sapling_Manager;
 
-// Сбросить кэш мешей чанка с блоком и соседних чанков на границе (после ручной правки блока).
+// Совместимый хук после изменения блока: перестройку уже назначает Chunk_Manager.
+// Не сбрасывать GPU cache при редактировании: активное COW-поколение должно оставаться видимым.
 void invalidate_block_mesh(int wx, int wy, int wz, Chunk_Manager& chunk_manager, Renderer& renderer);
 
 // Сломанный в Survival блок: Game превращает это в выпавшие предметы (Dropped_Item_Manager).

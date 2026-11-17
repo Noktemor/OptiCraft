@@ -21,7 +21,7 @@ def portion(source, first, last):
 skylight = '    void init_chunk_sky_light' + portion(
     CM, '    void init_chunk_sky_light', '    // Есть ли ненулевой свет')
 air = 'int World_Generator::conservative_column_air_ceiling' + portion(
-    WG, 'int World_Generator::conservative_column_air_ceiling', '\n// ---------------------------------------------------------------------------\n//  Декорации')
+    WG, 'int World_Generator::conservative_column_air_ceiling', '// Village templates are overlaid')
 
 source = r'''
 #include <algorithm>
@@ -46,12 +46,12 @@ struct Dimension_Info {
     bool ground=true, sky_islands=false, villages=false, has_sky_light=true;
     int flat_top_y() const {return 3;}
 };
-struct Structure_Placement {static constexpr int kCellSize=64;};
+struct Structure_Placement {static constexpr int kCellSize=320, kRadiusMax=120;};
 static int floordiv_int(int v, int d) {
     const int q = v/d;
     return (v % d != 0 && v < 0) ? q-1 : q;
 }
-struct Site {int x,z;};
+struct Site {int x,z,radius;};
 struct Structures {
     std::optional<Site> village;
     std::optional<Site> village_in_cell(int, int) const {return village;}
@@ -115,24 +115,30 @@ bool baseline_air(const World_Generator& g, int cx, int cy, int cz) {
     }
     if (!dim.ground) return !(dim.sky_islands && start_y+Config::chunk_height-1>=200);
     if (start_y<=World_Generator::kSeaLevel) return false;
-    if (dim.villages) {
-        const int x0=cx*Config::chunk_size, z0=cz*Config::chunk_size;
-        const int x1=x0+Config::chunk_size-1, z1=z0+Config::chunk_size-1;
-        for(int iz=floordiv_int(z0,Structure_Placement::kCellSize);
-            iz<=floordiv_int(z1,Structure_Placement::kCellSize);iz++)
-            for(int ix=floordiv_int(x0,Structure_Placement::kCellSize);
-                ix<=floordiv_int(x1,Structure_Placement::kCellSize);ix++) {
-                const auto s=g.m_structures->village_in_cell(ix,iz);
-                if(s && s->x>=x0 && s->x<=x1 && s->z>=z0 && s->z<=z1) return false;
-            }
-    }
     if (start_y+Config::chunk_height-1>=200) return false;
     const int x0=cx*Config::chunk_size,z0=cz*Config::chunk_size;
     const int last=Config::chunk_size-1;
     const int offsets[5][2]={{0,0},{last,0},{0,last},{last,last},{Config::chunk_size/2, Config::chunk_size/2}};
     int hi=std::numeric_limits<int>::min();
     for (const auto& p: offsets) hi=std::max(hi,g.get_height(x0+p[0],z0+p[1]));
-    return start_y>hi+Config::chunk_size+24;
+    int ceiling=hi+Config::chunk_size+24;
+    if(dim.villages) {
+        constexpr int R=Structure_Placement::kRadiusMax+12;
+        for(int iz=floordiv_int(z0-R,Structure_Placement::kCellSize);
+            iz<=floordiv_int(z0+Config::chunk_size-1+R,Structure_Placement::kCellSize);iz++)
+        for(int ix=floordiv_int(x0-R,Structure_Placement::kCellSize);
+            ix<=floordiv_int(x0+Config::chunk_size-1+R,Structure_Placement::kCellSize);ix++) {
+            const auto s=g.m_structures->village_in_cell(ix,iz);
+            if(!s)continue;
+            const int near_x=std::clamp(s->x,x0,x0+Config::chunk_size-1);
+            const int near_z=std::clamp(s->z,z0,z0+Config::chunk_size-1);
+            const int dx=s->x-near_x, dz=s->z-near_z;
+            if(static_cast<int64_t>(dx)*dx+static_cast<int64_t>(dz)*dz <=
+                static_cast<int64_t>(s->radius+12)*(s->radius+12))
+                ceiling=std::max(ceiling,g.get_height(s->x,s->z)+24);
+        }
+    }
+    return start_y>ceiling;
 }
 
 int main() {
@@ -143,7 +149,7 @@ int main() {
             Dimension_Info dim{terrain,ground,islands,villages,true};
             Structures ss;
             for (int cx: {-9,-1,0,3,12}) for(int cz: {-5,0,11}) {
-                if(villages && ((cx+cz+seed)&1)==0) ss.village=Site{cx*Config::chunk_size+3,cz*Config::chunk_size+10};
+                if(villages && ((cx+cz+seed)&1)==0) ss.village=Site{cx*Config::chunk_size+3,cz*Config::chunk_size+10,95};
                 else ss.village.reset();
                 World_Generator g(dim,ss,seed);
                 int cached = g.conservative_column_air_ceiling(cx,cz);

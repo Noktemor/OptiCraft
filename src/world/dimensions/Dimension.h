@@ -60,7 +60,7 @@ struct Dimension_Info {
     bool has_sky_light = true;             // нет неба (пещерное измерение) — false
     bool sky_islands = true;               // парящие острова (только Noise)
     bool rivers = true;                    // реки (River_Network); только Noise с землёй
-    bool villages = true;                  // места деревень (Structure_Placement; пока маркер-столб)
+    bool villages = true;                  // деревни (Structure_Placement + Village_Layout)
     // Noise-режим: пещеры (false — их нет вовсе) и наличие земли под островами
     // (ground = false — под парящими островами только пустота, без рельефа и воды).
     bool caves = true;

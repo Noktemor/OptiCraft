@@ -652,7 +652,8 @@ namespace {
         static constexpr int k_idx_mode = 11;         // только внутри мира
         static constexpr int k_idx_renderer = 12;     // экспериментальный GPU Meshlet путь
         static constexpr int k_idx_difficulty = 13;
-        int done_index() const { return in_game() ? 14 : 10; }
+        static constexpr int k_idx_gpu_backend = 14;
+        int done_index() const { return in_game() ? 15 : 10; }
 
         static constexpr int k_vertical_positions = Config::vertical_render_max - Config::vertical_render_min + 2;
 
@@ -720,6 +721,12 @@ namespace {
                     : tr(game.get_meshlet_renderer_enabled() ? "options.renderer_meshlet" : "options.renderer_standard");
                 screen.widgets.push_back(Hud_Widget::button(tr("options.renderer", {renderer_state})));
                 screen.widgets.push_back(Hud_Widget::button(tr("options.difficulty", {tr(game.get_difficulty() == 0 ? "options.level_low" : game.get_difficulty() == 1 ? "options.level_mid" : "options.level_high")})));
+                const int backend = game.get_gpu_backend_mode();
+                const std::string backend_name = backend < 0
+                    ? tr(game.is_gpu_compatibility_mode() ? "options.gpu_backend_auto_safe"
+                                                             : "options.gpu_backend_auto_fast")
+                    : tr(backend == 1 ? "options.gpu_backend_safe" : "options.gpu_backend_fast");
+                screen.widgets.push_back(Hud_Widget::button(tr("options.gpu_backend", {backend_name})));
             }
             screen.widgets.push_back(Hud_Widget::button(tr("common.done")));
             return screen;
@@ -790,6 +797,9 @@ namespace {
                 game.toggle_game_mode();
             } else if (in_game() && index == k_idx_difficulty) {
                 game.set_difficulty((game.get_difficulty() + 1) % 3);
+            } else if (in_game() && index == k_idx_gpu_backend) {
+                const int mode = game.get_gpu_backend_mode();
+                game.set_gpu_backend_mode(mode < 0 ? 0 : (mode == 0 ? 1 : -1));
             } else if (in_game() && index == k_idx_renderer) {
                 game.set_meshlet_renderer_enabled(!game.get_meshlet_renderer_enabled());
             } else if (index == done_index()) {

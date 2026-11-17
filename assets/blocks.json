@@ -3331,7 +3331,7 @@
     {
       "id": 156,
       "name": "Copper Wire",
-      "solid": true,
+      "solid": false,
       "opaque": false,
       "transparent": true,
       "can_update": false,
@@ -10726,6 +10726,132 @@
       },
       "transparent": true,
       "show_in_creative": true
+    },
+    {
+      "id": 511,
+      "name": "Observer",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_observer_side",
+        "bottom": "opt_observer_side",
+        "side": "opt_observer_side",
+        "front": "opt_observer_face"
+      },
+      "orientation": "facing"
+    },
+    {
+      "id": 512,
+      "name": "Piston",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_piston_side",
+        "bottom": "opt_piston_side",
+        "side": "opt_piston_side",
+        "front": "opt_piston_face"
+      },
+      "orientation": "facing"
+    },
+    {
+      "id": 513,
+      "name": "Sticky Piston",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_piston_side",
+        "bottom": "opt_piston_side",
+        "side": "opt_piston_side",
+        "front": "opt_sticky_face"
+      },
+      "orientation": "facing"
+    },
+    {
+      "id": 514,
+      "name": "Piston Head",
+      "solid": true,
+      "opaque": false,
+      "transparent": true,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Shaped",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_piston_face",
+        "side": "opt_piston_face",
+        "bottom": "opt_piston_face"
+      },
+      "creative": false,
+      "drop": "none",
+      "shape": "piston_head"
+    },
+    {
+      "id": 515,
+      "name": "Copper Lamp",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_lamp_off",
+        "side": "opt_lamp_off",
+        "bottom": "opt_lamp_off"
+      }
+    },
+    {
+      "id": 516,
+      "name": "Copper Lamp On",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 1.5,
+      "blast_resistance": 6,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "opt_lamp_on",
+        "side": "opt_lamp_on",
+        "bottom": "opt_lamp_on"
+      },
+      "creative": false,
+      "drop": "Copper Lamp",
+      "light_emission": 12
     }
   ]
 }

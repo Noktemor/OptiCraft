@@ -608,6 +608,19 @@ bool Renderer::initialize_gpu_mesher() {
     if (m_gpu_hiz_copy_program == 0 || m_gpu_hiz_reduce_program == 0)
         LOG_WARN("Hi-Z shaders unavailable; GPU frustum culling remains enabled without temporal occlusion");
 
+    // NVIDIA's GL_NV_mesh_shader executes a substantially different draw path than
+    // Intel's GL 4.3 vertex-pulling renderer. Use the same conservative compute mesher
+    // and DrawArraysIndirect renderer on NVIDIA by default. Advanced mode can be
+    // enabled in Options without recompiling or regenerating any chunks.
+    const char* vendor_name = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+    const char* device_name = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    m_gpu_compatibility_recommended = vendor_name && std::strstr(vendor_name, "NVIDIA") != nullptr;
+    if (m_gpu_compatibility_recommended) {
+        LOG_INFO(std::string("NVIDIA renderer detected: ") +
+                 (device_name ? device_name : "unknown") +
+                 "; defaulting to GL 4.3 compatibility profile (vertex-pulling + fixed-count MDI + frustum culling)");
+    }
+
     // True mesh shading is optional because neither extension is required by GL 4.3.
     // Prefer the cross-vendor EXT spelling, then try NVIDIA's NV spelling. Both replace
     // only the final vertex-pulling draw stage; compute meshing and the GL 4.3 fallback stay intact.
@@ -810,13 +823,16 @@ bool Renderer::initialize_gpu_mesher() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     m_gpu_ready = true;
-    const char* mesh_backend = m_gpu_mesh_shader_mode == 1 ? "EXT task/mesh shading" :
-                               (m_gpu_mesh_shader_mode == 2 ? "NV task/mesh shading" :
-                                                              "vertex-pulling fallback");
+    set_gpu_compatibility_mode(m_gpu_compatibility_recommended);
+
+    const char* mesh_backend = use_task_mesh_shaders()
+        ? (m_gpu_mesh_shader_mode == 1 ? "EXT task/mesh shading" : "NV task/mesh shading")
+        : "GL 4.3 indirect vertex-pulling";
+    const bool hiz_available = !m_gpu_compatibility_mode &&
+        m_gpu_hiz_copy_program && m_gpu_hiz_reduce_program;
     LOG_INFO(std::string("GPU mesher ready (compute + ") + mesh_backend +
-             (m_gpu_hiz_copy_program && m_gpu_hiz_reduce_program
-                  ? ", GPU frustum/Hi-Z culling, unified quad pool)"
-                  : ", GPU frustum culling, unified quad pool)"));
+             (hiz_available ? ", GPU frustum/Hi-Z culling, unified quad pool)"
+                            : ", GPU frustum culling, unified quad pool)"));
     return true;
 }
 
@@ -2605,8 +2621,7 @@ void Renderer::prepare_gpu_frame(const std::vector<const Renderable_Chunk*>& opa
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_gpu_cmd_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, m_gpu_cull_stats_ssbo);
     glUniform1ui(m_gpu_loc_cull_candidate_count, static_cast<GLuint>(candidate_count));
-    glUniform1i(m_gpu_loc_cull_mesh_mode, m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled
-        ? m_gpu_mesh_shader_mode : 0);
+    glUniform1i(m_gpu_loc_cull_mesh_mode, use_task_mesh_shaders() ? m_gpu_mesh_shader_mode : 0);
     glUniform1i(m_gpu_loc_cull_meshlet_enabled, m_meshlet_renderer_enabled ? 1 : 0);
     glUniform4fv(m_gpu_loc_cull_planes, static_cast<GLsizei>(planes.size()), &planes[0].x);
     glUniformMatrix4fv(m_gpu_loc_cull_view_projection, 1, GL_FALSE, &view_projection[0][0]);
@@ -2687,7 +2702,7 @@ void Renderer::recull_gpu_frame_with_current_depth(
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, m_gpu_cull_stats_ssbo);
     glUniform1ui(m_gpu_loc_cull_candidate_count, m_gpu_frame_candidate_count);
     glUniform1i(m_gpu_loc_cull_mesh_mode,
-        m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled ? m_gpu_mesh_shader_mode : 0);
+        use_task_mesh_shaders() ? m_gpu_mesh_shader_mode : 0);
     glUniform1i(m_gpu_loc_cull_meshlet_enabled, m_meshlet_renderer_enabled ? 1 : 0);
     glUniform4fv(m_gpu_loc_cull_planes, static_cast<GLsizei>(planes.size()), &planes[0].x);
     glUniformMatrix4fv(m_gpu_loc_cull_view_projection, 1, GL_FALSE, &view_projection[0][0]);
@@ -2854,7 +2869,7 @@ void Renderer::draw_gpu_kind(int kind) {
     const bool use_indirect_count = m_gpu_compact_opaque_commands && kind <= kKindShaped;
     if (use_indirect_count) glBindBuffer(kGlParameterBufferArb, m_gpu_cmd_meta_ssbo);
 
-    if (m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled && m_gl_multi_draw_mesh_tasks_indirect) {
+    if (use_task_mesh_shaders() && m_gl_multi_draw_mesh_tasks_indirect) {
         const bool solid = kind == kKindSolid;
         const GLint order_location = solid ? m_gpu_loc_mesh_order_offset_solid
                                            : m_gpu_loc_mesh_order_offset_misc;
@@ -3050,7 +3065,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
 
     const glm::mat4 view_projection = projection * view;
     const auto bind_solid_program = [&]() {
-        if (m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled) {
+        if (use_task_mesh_shaders()) {
             glUseProgram(m_gpu_mesh_solid_program);
             glUniformMatrix4fv(m_gpu_loc_mesh_view_projection_solid, 1, GL_FALSE, &view_projection[0][0]);
             glUniform1i(glGetUniformLocation(m_gpu_mesh_solid_program, "textureAtlas"), 0);
@@ -3082,7 +3097,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
     const glm::vec2 water_origin(water_uv.x, water_uv.y);
     const glm::vec2 water_size(water_uv.z - water_uv.x, water_uv.w - water_uv.y);
     const auto bind_misc_program = [&]() {
-        if (m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled) {
+        if (use_task_mesh_shaders()) {
             glUseProgram(m_gpu_mesh_misc_program);
             glUniformMatrix4fv(m_gpu_loc_mesh_view_projection_misc, 1, GL_FALSE, &view_projection[0][0]);
             glUniform1i(glGetUniformLocation(m_gpu_mesh_misc_program, "textureAtlas"), 0);
@@ -3119,7 +3134,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
     // те же, поэтому Hi-Z получается тем же. В режиме настоящих mesh-шейдеров и при ошибке сборки
     // облегчённой пары остаётся прежний полный шейдер.
     const auto bind_depth_prepass_program = [&]() {
-        if (m_gpu_depth_shader_ptr && !(m_gpu_mesh_shader_ready && !m_meshlet_renderer_enabled)) {
+        if (m_gpu_depth_shader_ptr && !use_task_mesh_shaders()) {
             m_gpu_depth_shader_ptr->use();
             m_gpu_depth_shader_ptr->set_mat4("view_projection", view_projection);
             m_gpu_depth_shader_ptr->set_float("time", time);
@@ -3134,7 +3149,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
     // The GPU builds a conservative MAX Hi-Z pyramid from those first hits, then tests
     // individual Meshlet AABBs (or section AABBs in Standard mode). Water is excluded
     // from Hi-Z and remains depth-tested/blended in its own far-to-near pass.
-    const bool gpu_ray_visibility = m_occlusion_enabled &&
+    const bool gpu_ray_visibility = m_occlusion_enabled && !m_gpu_compatibility_mode &&
                                     m_gpu_hiz_copy_program != 0 && m_gpu_hiz_reduce_program != 0;
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
