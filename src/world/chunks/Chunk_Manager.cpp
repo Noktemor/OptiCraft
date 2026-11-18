@@ -1082,11 +1082,14 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                 continue;
             }
 
-            // Блок за пределами чанка берётся из снимков, сделанных на главном потоке (см. enqueue_mesh_rebuild):
-            // клетку, вышедшую за одну ось, отдаёт грань соседа, а клетку у ребра или угла — кольцо. AO читает
-            // диагональных соседей, поэтому шести граней для меша уже недостаточно.
+            // The initial mesh must reflect *resident* neighbours, not a procedural prediction.
+            // A missing chunk may later load as air, saved player edits, or a decorated structure.
+            // Guessing with World_Generator::get_block() could hide real border faces indefinitely,
+            // especially when the arriving neighbour was entirely air. The arrival path below
+            // invalidates affected resident borders, so exposed temporary faces are corrected.
+            // Diagonals are read from the snapshot ring; absent ring cells are air as well.
             const Mesh_Job& snapshot = mesh_job;
-            Chunk_Neighbor_Lookup lookup = [&snapshot, generator](int wx, int wy, int wz) -> Block_Types {
+            Chunk_Neighbor_Lookup lookup = [&snapshot](int wx, int wy, int wz) -> Block_Types {
                 const int local_x = wx - snapshot.position.x * Config::chunk_size;
                 const int local_y = wy - snapshot.position.y * Config::chunk_height;
                 const int local_z = wz - snapshot.position.z * Config::chunk_size;
@@ -1099,10 +1102,9 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                 else if (local_z < 0) neighbor_index = 4;
                 else if (local_z >= Config::chunk_size) neighbor_index = 5;
 
-                // Рёбра и углы (две или три координаты вне чанка) берутся только из кольца снимка. Грань
-                // соседа для них не подходит: клетка лежит в диагональном чанке, а грань отдала бы
-                // чужую клетку (вторая координата обёрнута по модулю чанка). Если кольца нет (диагональный
-                // чанк не был загружен при постановке), идём сразу к фолбэку генератора.
+                // For edges/corners, a face snapshot is NOT a valid substitute for a diagonal
+                // chunk: otherwise wrapping the second coordinate samples unrelated blocks.
+                // Missing diagonal snapshots are treated as air until their chunks arrive.
                 const int out_axes = int(local_x < 0 || local_x >= Config::chunk_size) +
                                      int(local_y < 0 || local_y >= Config::chunk_height) +
                                      int(local_z < 0 || local_z >= Config::chunk_size);
@@ -1133,7 +1135,9 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                     }
                 }
 
-                return generator ? generator->get_block(wx, wy, wz) : Block_Types::Air;
+                // No loaded neighbour: show the exposed face now. A newly resident neighbour
+                // will dirty this mesh if the common border contains any real geometry.
+                return Block_Types::Air;
             };
 
             // Тот же принцип поиска соседа, но для света — фолбэк 0 (не World_Generator,
@@ -1179,8 +1183,8 @@ void Chunk_Manager::worker_loop(bool mesh_dedicated) {
                 return 0;
             };
 
-            // Метаданные соседа (уровень жидкости) — из тех же снимков граней. Нет снимка — 0
-            // (источник), как и у моря, которое достраивает генератор.
+            // Neighbour fluid metadata is sourced from the same resident snapshots.
+            // No neighbour means air, so metadata defaults to zero.
             Chunk_Meta_Lookup meta_lookup = [&snapshot](int wx, int wy, int wz) -> uint8_t {
                 const int local_x = wx - snapshot.position.x * Config::chunk_size;
                 const int local_y = wy - snapshot.position.y * Config::chunk_height;
@@ -1724,7 +1728,7 @@ void Chunk_Manager::enqueue_mesh_rebuild(int cx, int cy, int cz, bool urgent, in
     // Световой проход: ближний чанк без смены LOD и без жидкости/флоры/форм, у которого грязен только свет.
     // Геометрия (квады на видеокарте) остаётся, пересобирается объём света (см. Chunk::mark_light_dirty).
     const bool geometry_dirty = target->is_geometry_dirty();
-    const bool light_candidate = Config::gpu_light_volume && !capture_active() && !urgent &&
+    const bool light_candidate = Config::use_gpu_light_volume() && !capture_active() && !urgent &&
         target->is_light_only_dirty() && target->get_mesh_version() != 0 &&
         target->get_meshes().geometry_version != 0 && target->get_meshes().lod_stride == 1 &&
         job.lod_stride == 1 && (target->get_meshes().gpu_kinds & static_cast<uint8_t>(~1u)) == 0u;
@@ -2139,9 +2143,9 @@ void Chunk_Manager::collect_finished_chunks() {
         any_chunk_inserted = true;
         new_chunk->set_view_ring(view_ring_of(result.position), m_view_generation);
 
-        // The first mesh is the latency-critical path: enqueue it immediately after
-        // insertion, before optional block/light scans below. Missing neighbors are
-        // sampled from World_Generator and later neighbor arrivals schedule a remesh.
+        // The first mesh is latency-critical: schedule it immediately. Only resident
+        // neighbour snapshots are used; missing neighbours are air. On arrival, a
+        // neighbour with geometry touching either side of the contact schedules a remesh.
         if (new_chunk->get_mesh_version() == 0) {
             new_chunk->mark_mesh_dirty();
             enqueue_mesh_rebuild(result.position.x, result.position.y, result.position.z);
@@ -2254,38 +2258,51 @@ void Chunk_Manager::collect_finished_chunks() {
             }
         }
 
-        // Новый чанк влияет на соседний меш только там, где на общей грани/ребре/углу
-        // действительно есть блоки. Раньше безусловно помечались все 26 соседей даже для
-        // полностью воздушного чанка и пустых контактных областей.
+        // A newly loaded chunk changes the true border seen by *both* chunks. The old
+        // optimization checked only the new chunk. When it arrived as uniform air (or its
+        // contacting face was air) an already resident neighbour wasn't remeshed, even if
+        // that neighbour had visible geometry along the contact. In particular, a first
+        // mesh built while the neighbour was absent could keep incorrect border faces.
+        // Check both sides of each shared face/edge/corner, skipping genuinely empty pairs.
     { OC_ZONE("apply: mark affected neighbours dirty");
         const Chunk_Block_Grid& new_blocks = new_chunk->get_blocks();
-        if (!(new_blocks.is_uniform() && new_blocks.uniform_block() == Block_Types::Air)) {
-            for (int dz = -1; dz <= 1; ++dz) {
-                for (int dy = -1; dy <= 1; ++dy) {
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        if ((dx | dy | dz) == 0) continue;
-                        Chunk* neighbor = get_chunk(result.position.x + dx, result.position.y + dy,
-                                                    result.position.z + dz);
-                        if (!neighbor) continue;
-                        const int x0 = dx == 0 ? 0 : (dx < 0 ? 0 : Config::chunk_size - 1);
-                        const int x1 = dx == 0 ? Config::chunk_size - 1 : x0;
-                        const int y0 = dy == 0 ? 0 : (dy < 0 ? 0 : Config::chunk_height - 1);
-                        const int y1 = dy == 0 ? Config::chunk_height - 1 : y0;
-                        const int z0 = dz == 0 ? 0 : (dz < 0 ? 0 : Config::chunk_size - 1);
-                        const int z1 = dz == 0 ? Config::chunk_size - 1 : z0;
-                        bool contact_has_blocks = false;
-                        for (int y = y0; y <= y1 && !contact_has_blocks; ++y) {
-                            for (int z = z0; z <= z1 && !contact_has_blocks; ++z) {
-                                for (int x = x0; x <= x1; ++x) {
-                                    if (new_blocks.get(x, y, z) != Block_Types::Air) {
-                                        contact_has_blocks = true;
-                                        break;
-                                    }
+        const bool new_is_air = new_blocks.is_uniform() &&
+                                new_blocks.uniform_block() == Block_Types::Air;
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if ((dx | dy | dz) == 0) continue;
+                    Chunk* neighbor = get_chunk(result.position.x + dx, result.position.y + dy,
+                                                result.position.z + dz);
+                    if (!neighbor) continue;
+                    const Chunk_Block_Grid& old_blocks = neighbor->get_blocks();
+                    if (new_is_air && old_blocks.is_uniform() &&
+                        old_blocks.uniform_block() == Block_Types::Air) continue;
+
+                    const int x0 = dx == 0 ? 0 : (dx < 0 ? 0 : Config::chunk_size - 1);
+                    const int x1 = dx == 0 ? Config::chunk_size - 1 : x0;
+                    const int y0 = dy == 0 ? 0 : (dy < 0 ? 0 : Config::chunk_height - 1);
+                    const int y1 = dy == 0 ? Config::chunk_height - 1 : y0;
+                    const int z0 = dz == 0 ? 0 : (dz < 0 ? 0 : Config::chunk_size - 1);
+                    const int z1 = dz == 0 ? Config::chunk_size - 1 : z0;
+                    bool touching_geometry = false;
+                    for (int y = y0; y <= y1 && !touching_geometry; ++y) {
+                        for (int z = z0; z <= z1 && !touching_geometry; ++z) {
+                            for (int x = x0; x <= x1; ++x) {
+                                // A neighbour's corresponding face is on the opposite side;
+                                // for zero-offset axes, the same local coordinate is used.
+                                const int nx = dx == 0 ? x : Config::chunk_size - 1 - x;
+                                const int ny = dy == 0 ? y : Config::chunk_height - 1 - y;
+                                const int nz = dz == 0 ? z : Config::chunk_size - 1 - z;
+                                if ((!new_is_air && new_blocks.get(x, y, z) != Block_Types::Air) ||
+                                    old_blocks.get(nx, ny, nz) != Block_Types::Air) {
+                                    touching_geometry = true;
+                                    break;
                                 }
                             }
                         }
-                        if (contact_has_blocks) neighbor->mark_mesh_dirty();
                     }
+                    if (touching_geometry) neighbor->mark_mesh_dirty();
                 }
             }
         }

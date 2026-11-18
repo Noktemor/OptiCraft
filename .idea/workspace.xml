@@ -34,62 +34,13 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="документация">
+    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="beta 0.12">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/blocks.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/blocks.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/lang/en.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/en.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/lang/en.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/en.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/lang/ru.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/ru.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/lang/ru.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/lang/ru.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/recipe.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/recipe.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/texture/texture_atlas.png" beforeDir="false" afterPath="$PROJECT_DIR$/assets/texture/texture_atlas.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/CHECKLIST.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/CHECKLIST.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/ENCHANTING_SYSTEM.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/ENCHANTING_SYSTEM.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/MESHLET_INTEGRATION_VALIDATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/MESHLET_INTEGRATION_VALIDATION.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/MESHLET_RENDERER.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/MESHLET_RENDERER.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/PROFILING.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/PROFILING.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/RENDERING_PIPELINE.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/RENDERING_PIPELINE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/SHEEP_DYES_CREATIVE_EGGS.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/SHEEP_DYES_CREATIVE_EGGS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/STREAMING_FASTPATHS_2026_11.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/STREAMING_FASTPATHS_2026_11.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/TECHNICAL_DOCUMENTATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/TECHNICAL_DOCUMENTATION.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/TRACY_OPTIMIZATION_TASKS.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/TRACY_OPTIMIZATION_TASKS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/WORLDGEN_PERFORMANCE.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/WORLDGEN_PERFORMANCE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/history_version.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/history_version.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/problems.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/problems.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/app/Application.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Application.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/player/Player.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/player/Player.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/physics/Raycast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/physics/Raycast.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_fragment.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_fragment.glsl" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/crafting/Sapling_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/crafting/Sapling_Manager.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/Structure_Placement.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Structure_Placement.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/Structure_Placement.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Structure_Placement.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Generator.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Generator.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/logic/Logic_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/logic/Logic_Manager.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/logic/Logic_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/logic/Logic_Manager.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/village_probe/village_probe.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/village_probe/village_probe.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/configs/Config_Render.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/configs/Config_Render.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -134,23 +85,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0013825556840141" />
-      <entry key="MS500" value="1.4656871711013006" />
-      <entry key="S2" value="2.6195174229345795" />
-      <entry key="S5" value="4.1474706158401915" />
-      <entry key="S10" value="6.340883893917023" />
-      <entry key="S30" value="10.862640002798495" />
-      <entry key="S60" value="13.12741339863405" />
-      <entry key="M2" value="16.244886838474944" />
-      <entry key="M5" value="27.022077794504266" />
-      <entry key="M10" value="39.003681310239486" />
-      <entry key="M15" value="49.86744813705938" />
-      <entry key="M30" value="92.907198851396" />
-      <entry key="H1" value="204.61251239204117" />
-      <entry key="H2" value="551.5287255782588" />
-      <entry key="H4" value="1469.0795399086512" />
-      <entry key="D1" value="4644.966514781678" />
-      <entry key="W1" value="5830.783122182666" />
+      <entry key="MS100" value="1.0000301006092862" />
+      <entry key="MS500" value="1.1519365649101956" />
+      <entry key="S2" value="2.2626830073028916" />
+      <entry key="S5" value="3.099820374284261" />
+      <entry key="S10" value="3.505490845206934" />
+      <entry key="S30" value="3.9245556857569857" />
+      <entry key="S60" value="5.716565774387096" />
+      <entry key="M2" value="13.527736057478249" />
+      <entry key="M5" value="40.11463941845388" />
+      <entry key="M10" value="70.14416070448802" />
+      <entry key="M15" value="90.40907621065361" />
+      <entry key="M30" value="142.62589517281236" />
+      <entry key="H1" value="256.4813477034319" />
+      <entry key="H2" value="596.5544592240201" />
+      <entry key="H4" value="1503.1551188502988" />
+      <entry key="D1" value="4702.91284883307" />
+      <entry key="W1" value="5910.110336095699" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -159,36 +110,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="1.5883102926557907E-205" />
-      <entry key="M2" value="3.9853610785670533E-103" />
-      <entry key="M5" value="1.0969506000676571E-41" />
-      <entry key="M10" value="3.3120394058154035E-21" />
-      <entry key="M15" value="2.2227637876557366E-14" />
-      <entry key="M30" value="1.5396060044786564E-7" />
-      <entry key="H1" value="5.064696515694204E-4" />
-      <entry key="H2" value="0.03861775036735109" />
-      <entry key="H4" value="0.37861118684966116" />
-      <entry key="D1" value="2.6877222273745276" />
-      <entry key="W1" value="3.7787317272544287" />
+      <entry key="S60" value="5.27274842771639E-209" />
+      <entry key="M2" value="7.261369311442663E-105" />
+      <entry key="M5" value="2.210077026596887E-42" />
+      <entry key="M10" value="1.4866394914774689E-21" />
+      <entry key="M15" value="1.3030670391823455E-14" />
+      <entry key="M30" value="1.1788168079488019E-7" />
+      <entry key="H1" value="4.4317146436189016E-4" />
+      <entry key="H2" value="0.03612402645806002" />
+      <entry key="H4" value="0.36618287689551415" />
+      <entry key="D1" value="2.6728124238113713" />
+      <entry key="W1" value="3.7757300057491703" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.8655469285833338" />
-      <entry key="MS500" value="1.4090404606405253" />
-      <entry key="S2" value="2.589887916884453" />
-      <entry key="S5" value="4.130926417188621" />
-      <entry key="S10" value="6.329553538528168" />
-      <entry key="S30" value="10.856482798599531" />
-      <entry key="S60" value="13.123704636014656" />
-      <entry key="M2" value="16.242737398620957" />
-      <entry key="M5" value="27.020948243295816" />
-      <entry key="M10" value="39.002966387014716" />
-      <entry key="M15" value="49.866841542234155" />
-      <entry key="M30" value="92.90653805729896" />
-      <entry key="H1" value="204.6122273636726" />
-      <entry key="H2" value="551.5663993218573" />
-      <entry key="H4" value="1469.4569246238755" />
-      <entry key="D1" value="4647.653480659729" />
-      <entry key="W1" value="5834.561712606558" />
+      <entry key="MS100" value="0.8526637660780506" />
+      <entry key="MS500" value="1.1190521175927128" />
+      <entry key="S2" value="2.2505328201177175" />
+      <entry key="S5" value="3.0936519930308584" />
+      <entry key="S10" value="3.5020809376706206" />
+      <entry key="S30" value="3.9232938064506757" />
+      <entry key="S60" value="5.715580574012792" />
+      <entry key="M2" value="13.526417223175018" />
+      <entry key="M5" value="40.11295553890522" />
+      <entry key="M10" value="70.14270584253596" />
+      <entry key="M15" value="90.40783495865024" />
+      <entry key="M30" value="142.62486773688914" />
+      <entry key="H1" value="256.48081479154024" />
+      <entry key="H2" value="596.5895523218736" />
+      <entry key="H4" value="1503.520039985362" />
+      <entry key="D1" value="4705.584896288949" />
+      <entry key="W1" value="5913.8859230741" />
     </decayedShown>
   </component>
   <component name="ProjectApplicationVersion">
@@ -225,7 +176,7 @@
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
     &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
     &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/noktemor/CLionProjects/OptiCraft/cmake-build-debug/assets/mobs&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/noktemor/Изображения/Снимки экрана/Снимок экрана от 2026-11-17 10-20-05.png&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
@@ -367,7 +318,8 @@
     <MESSAGE value="исправление болячек рендера" />
     <MESSAGE value="версия 0,11 стабильная" />
     <MESSAGE value="документация" />
-    <option name="LAST_COMMIT_MESSAGE" value="документация" />
+    <MESSAGE value="beta 0.12" />
+    <option name="LAST_COMMIT_MESSAGE" value="beta 0.12" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

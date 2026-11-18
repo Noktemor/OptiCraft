@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 
 namespace Config {
     // Настройки графики по умолчанию (игрок меняет их в меню «Настройки»).
@@ -35,5 +37,13 @@ namespace Config {
     // зависят от света, а смена света пересобирает только объём. false — прежний путь: свет и AO запекаются
     // в квады, в ключ слияния, и смена света пересобирает геометрию (откат на случай проблем).
     constexpr bool gpu_light_volume = true;
+    // Device-local fallback for the first-mesh rendering investigation. Keep this flag
+    // independent of the draw backend: all draw profiles share the same near-chunk
+    // fragment-light-volume path. The GL renderer configures the flag before the world
+    // queues its first mesh; worker threads use the same value as the compute mesher.
+    inline std::atomic<bool> gpu_light_volume_active{gpu_light_volume};
+    inline bool use_gpu_light_volume() noexcept {
+        return gpu_light_volume_active.load(std::memory_order_relaxed);
+    }
 
 }

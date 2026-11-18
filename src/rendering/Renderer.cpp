@@ -615,6 +615,15 @@ bool Renderer::initialize_gpu_mesher() {
     const char* vendor_name = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
     const char* device_name = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     m_gpu_compatibility_recommended = vendor_name && std::strstr(vendor_name, "NVIDIA") != nullptr;
+    // Diagnostic compatibility fix: the volume-light path is only used for LOD1.
+    // A block edit forces a different geometry build, so the shared near-chunk
+    // fragment-volume lookup is a prime suspect for NVIDIA-only initial artifacts.
+    // Keep the existing GPU mesher and quad pool, but bake lighting/AO into quads
+    // on NVIDIA as on distant LODs. The iGPU retains its original fast path.
+    Config::gpu_light_volume_active.store(!m_gpu_compatibility_recommended,
+                                          std::memory_order_relaxed);
+    if (m_gpu_compatibility_recommended)
+        LOG_WARN("GPU near-chunk compatibility: baking light/AO into quads on NVIDIA (no light volume reads)");
     if (m_gpu_compatibility_recommended) {
         LOG_INFO(std::string("NVIDIA renderer detected: ") +
                  (device_name ? device_name : "unknown") +
@@ -965,6 +974,14 @@ void Renderer::grow_gpu_pool(uint32_t extra_blocks) {
     const uint32_t new_total = old_total + std::max(extra_blocks, old_total / 2);
     const size_t block_bytes = static_cast<size_t>(kGpuBlockQuads) * sizeof(glm::uvec4);
     OC_PLOT("GPU pool quad bytes", static_cast<double>(new_total) * block_bytes);
+    GLint64 max_ssbo_bytes = 0;
+    glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &max_ssbo_bytes);
+    if (max_ssbo_bytes > 0 && static_cast<size_t>(new_total) * block_bytes >
+        static_cast<size_t>(max_ssbo_bytes)) {
+        LOG_WARN("GPU quad pool exceeds GL_MAX_SHADER_STORAGE_BLOCK_SIZE: " +
+                 std::to_string(static_cast<size_t>(new_total) * block_bytes) +
+                 " > " + std::to_string(max_ssbo_bytes));
+    }
     unsigned int quads;
     { OC_ZONE("GPU pool: allocate quads");
       quads = create_ssbo(static_cast<size_t>(new_total) * block_bytes, nullptr, GL_DYNAMIC_DRAW); }
@@ -1315,8 +1332,20 @@ void Renderer::grow_gpu_handles(int needed) {
     const unsigned int origins = create_ssbo(zero_origins.size() * sizeof(glm::vec4), zero_origins.data(), GL_DYNAMIC_DRAW);
     // Световые объёмы: содержимое пишет mesh_volume.comp при каждой постановке ручки, поэтому при росте
     // достаточно перенести уже записанные объёмы; пустые ручки не инициализируем.
-    const unsigned int volumes = create_ssbo(static_cast<size_t>(kGpuVolumeWords) * capacity * sizeof(uint32_t),
-                                             nullptr, GL_DYNAMIC_DRAW);
+    // Baked-light NVIDIA fallback does not sample light volumes. Avoid allocating a
+    // large unused SSBO: at thousands of handles it can exceed the driver's per-block
+    // storage limit even though the geometry pool itself is valid.
+    unsigned int volumes = 0;
+    if (Config::use_gpu_light_volume()) {
+        const size_t volume_bytes = static_cast<size_t>(kGpuVolumeWords) * capacity * sizeof(uint32_t);
+        GLint64 max_block_bytes = 0;
+        glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &max_block_bytes);
+        if (max_block_bytes > 0 && volume_bytes > static_cast<size_t>(max_block_bytes)) {
+            LOG_WARN("GPU light volume exceeds GL_MAX_SHADER_STORAGE_BLOCK_SIZE: " +
+                     std::to_string(volume_bytes) + " > " + std::to_string(max_block_bytes));
+        }
+        volumes = create_ssbo(volume_bytes, nullptr, GL_DYNAMIC_DRAW);
+    }
     // Тождественные номера для атрибута aSection (baseInstance = ручка*4 + секция).
     std::vector<uint32_t> section_ids(static_cast<size_t>(Config::chunk_section_count) * capacity);
     std::iota(section_ids.begin(), section_ids.end(), 0u);
@@ -1335,7 +1364,8 @@ void Renderer::grow_gpu_handles(int needed) {
         copy_bytes(m_gpu_counts_ssbo, counts, kGpuStreams * old_capacity * sizeof(uint32_t));
         copy_bytes(m_gpu_ranges_ssbo, ranges, kGpuStreams * old_capacity * sizeof(glm::uvec2));
         copy_bytes(m_gpu_origins_ssbo, origins, old_capacity * sizeof(glm::vec4));
-        copy_bytes(m_gpu_volume_ssbo, volumes, old_capacity * kGpuVolumeWords * sizeof(uint32_t));
+        if (m_gpu_volume_ssbo != 0 && volumes != 0)
+            copy_bytes(m_gpu_volume_ssbo, volumes, old_capacity * kGpuVolumeWords * sizeof(uint32_t));
     }
 
     unsigned int old_buffers[] = {m_gpu_counts_ssbo, m_gpu_ranges_ssbo, m_gpu_origins_ssbo, m_gpu_section_ids_vbo,
@@ -1952,7 +1982,7 @@ void Renderer::submit_gpu_batch(const std::vector<const Renderable_Chunk*>& requ
     if (rb.stamps[0] != 0) glQueryCounter(rb.stamps[0], GL_TIMESTAMP);
     glUseProgram(m_gpu_greedy_program);
     glUniform1i(m_gpu_loc_greedy_chunk_count, static_cast<GLint>(n));
-    glUniform1i(m_gpu_loc_greedy_bake_all, Config::gpu_light_volume ? 0 : 1);
+    glUniform1i(m_gpu_loc_greedy_bake_all, Config::use_gpu_light_volume() ? 0 : 1);
     glDispatchCompute(static_cast<GLuint>(n) * 576u, 1, 1);
     // Формы, флора, жидкость: по строке клеток (слой y, ряд z) на инвокацию — 1024 работы на чанк, 16 групп.
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_gpu_shape_index_ssbo);
@@ -1960,12 +1990,14 @@ void Renderer::submit_gpu_batch(const std::vector<const Renderable_Chunk*>& requ
     glUseProgram(m_gpu_misc_program);
     glUniform1i(m_gpu_loc_misc_chunk_count, static_cast<GLint>(n));
     glDispatchCompute(static_cast<GLuint>(n) * 16u, 1, 1);
-    // Световые объёмы: по одной 32-битной записи на инвокацию, 9826 слов на ручку, 154 группы на чанк.
-    // Привязки 0, 1 и 5 — те же заголовки, полезная нагрузка и таблицы, что у мешера выше.
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, m_gpu_volume_ssbo);
-    glUseProgram(m_gpu_volume_program);
-    glUniform1i(m_gpu_loc_volume_chunk_count, static_cast<GLint>(n));
-    glDispatchCompute(static_cast<GLuint>(n) * 154u, 1, 1);
+    // The near-chunk light volume is not needed when every quad has baked light/AO.
+    // This is the same compute pipeline, with one unused optional stage omitted.
+    if (Config::use_gpu_light_volume()) {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, m_gpu_volume_ssbo);
+        glUseProgram(m_gpu_volume_program);
+        glUniform1i(m_gpu_loc_volume_chunk_count, static_cast<GLint>(n));
+        glDispatchCompute(static_cast<GLuint>(n) * 154u, 1, 1);
+    }
     if (rb.stamps[1] != 0) {
         glQueryCounter(rb.stamps[1], GL_TIMESTAMP);
         rb.timed_chunks = static_cast<uint32_t>(n);

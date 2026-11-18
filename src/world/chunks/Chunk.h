@@ -725,7 +725,7 @@ public:
     // Свет изменился. Ближний чанк с одной солид-геометрией пересобирает только световой объём: квады не
     // трогаем. Иначе свет запечён в квады (дальний LOD, чанк с жидкостью/флорой/формами, откат) — полная пересборка.
     void mark_light_dirty() {
-        const bool volume_path = Config::gpu_light_volume && m_meshes.lod_stride == 1 &&
+        const bool volume_path = Config::use_gpu_light_volume() && m_meshes.lod_stride == 1 &&
                                  (m_meshes.gpu_kinds & static_cast<uint8_t>(~1u)) == 0u &&
                                  m_meshes.geometry_version != 0u;
         if (!volume_path) {

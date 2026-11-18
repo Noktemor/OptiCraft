@@ -42,6 +42,9 @@ float appearance_hash(vec3 cell_position) {
 const uint kVolumeWords = 9826u;
 
 uint volume_byte(ivec3 c) {
+    // Interpolation exactly on a chunk boundary may round the adjacent texel
+    // outside the 34^3 halo. An unbounded SSBO read is undefined on real GPUs.
+    c = clamp(c, ivec3(-1), ivec3(32));
     const uint idx = uint((c.y + 1) * 1156 + (c.z + 1) * 34 + (c.x + 1));
     return (volume_words[VolumeHandle * kVolumeWords + (idx >> 2u)] >> ((idx & 3u) * 8u)) & 0xFFu;
 }
