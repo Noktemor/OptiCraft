@@ -43,7 +43,7 @@ const uint FLAG_SHAPED = 128u;
 const uint FLAG_SHAPE_CULLS = 256u;
 // Блок — жидкость (по состоянию): грань жидкости к такому соседу не нужна.
 const uint FLAG_LIQUID_STATE = 512u;
-const uint FLAG_SHAPE_SHIFT = 10u;   // биты 10..14 — форма (Block_Shape)
+const uint FLAG_SHAPE_SHIFT = 10u;   // биты 10..15 — форма (Block_Shape)
 const uint KIND_SHAPED = 1u;
 const uint KIND_FLORA = 2u;
 const uint KIND_LIQUID = 3u;
@@ -146,8 +146,11 @@ bool boxes_share_internal_face(uvec2 a, uvec2 b, int face) {
     if (positive ? (a_hi[axis] != b_lo[axis]) : (a_lo[axis] != b_hi[axis])) return false;
     const int u = (axis + 1) % 3;
     const int v = (axis + 2) % 3;
-    return max(a_lo[u], b_lo[u]) < min(a_hi[u], b_hi[u]) &&
-           max(a_lo[v], b_lo[v]) < min(a_hi[v], b_hi[v]);
+    // Only cull a face if the other box covers it completely. Partial contact
+    // (e.g. a thin lever post on a wide stone base, or door frame rails) must
+    // leave the exposed part of the face visible.
+    return b_lo[u] <= a_lo[u] && b_hi[u] >= a_hi[u] &&
+           b_lo[v] <= a_lo[v] && b_hi[v] >= a_hi[v];
 }
 
 // Свет клетки чанка или соседней клетки за одной границей (как light_at в mesh_greedy.comp).
@@ -199,13 +202,11 @@ float liquid_height(uint hb, int x, int y, int z, uint id) {
     const bool can_look_up = (y + 1 < 32) || (y + 1 == 32 && x_in && z_in);
     if (can_look_up && block_at(hb, x, y + 1, z) == id) return 1.0;
     const uint meta = meta_at(hb, x, y, z);
-    int amount;
-    if ((meta & 8u) != 0u) amount = 8;                    // Block_Meta::fluid_falling_bit
-    else {
-        const int level = int(meta & 7u);                  // Block_Meta::fluid_level_mask
-        amount = level == 0 ? 8 : 8 - level;
-    }
-    return float(amount) / 9.0;
+    // A source/falling column occupies the full cell. The previous 8/9 cap exposed
+    // a narrow strip of terrain (and a gap under neighboring water faces) at shorelines.
+    if ((meta & 8u) != 0u || (meta & 7u) == 0u) return 1.0;
+    const int level = int(meta & 7u);
+    return float(8 - level) / 9.0;
 }
 
 uint height16(float h) {
@@ -241,7 +242,7 @@ void main() {
 
         // Порядок как у CPU: сначала форма, затем флора, затем жидкость.
         if ((fl & FLAG_SHAPED) != 0u) {
-            const uint shape = (fl >> FLAG_SHAPE_SHIFT) & 31u;
+            const uint shape = (fl >> FLAG_SHAPE_SHIFT) & 63u;
             const uint raw_meta = read_channel(hb, 1u, uint((y * 32 + z) * 32 + x));
             uint meta = shape == 2u ? stairs_effective_meta(hb, cell, raw_meta) : raw_meta;
             // Connection geometry comes from actual neighboring blocks, not stale persisted metadata.
@@ -254,7 +255,7 @@ void main() {
                     const ivec3 neighbor = cell + offsets[dir];
                     const uint neighbor_id = block_at(hb, neighbor.x, neighbor.y, neighbor.z);
                     const uint neighbor_flags = block_flags[neighbor_id];
-                    const uint neighbor_shape = (neighbor_flags >> FLAG_SHAPE_SHIFT) & 31u;
+                    const uint neighbor_shape = (neighbor_flags >> FLAG_SHAPE_SHIFT) & 63u;
                     const bool full = (neighbor_flags & FLAG_SHAPE_CULLS) != 0u;
                     const bool connects = full ||
                         (shape == 6u && (neighbor_shape == 6u || neighbor_shape == 8u)) ||
@@ -277,7 +278,7 @@ void main() {
                                         (mount==3u || mount==4u) ? wall_z_dirs[dir] : floor_dirs[dir];
                     const ivec3 n = cell + step;
                     const uint nid=block_at(hb,n.x,n.y,n.z);
-                    const uint ns=(block_flags[nid] >> FLAG_SHAPE_SHIFT) & 31u;
+                    const uint ns=(block_flags[nid] >> FLAG_SHAPE_SHIFT) & 63u;
                     const uint nm=meta_at(hb,n.x,n.y,n.z)&7u;
                     const uint wall_for_dir[4]=uint[4](4u,1u,3u,2u);
                     const bool other_wire=ns==5u && (nm==mount ||
@@ -294,7 +295,7 @@ void main() {
                                       mount==3u ? ivec3(0,0,-1) : ivec3(0,0,1);
                     const ivec3 n=cell+away;
                     const uint nid=block_at(hb,n.x,n.y,n.z);
-                    if(((block_flags[nid] >> FLAG_SHAPE_SHIFT)&31u)==5u &&
+                    if(((block_flags[nid] >> FLAG_SHAPE_SHIFT)&63u)==5u &&
                         (meta_at(hb,n.x,n.y,n.z)&7u)==0u) riser=128u;
                 }
                 meta=mount | (arms << 3u) | riser;
@@ -325,7 +326,12 @@ void main() {
                     n[axis] += pos ? 1 : -1;
                     const uint nid = block_at(hb, n.x, n.y, n.z);
                     if (on_boundary && nid != 0u && (block_flags[nid] & FLAG_SHAPE_CULLS) != 0u) continue;
-                    const uint rect = rect_lut[(id * 6u + uint(f)) * 256u] & 0x7FFFu;
+                    // Component material for lever and torch: rock base / wood shaft / metal or flame cap.
+                    // Top/side/bottom in blocks.json are deliberately three different sprites.
+                    uint material_face = uint(f);
+                    if (shape == 32u) material_face = b == 0u ? 2u : (b == 3u ? 3u : 0u);
+                    if (shape == 30u) material_face = b == 0u ? 0u : 2u;
+                    const uint rect = rect_lut[(id * 6u + material_face) * 256u] & 0x7FFFu;
                     const uint light = light_at(hb, n.x, n.y, n.z);
                     emit(handle, KIND_SHAPED, sec, make_rec(x, y, z, uint(f), light, rect, face_box.x, face_box.y));
                 }

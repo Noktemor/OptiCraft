@@ -224,17 +224,33 @@ int shape_boxes(Block_Shape shape, uint8_t meta, Shape_Box out[16]) {
             return n;
         }
         case Block_Shape::Door: {
-            // One half per cell, metadata bit 3 marks upper half (both have the same shape).
-            // Open state swings against the near edge instead of disappearing.
-            const bool open = (meta & 4u) != 0u;
-            Shape_Box b = open
-                ? Shape_Box{glm::vec3(0,0,0),glm::vec3(3.0f/16.0f,1,1)}
-                : Shape_Box{glm::vec3(0,0,0),glm::vec3(1,1,3.0f/16.0f)};
-            for (int k=0;k<(meta&3u);++k) {
-                const float a=b.lo.x,c=b.hi.x;
-                b.lo.x=b.lo.z;b.hi.x=b.hi.z;b.lo.z=1.0f-c;b.hi.z=1.0f-a;
+            // Lower half is solid; the upper half has an actual 8x8 pixel opening.
+            // Keeping the aperture in the geometry (not an opaque plank texture) lets
+            // background and light show through; the frame swings with the door.
+            constexpr float p = 1.0f / 16.0f;
+            int count = 0;
+            auto add = [&](float x0,float y0,float x1,float y1) {
+                Shape_Box b{glm::vec3(x0*p,y0*p,0),glm::vec3(x1*p,y1*p,3*p)};
+                if ((meta & 4u) != 0u) { // opened door rotates the slab into the X wall
+                    const float lx=b.lo.x,hx=b.hi.x;
+                    b.lo.x=b.lo.z;b.hi.x=b.hi.z;
+                    b.lo.z=1.0f-hx;b.hi.z=1.0f-lx;
+                }
+                for (int k=0;k<(meta&3u);++k) {
+                    const float lx=b.lo.x,hx=b.hi.x;
+                    b.lo.x=b.lo.z;b.hi.x=b.hi.z;
+                    b.lo.z=1.0f-hx;b.hi.z=1.0f-lx;
+                }
+                out[count++]=b;
+            };
+            if ((meta & 8u) == 0u) add(0,0,16,16);
+            else {
+                add(0,0,16,5);    // lower rail
+                add(0,5,4,14);    // vertical frame
+                add(12,5,16,14);
+                add(0,14,16,16);  // top rail (8x9 window)
             }
-            out[0]=b;return 1;
+            return count;
         }
         case Block_Shape::Trapdoor: {
             const bool open = (meta & 4u) != 0u;
@@ -357,9 +373,18 @@ int shape_boxes(Block_Shape shape, uint8_t meta, Shape_Box out[16]) {
             return 2;
         }
         case Block_Shape::TorchPost:
+            // Solid 2x2 wooden stick and a square, emissive-looking tip (not crossed flora).
             out[0]={glm::vec3(7.0f/16,0,7.0f/16),glm::vec3(9.0f/16,10.0f/16,9.0f/16)};
-            out[1]={glm::vec3(6.0f/16,10.0f/16,6.0f/16),glm::vec3(10.0f/16,12.0f/16,10.0f/16)};
+            out[1]={glm::vec3(6.0f/16,10.0f/16,6.0f/16),glm::vec3(10.0f/16,13.0f/16,10.0f/16)};
             return 2;
+        case Block_Shape::LeverPost:
+            // Stone mounting plate + three connected, square wood/metal handle sections.
+            // Adjacent cuboids meet without overlaps (internal faces are culled by the mesh shader).
+            out[0]={glm::vec3(1.0f/16,0,1.0f/16),glm::vec3(15.0f/16,3.0f/16,15.0f/16)};
+            out[1]={glm::vec3(7.0f/16,3.0f/16,7.0f/16),glm::vec3(9.0f/16,7.0f/16,9.0f/16)};
+            out[2]={glm::vec3(8.0f/16,7.0f/16,7.0f/16),glm::vec3(10.0f/16,11.0f/16,9.0f/16)};
+            out[3]={glm::vec3(7.0f/16,11.0f/16,6.0f/16),glm::vec3(11.0f/16,14.0f/16,10.0f/16)};
+            return 4;
         case Block_Shape::None:
         case Block_Shape::Count:
         default:

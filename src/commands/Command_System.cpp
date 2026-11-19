@@ -139,7 +139,7 @@ const Command_Info k_commands[] = {
     {"enchant",     "/enchant durability <1-3>",                    "Enchant held tool/armor (durability)"},
     {"boss",        "/boss <knight|stone_colossus|shadow_stalker>", "Summon a boss"},
     {"dungeon",     "/dungeon [seed]",                              "Build a dungeon room at your feet (seed)"},
-    {"portal",      "/portal <dimension>",                          "Travel to another dimension (seed)"},
+    {"portal",      "/portal <dimension|build nether|build end|ignite|status>", "Travel, build or ignite a portal"},
 };
 
 const Command_Info* find_info(const std::string& name) {
@@ -390,11 +390,32 @@ bool execute_command(Game& game, const std::string& input, std::string& reply) {
     // --- /portal <dimension> -------------------------------------------------------
     if (cmd == "portal") {
         std::string names;
-        for (size_t i = 0; i < static_cast<size_t>(Dimension_Id::Count); ++i) {
+        for (const std::string& dimension : dimension_names()) {
             if (!names.empty()) names += ", ";
-            names += get_dimension_info(static_cast<Dimension_Id>(i)).name;
+            names += dimension;
         }
-        if (args.size() != 2) { reply = "Usage: /portal <dimension>  (" + names + ")"; return false; }
+        if (args.size() == 3 && to_lower(args[1]) == "build") {
+            const std::string type = to_lower(args[2]);
+            if (!game.build_portal(type)) { reply = "Cannot build portal here (invalid type, world height or unavailable player)"; return false; }
+            reply = game.is_portal_build_pending()
+                ? "Portal queued (waiting for nearby chunks): " + type
+                : "Built active " + type + " portal in front of player";
+            return true;
+        }
+        if (args.size() == 2 && to_lower(args[1]) == "status") {
+            reply = "Dimension: " + game.get_dimension_name();
+            if (game.is_portal_build_pending())
+                reply += "\nPending portal build: " + game.pending_portal_build_type();
+            else
+                reply += "\nPending portal build: none";
+            return true;
+        }
+        if (args.size() == 2 && to_lower(args[1]) == "ignite") {
+            if (!game.ignite_nether_portal()) { reply = "No valid 4x5 obsidian frame nearby"; return false; }
+            reply = "Nether portal activated";
+            return true;
+        }
+        if (args.size() != 2) { reply = "Usage: /portal <dimension|build nether|build end|ignite|status>  (" + names + ")"; return false; }
         const std::string target = to_lower(args[1]);
         if (!game.switch_dimension(target)) { reply = "Unknown dimension: " + args[1] + "  (" + names + ")"; return false; }
         reply = "Portal: now in " + std::string(get_dimension_info(dimension_from_name(target)).display_name);
@@ -536,6 +557,13 @@ std::vector<std::string> get_command_completions(const std::string& raw_input) {
             candidates = {"pig", "horse", "cow", "sheep", "zombie", "skeleton"};
         } else if (cmd == "breed" && word_index == 1) {
             candidates = {"pig", "horse", "cow", "sheep"};
+        } else if (cmd == "portal" && word_index == 1) {
+            candidates = dimension_names();
+            candidates.push_back("build");
+            candidates.push_back("ignite");
+            candidates.push_back("status");
+        } else if (cmd == "portal" && word_index == 2 && to_lower(tokens[1]) == "build") {
+            candidates = {"nether", "end"};
         } else if (cmd == "help" && word_index == 1) {
             for (const Command_Info& info : k_commands) candidates.push_back(info.name);
         }

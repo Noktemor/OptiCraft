@@ -256,6 +256,11 @@ enum class Block_Types : Block_ID {
 
     White_Wool = 261, // шерсть из овцы; прочие новые блоки описаны в assets/blocks.json
 
+    Nether_Rock = 517, Basalt = 518, End_Stone = 519, Obsidian = 520,
+    Nether_Portal = 521, End_Portal_Frame = 522, End_Portal = 523,
+    Nether_Ember = 524,
+    Flint_And_Steel = 525, Eye_Of_Ender = 526, End_Portal_Frame_Filled = 527,
+
     Count = 257 // старый размер именованной части enum, НЕ предел реестра
 };
 
@@ -300,7 +305,8 @@ enum class Block_Shape : uint8_t {
     Bell = 27, Grindstone = 28, Lectern = 29,
     TorchPost = 30,
     PistonHead = 31,
-    Count = 32
+    LeverPost = 32,
+    Count = 33
 };
 
 enum class Block_Mesh_Style : uint8_t {

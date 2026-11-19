@@ -259,6 +259,8 @@ private:
         int    key_x = 0, key_z = 0;
     };
 
+    Block_Types dimension_block(int world_x, int world_y, int world_z) const;
+
     // Внутренний путь генерации: outputs и chunk_ys имеют count элементов и относятся к одной X/Z-колонке.
     void generate_chunks(Chunk_Block_Grid* const* outputs, const int* chunk_ys,
                         size_t count, int chunk_x, int chunk_z) const;

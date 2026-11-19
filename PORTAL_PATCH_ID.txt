@@ -1,0 +1,4 @@
+OptiCraft portal hotfix 2026-11-18
+Fixes: /portal build queued on missing chunks, portal orientation and visibility, /portal status, safe landing.
+Code changes: Game.cpp / Game.h, Command_System.cpp, World_Generator.cpp, Portal_Placement.h
+Documentation: documentation/PORTAL_HOTFIX_2026_11_18.md

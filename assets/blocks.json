@@ -2707,9 +2707,9 @@
       "light_emission": 10,
       "texture": {
         "atlas": "blocks_main",
-        "top": "torch",
-        "side": "torch",
-        "bottom": "torch"
+        "top": "oc_torch_flame",
+        "side": "oc_torch_wood",
+        "bottom": "oc_torch_wood"
       },
       "shape": "torch",
       "transparent": true
@@ -3357,14 +3357,15 @@
       "can_update": false,
       "hardness": 0.5,
       "blast_resistance": 0,
-      "mesh_type": "Flora",
-      "mesh_style": "XStyle",
+      "mesh_type": "Shaped",
+      "mesh_style": "Block",
       "state": "Solid",
+      "shape": "lever",
       "texture": {
         "atlas": "blocks_main",
-        "top": "lever_off",
-        "side": "lever_off",
-        "bottom": "lever_off"
+        "top": "oc_lever_stone",
+        "side": "oc_lever_wood",
+        "bottom": "oc_lever_metal"
       },
       "drop": "self"
     },
@@ -3377,14 +3378,15 @@
       "can_update": false,
       "hardness": 0.5,
       "blast_resistance": 0,
-      "mesh_type": "Flora",
-      "mesh_style": "XStyle",
+      "mesh_type": "Shaped",
+      "mesh_style": "Block",
       "state": "Solid",
+      "shape": "lever",
       "texture": {
         "atlas": "blocks_main",
-        "top": "lever_on",
-        "side": "lever_on",
-        "bottom": "lever_on"
+        "top": "oc_lever_stone",
+        "side": "oc_lever_wood",
+        "bottom": "oc_lever_metal_on"
       },
       "drop": "Lever",
       "creative": false
@@ -10592,9 +10594,9 @@
       "state": "Solid",
       "texture": {
         "atlas": "blocks_main",
-        "top": "oc2_501_t_0",
-        "side": "oc2_501_t_0",
-        "bottom": "oc2_501_t_0"
+        "top": "oc_enchant_top",
+        "side": "oc_enchant_side",
+        "bottom": "oc_enchant_bottom"
       },
       "effective_tool": "pickaxe"
     },
@@ -10852,6 +10854,232 @@
       "creative": false,
       "drop": "Copper Lamp",
       "light_emission": 12
+    },
+    {
+      "id": 517,
+      "name": "Nether Rock",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 2.5,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_nether_rock",
+        "side": "oc_nether_rock",
+        "bottom": "oc_nether_rock"
+      },
+      "effective_tool": "pickaxe"
+    },
+    {
+      "id": 518,
+      "name": "Basalt",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 2.5,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_basalt",
+        "side": "oc_basalt",
+        "bottom": "oc_basalt"
+      },
+      "effective_tool": "pickaxe"
+    },
+    {
+      "id": 519,
+      "name": "End Stone",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 2.5,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_end_stone",
+        "side": "oc_end_stone",
+        "bottom": "oc_end_stone"
+      },
+      "effective_tool": "pickaxe"
+    },
+    {
+      "id": 520,
+      "name": "Obsidian",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 12.0,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_obsidian",
+        "side": "oc_obsidian",
+        "bottom": "oc_obsidian"
+      },
+      "effective_tool": "pickaxe"
+    },
+    {
+      "id": 521,
+      "name": "Nether Portal",
+      "solid": false,
+      "opaque": false,
+      "transparent": true,
+      "can_update": false,
+      "hardness": -1,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Gas",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_nether_portal",
+        "side": "oc_nether_portal",
+        "bottom": "oc_nether_portal"
+      },
+      "item": false,
+      "drop": "Air",
+      "light_emission": 10,
+      "show_in_creative": false
+    },
+    {
+      "id": 522,
+      "name": "End Portal Frame",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": -1.0,
+      "blast_resistance": 360000,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_end_frame",
+        "side": "oc_end_frame",
+        "bottom": "oc_end_frame"
+      }
+    },
+    {
+      "id": 523,
+      "name": "End Portal",
+      "solid": false,
+      "opaque": false,
+      "transparent": true,
+      "can_update": false,
+      "hardness": -1,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Gas",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_end_portal",
+        "side": "oc_end_portal",
+        "bottom": "oc_end_portal"
+      },
+      "item": false,
+      "drop": "Air",
+      "light_emission": 10,
+      "show_in_creative": false
+    },
+    {
+      "id": 524,
+      "name": "Nether Ember",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": 2.5,
+      "blast_resistance": 24,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_nether_ember",
+        "side": "oc_nether_ember",
+        "bottom": "oc_nether_ember"
+      },
+      "light_emission": 8,
+      "effective_tool": "pickaxe"
+    },
+    {
+      "id": 525,
+      "name": "Flint And Steel",
+      "item": true,
+      "solid": false,
+      "opaque": false,
+      "transparent": true,
+      "can_update": false,
+      "hardness": 0,
+      "blast_resistance": 0,
+      "mesh_type": "Flora",
+      "mesh_style": "XStyle",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_flint_steel",
+        "side": "oc_flint_steel",
+        "bottom": "oc_flint_steel"
+      },
+      "durability": 64
+    },
+    {
+      "id": 526,
+      "name": "Eye Of Ender",
+      "item": true,
+      "solid": false,
+      "opaque": false,
+      "transparent": true,
+      "can_update": false,
+      "hardness": 0,
+      "blast_resistance": 0,
+      "mesh_type": "Flora",
+      "mesh_style": "XStyle",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_eye_ender",
+        "side": "oc_eye_ender",
+        "bottom": "oc_eye_ender"
+      }
+    },
+    {
+      "id": 527,
+      "name": "End Portal Frame Filled",
+      "solid": true,
+      "opaque": true,
+      "transparent": false,
+      "can_update": false,
+      "hardness": -1,
+      "blast_resistance": 360000,
+      "mesh_type": "Solid",
+      "mesh_style": "Block",
+      "state": "Solid",
+      "texture": {
+        "atlas": "blocks_main",
+        "top": "oc_end_frame_filled",
+        "side": "oc_end_frame_filled",
+        "bottom": "oc_end_frame_filled"
+      }
     }
   ]
 }

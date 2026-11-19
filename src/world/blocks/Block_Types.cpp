@@ -160,7 +160,9 @@ void Block_Registry::build_fast_tables() {
         const bool is_liquid = props.state == Block_State::Liquid;
         m_sky_transparent_flat[id] = props.is_transparent || is_liquid;
         m_is_liquid_flat[id] = is_liquid ? 1u : 0u;
-        m_fluid_passable_flat[id] = (!props.is_solid && !is_liquid) ? 1u : 0u;
+        m_fluid_passable_flat[id] = (!props.is_solid && !is_liquid &&
+            id != static_cast<Block_ID>(Block_Types::Nether_Portal) &&
+            id != static_cast<Block_ID>(Block_Types::End_Portal)) ? 1u : 0u;
         m_fluid_tick_delay_flat[id] = static_cast<uint16_t>(std::clamp(props.fluid_tick_delay, 1, 65535));
         // light_emission в Block_Properties — int (0..max_light_level), а таблица — uint8_t,
         // чтобы обе плоские таблицы весили ровно 256 байт и лежали в кэше одинаково дёшево;
@@ -494,6 +496,7 @@ void Block_Registry::load_from_file(const std::string& path) {
                 else if (sh == "grindstone") properties.shape = Block_Shape::Grindstone;
                 else if (sh == "lectern") properties.shape = Block_Shape::Lectern;
                 else if (sh == "torch") properties.shape = Block_Shape::TorchPost;
+                else if (sh == "lever") properties.shape = Block_Shape::LeverPost;
                 else if (sh != "none") LOG_WARN("Block_Registry: unknown shape '" + sh + "' for '" + properties.name + "'");
             }
             if (const auto* v = entry.find("mesh_style")) {

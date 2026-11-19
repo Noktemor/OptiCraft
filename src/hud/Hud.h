@@ -8,6 +8,7 @@
 #include <vector>
 #include "rendering/Shader.h"
 #include "rendering/atlas/Texture_Atlas.h"
+#include "world/blocks/Block_Types.h"
 
 // ============================================================================
 //  Интерфейс OptiCraft
@@ -75,9 +76,11 @@ struct Hud_Inventory_Slot {
     bool as_cube = false;
     bool as_stairs = false; // ступеньки имеют отдельную ступенчатую изометрическую форму
     bool as_slab = false;   // плита ниже обычного куба
+    Block_Shape icon_shape = Block_Shape::None; // специальная объемная форма (плиты, двери, кровати, рычаги и факелы)
     glm::vec4 uv_cube_top{0.0f};
     glm::vec4 uv_cube_left{0.0f};   // левая видимая грань (у печи/сундука здесь лицевая сторона)
     glm::vec4 uv_cube_right{0.0f};
+    glm::vec4 uv_cube_bottom{0.0f}; // материал третьего компонента (ручка рычага)
 };
 
 // Строка чата: текст, ошибка ли это (рисуется красным) и сколько секунд ещё показывать её

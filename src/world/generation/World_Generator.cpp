@@ -1027,10 +1027,111 @@ Block_Types World_Generator::block_in_column(const Column& column,
                                  ore_y);
 }
 
+// Specialized dimensions run through the same streaming and region storage path,
+// but skip Overworld climate, hydrology, village and GPU material preparation.
+// Coordinates are absolute: chunk generation is deterministic regardless of load order.
+Block_Types World_Generator::dimension_block(int x, int y, int z) const {
+    if (m_dimension->terrain == Terrain_Mode::Nether) {
+        if (y < 0 || y > 127) return Block_Types::Air;
+        if (y == 0 || y == 127) return Block_Types::Mantle_Stone;
+        // The spawn chamber has an illuminated floor and keeps the first entry safe.
+        if (std::abs(x) <= 24 && std::abs(z) <= 24 && y == 59 &&
+            (x % 12 == 0 && z % 12 == 0)) return Block_Types::Nether_Ember;
+        // Guaranteed starting cavern; avoids loading into solid rock or a lava sea.
+        if (std::abs(x) <= 24 && std::abs(z) <= 24 && y >= 60 && y <= 78)
+            return Block_Types::Air;
+        if (std::abs(x) <= 24 && std::abs(z) <= 24 && y == 59)
+            return Block_Types::Nether_Rock;
+        const double large = m_terrain.noise3(x * .027, y * .028, z * .027);
+        const double detail = m_caves.noise3(x * .075, y * .075, z * .075);
+        const double boundary = std::max(0.0, (24.0 - y) / 30.0) +
+                                std::max(0.0, (y - 106.0) / 20.0);
+        const bool rock = (large * 0.78 + detail * 0.22 + boundary * 0.70) > 0.06;
+        if (!rock) return y <= 31 ? Block_Types::Lava : Block_Types::Air;
+        // Basalt/ash variation controlled by slow 2D climate noise.
+        if (y <= 35 && m_detail.noise2(x * .011, z * .011) > 0.45)
+            return Block_Types::Basalt;
+        return Block_Types::Nether_Rock;
+    }
+    if (m_dimension->terrain == Terrain_Mode::End) {
+        if (y < 24 || y > 112) return Block_Types::Air;
+        // Experimental obsidian monoliths arranged around the main island.
+        constexpr int px[6] = {48, 24, -24, -48, -24, 24};
+        constexpr int pz[6] = {0, 42, 42, 0, -42, -42};
+        for (int i = 0; i < 6; ++i) {
+            const int dx = x - px[i], dz = z - pz[i];
+            if (dx * dx + dz * dz <= 9 && y >= 63 && y <= 84 + (i % 3) * 6)
+                return Block_Types::Obsidian;
+        }
+        // Large spawn island surrounded by procedural island chains. All generation
+        // is an independent coordinate function, so no cross-chunk seams.
+        const double d = std::hypot(static_cast<double>(x), static_cast<double>(z));
+        double radius_factor = 0.0;
+        const double jitter = m_terrain.noise2(x * .019, z * .019) * 8.0;
+        if (d < 85.0 + jitter) radius_factor = (85.0 + jitter - d) / 85.0;
+        // Smaller islands in a grid, outside the central void ring.
+        if (d > 160.0) {
+            constexpr int cell = 105;
+            const int cx = static_cast<int>(std::floor(static_cast<double>(x) / cell));
+            const int cz = static_cast<int>(std::floor(static_cast<double>(z) / cell));
+            for (int iz = -1; iz <= 1; ++iz) for (int ix = -1; ix <= 1; ++ix) {
+                const uint32_t h = static_cast<uint32_t>(m_seed) ^
+                    (static_cast<uint32_t>(cx + ix) * 0x9e3779b9u) ^
+                    (static_cast<uint32_t>(cz + iz) * 0x85ebca6bu);
+                const uint32_t a = h ^ (h >> 16);
+                if ((a % 100) < 24) continue;
+                const int ox = (cx + ix) * cell + cell / 2 + static_cast<int>((a >> 8) % 43) - 21;
+                const int oz = (cz + iz) * cell + cell / 2 + static_cast<int>((a >> 17) % 43) - 21;
+                const double r = 19.0 + (a % 34);
+                const double dx = static_cast<double>(x - ox), dz = static_cast<double>(z - oz);
+                const double f = 1.0 - std::sqrt(dx * dx + dz * dz) / r;
+                radius_factor = std::max(radius_factor, f);
+            }
+        }
+        if (radius_factor <= 0.0) return Block_Types::Air;
+        const double top = 65.0 + m_detail.noise2(x * .035, z * .035) * 5.0;
+        const double thickness = 3.0 + std::min(1.0, radius_factor * 2.0) * 16.0;
+        return y <= top && y >= top - thickness ? Block_Types::End_Stone : Block_Types::Air;
+    }
+    return Block_Types::Air;
+}
+
 // ---------------------------------------------------------------------------
 //  Публичный API
 // ---------------------------------------------------------------------------
 int World_Generator::find_spawn_surface(int& x, int& z) const {
+    if (m_dimension->terrain == Terrain_Mode::Nether) {
+        // A cave floor must not be lava or an obstructed fallback height.
+        const auto valid = [this](int sx, int sy, int sz) {
+            const Block_Types under = dimension_block(sx, sy, sz);
+            return under != Block_Types::Air && under != Block_Types::Lava &&
+                   dimension_block(sx, sy + 1, sz) == Block_Types::Air &&
+                   dimension_block(sx, sy + 2, sz) == Block_Types::Air;
+        };
+        int y = get_height(x, z);
+        if (valid(x, y, z)) return y;
+        const int initial_x = x, initial_z = z;
+        // Search a few nearby columns before falling back to the guaranteed
+        // prepared spawn cavern. This keeps 1:8 portal mapping whenever safe.
+        for (int radius = 4; radius <= 24; radius += 4) {
+            for (int dz = -radius; dz <= radius; dz += 4)
+                for (int dx = -radius; dx <= radius; dx += 4) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != radius) continue;
+                    const int sx = initial_x + dx, sz = initial_z + dz;
+                    const int sy = get_height(sx, sz);
+                    if (valid(sx, sy, sz)) { x = sx; z = sz; return sy; }
+                }
+        }
+        x = 8; z = 8;
+        return 59; // guaranteed floor in the Nether spawn cavern
+    }
+    if (m_dimension->terrain == Terrain_Mode::End) {
+        int y = get_height(x, z);
+        if (y < 24) {
+            x = 8; z = 8; y = get_height(x, z);
+        }
+        return y;
+    }
     if (m_dimension->ground) return get_height(x, z);
 
     // Земли нет: ищем ближайший остров по квадратным кольцам вокруг (x, z), с шагом 8 блоков.
@@ -1067,6 +1168,17 @@ int World_Generator::get_height(int world_x, int world_z) const {
     switch (m_dimension->terrain) {
         case Terrain_Mode::Flat: return m_dimension->flat_top_y();
         case Terrain_Mode::Void: return m_dimension->spawn_height - 2; // spawn = height + 2
+        case Terrain_Mode::Nether:
+            if (std::abs(world_x) <= 24 && std::abs(world_z) <= 24) return 59;
+            for (int y = 100; y > 33; --y)
+                if (dimension_block(world_x, y, world_z) != Block_Types::Air &&
+                    dimension_block(world_x, y + 1, world_z) == Block_Types::Air &&
+                    dimension_block(world_x, y + 2, world_z) == Block_Types::Air) return y;
+            return 59;
+        case Terrain_Mode::End:
+            for (int y = 110; y > 24; --y)
+                if (dimension_block(world_x, y, world_z) == Block_Types::End_Stone) return y;
+            return 0;
         case Terrain_Mode::Noise: break;
     }
     // Построители пещер и рек спрашивают только высоту (десятки тысяч раз): строить для этого полную
@@ -1078,12 +1190,17 @@ int World_Generator::get_height(int world_x, int world_z) const {
 Block_Types World_Generator::get_block(int world_x, int world_y, int world_z) const {
     if (world_y < Config::world_min_y || world_y > Config::world_max_y)
         return Block_Types::Air;
+    if (m_dimension->terrain == Terrain_Mode::Nether ||
+        m_dimension->terrain == Terrain_Mode::End)
+        return dimension_block(world_x, world_y, world_z);
     if (world_y == Config::world_min_y)
         return Block_Types::Mantle_Stone;
 
     switch (m_dimension->terrain) {
         case Terrain_Mode::Flat: return m_dimension->flat_block_at(world_y);
         case Terrain_Mode::Void: return Block_Types::Air;
+        case Terrain_Mode::Nether:
+        case Terrain_Mode::End: return dimension_block(world_x, world_y, world_z);
         case Terrain_Mode::Noise: break;
     }
 
@@ -1192,7 +1309,7 @@ void World_Generator::generate_chunk(Chunk_Block_Grid& blocks,
                                      int chunk_x, int chunk_y, int chunk_z) const {
     Chunk_Block_Grid* output = &blocks;
     generate_chunks(&output, &chunk_y, 1, chunk_x, chunk_z);
-    apply_mantle_floor(blocks, chunk_y);
+    if (m_dimension->terrain != Terrain_Mode::End) apply_mantle_floor(blocks, chunk_y);
 }
 
 void World_Generator::generate_chunk_column(const std::vector<Chunk*>& chunks) const {
@@ -1431,14 +1548,16 @@ void World_Generator::generate_prepared_chunk(
     const std::shared_ptr<Prepared_Column>& prepared, size_t index,
     Chunk_Block_Grid& output) const {
     generate_prepared_chunk_impl(prepared, index, output, nullptr);
-    if (prepared && index < prepared->chunk_ys.size()) apply_mantle_floor(output, prepared->chunk_ys[index]);
+    if (m_dimension->terrain != Terrain_Mode::End && prepared && index < prepared->chunk_ys.size())
+        apply_mantle_floor(output, prepared->chunk_ys[index]);
 }
 
 void World_Generator::generate_prepared_chunk(
     const std::shared_ptr<Prepared_Column>& prepared, size_t index,
     Chunk& chunk) const {
     generate_prepared_chunk_impl(prepared, index, chunk.get_blocks_mutable(), &chunk);
-    if (prepared && index < prepared->chunk_ys.size()) apply_mantle_floor(chunk.get_blocks_mutable(), prepared->chunk_ys[index]);
+    if (m_dimension->terrain != Terrain_Mode::End && prepared && index < prepared->chunk_ys.size())
+        apply_mantle_floor(chunk.get_blocks_mutable(), prepared->chunk_ys[index]);
 }
 
 void World_Generator::generate_prepared_chunk_impl(
@@ -1473,6 +1592,20 @@ void World_Generator::generate_prepared_chunk_impl(
                 std::fill_n(flat.data() + static_cast<size_t>(y) * Layer, Layer,
                             static_cast<Block_ID>(block));
                 layer_non_air[y] = static_cast<int>(Layer);
+            }
+        }
+        publish();
+        return;
+    }
+    if (prepared->terrain == Terrain_Mode::Nether || prepared->terrain == Terrain_Mode::End) {
+        for (int y = 0; y < H; ++y) {
+            const int wy = start_y + y;
+            if (wy < Config::world_min_y || wy > Config::world_max_y) continue;
+            for (int z = 0; z < N; ++z) for (int x = 0; x < N; ++x) {
+                const Block_Types type = dimension_block(start_x + x, wy, start_z + z);
+                if (type == Block_Types::Air) continue;
+                flat[static_cast<size_t>(y) * Layer + z * N + x] = static_cast<Block_ID>(type);
+                ++layer_non_air[y];
             }
         }
         publish();
@@ -1615,6 +1748,8 @@ bool World_Generator::chunk_is_definitely_air(int chunk_x, int chunk_y, int chun
     switch (m_dimension->terrain) {
         case Terrain_Mode::Void: return true;
         case Terrain_Mode::Flat: return start_y > m_dimension->flat_top_y();
+        case Terrain_Mode::Nether: return start_y > 127 || start_y + Config::chunk_height - 1 < 0;
+        case Terrain_Mode::End: return start_y > 112 || start_y + Config::chunk_height - 1 < 24;
         case Terrain_Mode::Noise: break;
     }
     if (!m_dimension->ground)

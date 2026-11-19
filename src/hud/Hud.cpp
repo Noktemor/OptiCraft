@@ -2,6 +2,7 @@
 #include "utils/logging/Logger.h"
 #include "utils/text/Utf8.h"
 #include "rendering/atlas/Atlas_Registry.h"
+#include "world/blocks/Block_Shapes.h"
 #include <glad/gl.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -357,6 +358,78 @@ void Hud::quad_skewed(const glm::vec2& tl, const glm::vec2& tr, const glm::vec2&
 void Hud::draw_slot_icon(const Hud_Inventory_Slot& slot, float x, float y, float size) {
     // Предметы и растения («крестики») остаются плоскими. Для shaped-блоков
     // ниже рисуется отдельная геометрия, чтобы превью совпадало с силуэтом блока в мире.
+    if (slot.icon_shape != Block_Shape::None) {
+        // Low-poly isometric preview from the same AABBs as the world mesher. This is
+        // used for pressure plates, doors, beds, levers and torches: no flattened top tile.
+        // All coordinates are projected into the icon's own square (UI batch; no 3D draw).
+        struct Preview_Box { Shape_Box b; int component; };
+        // Maximum is two bed halves (5 boxes each); keep it on the stack to avoid
+        // per-icon heap allocations in the hotbar and creative inventory.
+        std::array<Preview_Box, 32> boxes{};
+        int box_count = 0;
+        auto append = [&](Block_Shape shape, uint8_t meta, const glm::vec3& shift) {
+            Shape_Box temporary[16];
+            const int n = shape_boxes(shape, meta, temporary);
+            for (int i = 0; i < n; ++i) {
+                boxes[box_count++] = {{temporary[i].lo + shift, temporary[i].hi + shift}, i};
+            }
+        };
+        const bool door = slot.icon_shape == Block_Shape::Door;
+        const bool bed = slot.icon_shape == Block_Shape::Bed;
+        if (door) {
+            append(Block_Shape::Door, 0u, glm::vec3(0));
+            append(Block_Shape::Door, 8u, glm::vec3(0,1,0)); // full height and an open upper window
+        } else if (bed) {
+            append(Block_Shape::Bed, 0u, glm::vec3(0));
+            append(Block_Shape::Bed, 0u, glm::vec3(0,0,1)); // two-block-long bed
+        } else append(slot.icon_shape, 0u, glm::vec3(0));
+
+        const float x_scale = bed ? 0.82f : 1.0f;
+        const float z_scale = bed ? 0.58f : 1.0f;
+        const float y_scale = door ? 0.5f : 1.0f;
+        const float center = x + 0.5f * size;
+        auto project = [&](float bx, float by, float bz) {
+            const float u = bx * x_scale;
+            const float v = bz * z_scale;
+            const float h = by * y_scale;
+            return glm::vec2(center + (u - v) * size * 0.43f,
+                             y + size * (0.13f + (u + v) * 0.19f + (1.0f - h) * 0.47f));
+        };
+        // Draw rear elements first, followed by nearer segments; no depth buffer in UI.
+        std::sort(boxes.begin(), boxes.begin() + box_count, [](const Preview_Box& a, const Preview_Box& b) {
+            const glm::vec3 ca = (a.b.lo + a.b.hi) * 0.5f;
+            const glm::vec3 cb = (b.b.lo + b.b.hi) * 0.5f;
+            return ca.x + ca.z - ca.y * 0.15f < cb.x + cb.z - cb.y * 0.15f;
+        });
+        const glm::vec4 left_shade(0.82f,0.82f,0.82f,1.0f);
+        const glm::vec4 right_shade(0.64f,0.64f,0.64f,1.0f);
+        const glm::vec4 top_shade(1.0f);
+        for (int box_index = 0; box_index < box_count; ++box_index) {
+            const Preview_Box& element = boxes[box_index];
+            const auto& b=element.b;
+            const auto T=project(b.lo.x,b.hi.y,b.lo.z);
+            const auto R=project(b.hi.x,b.hi.y,b.lo.z);
+            const auto C=project(b.hi.x,b.hi.y,b.hi.z);
+            const auto L=project(b.lo.x,b.hi.y,b.hi.z);
+            const auto RL=project(b.hi.x,b.lo.y,b.lo.z);
+            const auto B=project(b.hi.x,b.lo.y,b.hi.z);
+            const auto LL=project(b.lo.x,b.lo.y,b.hi.z);
+            glm::vec4 top_uv=slot.uv_cube_top;
+            glm::vec4 side_uv=slot.uv_cube_right;
+            if (slot.icon_shape == Block_Shape::LeverPost) {
+                const glm::vec4 uv = element.component == 0 ? slot.uv_cube_top :
+                                     (element.component == 3 ? slot.uv_cube_bottom : slot.uv_cube_right);
+                top_uv=side_uv=uv;
+            } else if (slot.icon_shape == Block_Shape::TorchPost) {
+                top_uv=side_uv=element.component == 0 ? slot.uv_cube_right : slot.uv_cube_top;
+            }
+            // Side faces first; top face covers any shared 1/16 seam at component joins.
+            quad_skewed(L,C,B,LL,side_uv,left_shade);
+            quad_skewed(C,R,RL,B,side_uv,right_shade);
+            quad_skewed(T,R,C,L,top_uv,top_shade);
+        }
+        return;
+    }
     if (!slot.as_cube && !slot.as_stairs && !slot.as_slab) {
         quad(x, y, size, size, slot.icon_uv, glm::vec4(1.0f));
         return;

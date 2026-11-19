@@ -24,6 +24,7 @@
 #include "hud/Hud.h"
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include "world/generation/World_Generator.h"
 #include "world/storage/World_File.h"
 #include "entities/player/Inventory.h"
@@ -91,6 +92,22 @@ private:
     World_Settings m_world_settings;
     std::string m_world_dir;            // имя папки текущего мира в worlds/
     bool m_loading_world = false;
+    // Separate saved positions; old saves without this file retain world.json coordinates.
+    std::unordered_map<std::string, glm::vec3> m_dimension_positions;
+    bool m_dimension_landing = false; // hold physics until destination chunks are ready
+    float m_portal_contact_time = 0.0f;
+    float m_portal_cooldown = 0.0f;
+    std::string m_pending_portal_type; // linked return portal after a dimension transfer
+    glm::ivec3 m_pending_portal_origin{0};
+    bool m_pending_portal_along_z = false;
+    std::string m_pending_command_portal_type; // /portal build waits for missing chunks
+    glm::ivec3 m_pending_command_portal_origin{0};
+    bool m_pending_command_portal_along_z = false;
+    void load_dimension_positions();
+    void save_dimension_positions() const;
+    void tick_portal_travel(float dt);
+    bool construct_portal_at(const std::string& type, const glm::ivec3& origin, bool along_z = false);
+    std::filesystem::path dimension_data_file(const char* basename) const;
     // Приёмник текстового ввода для экранов (поле имени мира и т.п.); чат имеет приоритет.
     std::string* m_text_target = nullptr;
     size_t m_text_max = 32;
@@ -120,7 +137,11 @@ private:
     Day_Night_Cycle m_day_night_cycle;
     Weather_Cycle m_weather;
     // Ambient с учётом погоды (день × погода); им освещаются все объекты сцены.
-    float scene_ambient() const { return m_day_night_cycle.get_ambient_intensity() * m_weather.ambient_multiplier(); }
+    float scene_ambient() const {
+        if (m_world_settings.dimension == "nether") return 0.30f;
+        if (m_world_settings.dimension == "end") return 0.58f;
+        return m_day_night_cycle.get_ambient_intensity() * m_weather.ambient_multiplier();
+    }
     Tick_Scheduler m_tick;  // централизованные тики (см. Tick.h)
 
     // Текущая дальность прорисовки в чанках. Стартует с Config::chunk_load_radius
@@ -364,10 +385,16 @@ public:
     bool build_dungeon(const glm::ivec3& origin, std::uint32_t seed);
     // Команда /portal: переносит игрока в другое измерение (имя из Dimension.h). Чанки разных
     // измерений хранятся под разными ключами, поэтому миры не смешиваются.
-    bool switch_dimension(const std::string& name);
+    bool switch_dimension(const std::string& name, bool via_portal = false);
+    // Creative/debug tools; portal interior can also be activated in a player-built obsidian frame.
+    bool build_portal(const std::string& type);
+    bool ignite_nether_portal();
+    bool insert_ender_eye(const glm::ivec3& frame);
     // Взрыв (динамит/кнопка): ломает блоки лучами и бьёт игрока и мобов рядом.
     void detonate(const glm::ivec3& center, float radius);
     const std::string& get_dimension_name() const { return m_world_settings.dimension; }
+    bool is_portal_build_pending() const { return !m_pending_command_portal_type.empty(); }
+    const std::string& pending_portal_build_type() const { return m_pending_command_portal_type; }
     int summon_pigs(int count) { return m_mobs.summon_pigs(count, get_player_position()); }
     int summon_cows(int count) { return m_mobs.summon_cows(count, get_player_position()); }
     int summon_horses(int count) { return m_mobs.summon_horses(count, get_player_position()); }

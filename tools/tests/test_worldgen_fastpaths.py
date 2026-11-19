@@ -40,7 +40,7 @@ namespace Config {
     constexpr int world_min_y=-256, world_max_y=1023, world_min_chunk_y=-8;
 }
 
-enum class Terrain_Mode { Void, Flat, Noise };
+enum class Terrain_Mode { Void, Flat, Noise, Nether, End };
 struct Dimension_Info {
     Terrain_Mode terrain=Terrain_Mode::Noise;
     bool ground=true, sky_islands=false, villages=false, has_sky_light=true;
@@ -111,6 +111,8 @@ bool baseline_air(const World_Generator& g, int cx, int cy, int cz) {
     switch (dim.terrain) {
         case Terrain_Mode::Void: return true;
         case Terrain_Mode::Flat: return start_y > dim.flat_top_y();
+        case Terrain_Mode::Nether: return start_y > 127 || start_y + Config::chunk_height - 1 < 0;
+        case Terrain_Mode::End: return start_y > 112 || start_y + Config::chunk_height - 1 < 24;
         case Terrain_Mode::Noise: break;
     }
     if (!dim.ground) return !(dim.sky_islands && start_y+Config::chunk_height-1>=200);
@@ -145,7 +147,7 @@ int main() {
     int tests=0;
     for (int seed=1;seed<=7;seed++) {
         for (bool ground: {false,true}) for (bool islands: {false,true})
-        for (bool villages: {false,true}) for (Terrain_Mode terrain: {Terrain_Mode::Void,Terrain_Mode::Flat,Terrain_Mode::Noise}) {
+        for (bool villages: {false,true}) for (Terrain_Mode terrain: {Terrain_Mode::Void,Terrain_Mode::Flat,Terrain_Mode::Noise,Terrain_Mode::Nether,Terrain_Mode::End}) {
             Dimension_Info dim{terrain,ground,islands,villages,true};
             Structures ss;
             for (int cx: {-9,-1,0,3,12}) for(int cz: {-5,0,11}) {

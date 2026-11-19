@@ -1,16 +1,9 @@
-//
-// Dimension — описание измерения мира и режима генерации его рельефа.
-//
-// Как добавить новое измерение (например, Nether):
-//   1. Добавить имя в enum Dimension_Id (перед Count).
-//   2. Добавить одну запись в таблицу в Dimension.cpp (register_dimensions): имя, режим рельефа
-//      (Terrain_Mode) и параметры. Для Terrain_Mode::Noise берутся обычные шумы World_Generator,
-//      для Flat — список слоёв, для Void — пустота.
-//   3. Если нужен совсем новый алгоритм рельефа — добавить значение в Terrain_Mode и ветку в
-//      World_Generator (get_block / generate_chunk / chunk_is_definitely_air); все они уже
-//      делают switch по Terrain_Mode, так что компилятор подскажет, где что дописать.
-// Перемещения между измерениями здесь НЕТ — это только основа: данные + генерация + хранение.
-//
+// Dimension — отдельный контекст генерации, времени и хранения чанков.
+// Встроенные измерения определены в Dimension.cpp; дополнительные задаются в
+// assets/dimensions.json или регистрируются из C++ (register_dimension).
+// Переходы игроков и портальные конструкции: Game::switch_dimension и portal helpers.
+// Документация: documentation/DIMENSIONS_AND_PORTALS.md.
+
 #ifndef OPTICRAFT_DIMENSION_H
 #define OPTICRAFT_DIMENSION_H
 
@@ -19,13 +12,15 @@
 #include <vector>
 #include "world/blocks/Block_Types.h"
 
-enum class Dimension_Id : uint8_t {
+enum class Dimension_Id : uint16_t {
     Overworld = 0,
     Flat_Test,     // плоский мир со слоями — пример режима Flat, годится для тестов построек
     Void_Test,     // пустота — пример режима Void
     Superflat,     // супер-плоский мир (как в Minecraft): слои из Dimension.cpp, без декораций
     Single_Biome,  // обычный рельеф, но весь мир одного выбранного биома, без пещер
     Single_Islands,// то же, но земли нет: только парящие острова над пустотой
+    Nether,        // пещерный огненный мир
+    End,           // пустотные острова
     Count
 };
 
@@ -33,7 +28,9 @@ enum class Dimension_Id : uint8_t {
 enum class Terrain_Mode : uint8_t {
     Noise = 0,     // обычный мир: климат, биомы, пещеры, острова (World_Generator)
     Flat,          // плоские слои из Dimension_Info::flat_layers
-    Void           // пустота (всё — воздух)
+    Void,          // пустота (всё — воздух)
+    Nether,        // процедурные лавовые пещеры
+    End            // процедурные парящие острова
 };
 
 // Один слой плоского мира; слои перечисляются СНИЗУ ВВЕРХ начиная с flat_base_y.
@@ -77,6 +74,8 @@ struct Dimension_Info {
     std::vector<Flat_Layer> flat_layers;
     int flat_base_y = 0;
     int spawn_height = 64;
+    // X/Z в обычном мире / coordinate_scale = X/Z в этом измерении.
+    float coordinate_scale = 1.0f;
 
     // Верхний Y последнего слоя плоского мира (включительно); для Noise/Void — flat_base_y - 1.
     int flat_top_y() const;
@@ -89,6 +88,12 @@ struct Dimension_Info {
 };
 
 const Dimension_Info& get_dimension_info(Dimension_Id id);
+// Добавление измерений из C++ и assets/dimensions.json без изменения enum.
+// Программная регистрация выполняется до запуска генераторов. Имя — уникальный ключ
+// сохранения; зарегистрированные описания имеют стабильные адреса до завершения программы.
+bool register_dimension(const Dimension_Info& info);
+std::vector<std::string> dimension_names();
+const Dimension_Info* find_dimension_info(const std::string& name);
 // По имени из world.json; неизвестное имя → Overworld.
 Dimension_Id dimension_from_name(const std::string& name);
 

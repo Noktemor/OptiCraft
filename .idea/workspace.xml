@@ -36,11 +36,28 @@
   <component name="ChangeListManager">
     <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="beta 0.12">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_fragment.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_fragment.glsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/configs/Config_Render.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/configs/Config_Render.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/blocks.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/blocks.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/texture/texture_atlas.png" beforeDir="false" afterPath="$PROJECT_DIR$/assets/texture/texture_atlas.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/commands/Command_System.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/Command_System.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hud/Hud.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/hud/Hud.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,7 +67,7 @@
   <component name="ClangdSettings">
     <option name="formatViaClangd" value="false" />
   </component>
-  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Release" />
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
@@ -193,8 +210,13 @@
       <recent name="$PROJECT_DIR$/cmake-build-debug/assets/mobs" />
     </key>
   </component>
-  <component name="RunManager" selected="CMake Application.OptiCraft">
+  <component name="RunManager" selected="Shell Script.OptiCraft session + report">
     <configuration name="OptiCraft" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>

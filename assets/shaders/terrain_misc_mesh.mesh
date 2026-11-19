@@ -131,10 +131,8 @@ void main() {
                     tc_param = vec2(fu, fv * h);
                 }
                 normal_y = axis == 1u ? (pos ? 1.0 : -1.0) : 0.0;
-                if (face == 2u) {
-                    p.y += sin(p.x * 0.7 + time * 1.3) * 0.035 +
-                           cos(p.z * 0.6 + time * 1.7) * 0.035;
-                }
+            // Texture UV flow animates water instead of moving only its upper vertices:
+            // side faces and surface now share exact edges, including at chunk boundaries.
             }
         }
 

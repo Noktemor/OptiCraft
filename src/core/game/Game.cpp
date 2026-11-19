@@ -18,6 +18,8 @@
 #include "utils/text/Localization.h"
 #include "utils/text/Utf8.h"
 #include "commands/Command_System.h"
+#include "world/portals/Portal_Placement.h"
+#include "math/Math_Helpers.h"
 
 #include <algorithm>
 #include <cctype>
@@ -41,6 +43,8 @@
 #include "world/storage/Region_File.h"
 #include "entities/effects/Status_Effects.h"
 #include <optional>
+#include <iomanip>
+#include <limits>
 
 static Block_Types Game_Leaf_Sapling(Block_Types leaves);
 
@@ -408,9 +412,22 @@ Hud_Inventory_Slot make_hud_slot(const Item_Stack& stack, bool infinite_stack = 
         slot.as_stairs = props.shape == Block_Shape::Stairs;
         slot.as_slab = props.shape == Block_Shape::Slab;
         slot.as_cube = props.shape == Block_Shape::None;
+        // Instead of displaying their upper texture as a flat sprite, draw their real silhouette.
+        switch (props.shape) {
+            case Block_Shape::Door:
+            case Block_Shape::Trapdoor:
+            case Block_Shape::PressurePlate:
+            case Block_Shape::Bed:
+            case Block_Shape::TorchPost:
+            case Block_Shape::LeverPost:
+                slot.icon_shape = props.shape;
+                break;
+            default: break;
+        }
         slot.uv_cube_top = props.textures.top;
         slot.uv_cube_left = props.textures.has_front ? props.textures.front : props.textures.side;
         slot.uv_cube_right = props.textures.side;
+        slot.uv_cube_bottom = props.textures.bottom;
     }
     return slot;
 }
@@ -677,6 +694,7 @@ bool Game::create_world(const std::string& name, const std::string& seed_text, G
     World_Settings st;
     st.name = clean;
     st.generation_folder = generation_folder;
+    if (!find_dimension_info(dimension)) { error = "Unknown dimension: " + dimension; return false; }
     st.dimension = dimension;
     st.biome = biome;
     st.seed = seed_from_text(trim(seed_text));
@@ -697,6 +715,12 @@ void Game::teardown_world() {
     if (m_container_session.is_open()) close_container();
     m_chat_open = false;
     m_chat_input.clear();
+    // Pending portals belong to the world being closed, never to the next save.
+    m_pending_portal_type.clear();
+    m_pending_command_portal_type.clear();
+    m_dimension_landing = false;
+    m_portal_contact_time = 0.f;
+    m_portal_cooldown = 0.f;
     m_mobs.clear();
     m_crops_ptr.reset();
     m_saplings_ptr.reset();
@@ -725,6 +749,8 @@ void Game::save_world() {
     m_world_settings.player_x = p.x;
     m_world_settings.player_y = p.y;
     m_world_settings.player_z = p.z;
+    m_dimension_positions[m_world_settings.dimension] = p;
+    save_dimension_positions();
     // Замороженное (Fixed) время не пишем: оно не принадлежит миру и не должно затирать сохранённое.
     if (!m_day_night_cycle.is_frozen()) {
         m_world_settings.day_time = m_day_night_cycle.get_normalized_time();
@@ -738,11 +764,11 @@ void Game::save_world() {
         if (inv) inv << m_inventory_ptr->serialize();
     }
     if (m_crops_ptr) {
-        std::ofstream crops(m_world_file.get_path().parent_path() / "crops.txt", std::ios::trunc);
+        std::ofstream crops(dimension_data_file("crops"), std::ios::trunc);
         if (crops) crops << m_crops_ptr->serialize();
     }
     if (m_saplings_ptr) {
-        std::ofstream saplings(m_world_file.get_path().parent_path() / "saplings.txt", std::ios::trunc);
+        std::ofstream saplings(dimension_data_file("saplings"), std::ios::trunc);
         if (saplings) saplings << m_saplings_ptr->serialize();
     }
 }
@@ -774,9 +800,14 @@ bool Game::load_world(const std::string& dir) {
         LOG_ERROR("Cannot load world: " + dir);
         return false;
     }
+    if (!find_dimension_info(st.dimension)) {
+        LOG_ERROR("Missing dimension definition: " + st.dimension);
+        return false;
+    }
     m_world_dir = dir;
     m_world_file = file;
     m_world_settings = st;
+    load_dimension_positions();
     m_generation_folder = st.generation_folder;
     m_game_mode = st.game_mode == "survival" ? Game_Mode::Survival : Game_Mode::Creative;
     m_spectator = st.game_mode == "spectator";
@@ -799,7 +830,7 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
     m_crops_ptr = std::make_unique<Crop_Manager>();
     m_block_interaction_ptr->set_crop_manager(m_crops_ptr.get());
     {
-        std::ifstream crops(m_world_file.get_path().parent_path() / "crops.txt");
+        std::ifstream crops(dimension_data_file("crops"));
         if (crops) {
             const std::string text{std::istreambuf_iterator<char>(crops), std::istreambuf_iterator<char>()};
             m_crops_ptr->deserialize(text);
@@ -808,7 +839,7 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
     m_saplings_ptr = std::make_unique<Sapling_Manager>();
     m_block_interaction_ptr->set_sapling_manager(m_saplings_ptr.get());
     {
-        std::ifstream saplings(m_world_file.get_path().parent_path() / "saplings.txt");
+        std::ifstream saplings(dimension_data_file("saplings"));
         if (saplings) {
             const std::string text{std::istreambuf_iterator<char>(saplings), std::istreambuf_iterator<char>()};
             m_saplings_ptr->deserialize(text);
@@ -1263,11 +1294,34 @@ bool Game::is_camera_underwater() const {
 }
 
 void Game::reload_world(const std::string& generation_folder) {
+    // A reload destroys the chunk namespace. Do not let old pending edits survive it.
+    m_pending_portal_type.clear();
+    m_pending_command_portal_type.clear();
     const glm::vec3 player_pos = m_player_ptr->get_position();
     int spawn_x = static_cast<int>(std::floor(player_pos.x));
     int spawn_z = static_cast<int>(std::floor(player_pos.z));
 
     m_chunk_manager_ptr->clear();
+    m_mobs.clear();
+    m_mobs.reset_timers();
+    m_logic = Logic_Manager{};
+    m_logic_scan_timer = 0.0f;
+    m_crops_ptr = std::make_unique<Crop_Manager>();
+    m_saplings_ptr = std::make_unique<Sapling_Manager>();
+    m_block_interaction_ptr->set_crop_manager(m_crops_ptr.get());
+    m_block_interaction_ptr->set_sapling_manager(m_saplings_ptr.get());
+    {
+        std::ifstream crops(dimension_data_file("crops"));
+        if (crops) {
+            const std::string data{std::istreambuf_iterator<char>(crops), std::istreambuf_iterator<char>()};
+            m_crops_ptr->deserialize(data);
+        }
+        std::ifstream saplings(dimension_data_file("saplings"));
+        if (saplings) {
+            const std::string data{std::istreambuf_iterator<char>(saplings), std::istreambuf_iterator<char>()};
+            m_saplings_ptr->deserialize(data);
+        }
+    }
     // Предметы лежали в старом мире (другой пресет генерации) — в новом им делать нечего.
     if (m_dropped_items_ptr) m_dropped_items_ptr->clear();
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
@@ -1290,6 +1344,15 @@ void Game::reload_world(const std::string& generation_folder) {
 
     // Игрок остаётся в своей колонке; в мире без земли find_spawn_surface сдвинет его к ближайшему острову.
     const int spawn_y = m_world_generator->find_spawn_surface(spawn_x, spawn_z) + 2;
+    int respawn_x = 8, respawn_z = 8;
+    const int respawn_y = m_world_generator->find_spawn_surface(respawn_x, respawn_z) + 2;
+    m_spawn_position = glm::vec3(static_cast<float>(respawn_x),
+                                 static_cast<float>(respawn_y), static_cast<float>(respawn_z));
+    const Dimension_Info& dim = m_world_generator->get_dimension();
+    m_day_night_cycle.set_frozen(dim.time_mode == Time_Mode::Fixed);
+    m_day_night_cycle.set_normalized_time(dim.time_mode == Time_Mode::Fixed
+        ? dim.fixed_time : m_world_settings.day_time);
+    if (dim.time_mode == Time_Mode::Cycle) m_day_night_cycle.set_day_count(m_world_settings.day_count);
     m_player_ptr->set_position(glm::vec3(
         static_cast<float>(spawn_x),
         static_cast<float>(spawn_y),
@@ -1480,7 +1543,19 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
 
     // Boot enchantment must be sampled before physics processes landing damage.
     m_player_ptr->set_feather_falling_level(m_inventory_ptr->get_armor_slot(3).enchant_feather_falling);
-    { OC_ZONE("Gameplay::player update"); m_player_ptr->update(delta_time, *m_chunk_manager_ptr); }
+    if (m_dimension_landing) {
+        const glm::vec3 landing = m_player_ptr->get_position();
+        const int cx = static_cast<int>(std::floor(landing.x / Config::chunk_size));
+        const int cy = static_cast<int>(std::floor((landing.y - 2.0f) / Config::chunk_height));
+        const int cz = static_cast<int>(std::floor(landing.z / Config::chunk_size));
+        // Do not simulate gravity against absent chunks on the first arrival frames.
+        if (m_chunk_manager_ptr->get_chunk(cx, cy, cz)) m_dimension_landing = false;
+        else m_player_ptr->reset_velocity();
+    }
+    if (!m_dimension_landing) {
+        OC_ZONE("Gameplay::player update");
+        m_player_ptr->update(delta_time, *m_chunk_manager_ptr);
+    }
 
     // Модель игрока: поворот по взгляду, ходьба/стойка по скорости. Без файла модели ничего не делает.
     m_player_model.ensure_loaded();
@@ -1504,6 +1579,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
         m_player_ptr->get_position() + glm::vec3(0.0f, m_player_ptr->get_eye_height(), 0.0f)
     );
 
+    tick_portal_travel(delta_time);
     auto player_pos = m_player_ptr->get_position();
     m_chunk_manager_ptr->update_player_position(player_pos.x, player_pos.y, player_pos.z);
 
@@ -1533,6 +1609,24 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
         *m_inventory_ptr,
         entity_distance
     ); }
+
+    // Survival-compatible manual portal activation (commands remain debug shortcuts).
+    // The interaction code ignores items as placeable blocks, so these clicks do not
+    // interfere with ordinary block placing or portal raycast physics.
+    const Block_Types portal_item = m_inventory_ptr->get_selected_block();
+    if (m_input_ptr->is_mouse_button_pressed(1) && m_player_ptr->is_alive()) {
+        if (portal_item == Block_Types::Flint_And_Steel) {
+            if (ignite_nether_portal() && m_game_mode == Game_Mode::Survival)
+                m_inventory_ptr->damage_selected_tool(1);
+        } else if (portal_item == Block_Types::Eye_Of_Ender) {
+            const Raycast_Hit hit = Raycast::cast(eye, m_camera_ptr->get_front(), 6.0f,
+                                                 *m_chunk_manager_ptr);
+            if (hit.hit && hit.block_type == Block_Types::End_Portal_Frame &&
+                insert_ender_eye(glm::ivec3(hit.block_x, hit.block_y, hit.block_z))) {
+                if (m_game_mode == Game_Mode::Survival) m_inventory_ptr->consume_selected(1);
+            }
+        }
+    }
 
     // Spawn eggs work on the targeted ground/adjacent block, without placing an item block.
     const Block_Types held_egg = m_inventory_ptr->get_selected_block();
@@ -1684,7 +1778,10 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     const bool scene_is_post_processed = m_renderer_ptr->begin_scene(m_window_ptr->get_width(),
                                                                      m_window_ptr->get_height());
 
-    const glm::vec3 sky_color = m_weather.apply_to_sky(m_day_night_cycle.get_sky_color());
+    glm::vec3 sky_color = m_weather.apply_to_sky(m_day_night_cycle.get_sky_color());
+    const std::string& active_dimension = m_world_settings.dimension;
+    if (active_dimension == "nether") sky_color = glm::vec3(0.115f, 0.033f, 0.034f);
+    else if (active_dimension == "end") sky_color = glm::vec3(0.044f, 0.033f, 0.082f);
     m_renderer_ptr->clear_screen(sky_color.r, sky_color.g, sky_color.b);
 
     const float aspect_ratio = static_cast<float>(m_window_ptr->get_width()) /
@@ -1697,7 +1794,7 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     const auto renderable = m_chunk_manager_ptr->get_renderable_chunks(
         &frustum, &camera_position, m_renderer_ptr->get_flora_render_distance(), m_spectator);
 
-    m_renderer_ptr->draw_sky(
+    if (active_dimension != "nether" && active_dimension != "end") m_renderer_ptr->draw_sky(
         camera_position,
         m_camera_ptr->get_right(),
         m_camera_ptr->get_up(),
@@ -1730,7 +1827,7 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     m_dropped_items_mesh.clear();
     m_dropped_items_ptr->build_mesh(m_dropped_items_mesh, *m_chunk_manager_ptr);
     m_renderer_ptr->render_dropped_items(m_dropped_items_mesh, view, projection,
-                                         m_day_night_cycle.get_ambient_intensity());
+                                         scene_ambient());
 
     // Подводный фильтр рисуется ДО виньетки, чтобы затемнение краёв ложилось
     // поверх синевы, а не наоборот.
@@ -2319,16 +2416,274 @@ void Game::detonate(const glm::ivec3& center, float radius) {
     }
 }
 
-bool Game::switch_dimension(const std::string& name) {
-    const Dimension_Info& info = get_dimension_info(dimension_from_name(name));
-    if (name != info.name) return false;
-    if (m_world_settings.dimension == info.name) return true;
-    // Сохраняем текущее измерение, меняем настройку и перестраиваем мир с сохранённой позицией x/z.
+std::filesystem::path Game::dimension_data_file(const char* basename) const {
+    const std::string suffix = m_world_settings.dimension == "overworld" ? "" :
+                                ("_" + m_world_settings.dimension);
+    return m_world_file.get_path().parent_path() / (std::string(basename) + suffix + ".txt");
+}
+
+void Game::load_dimension_positions() {
+    m_dimension_positions.clear();
+    std::ifstream file(m_world_file.get_path().parent_path() / "dimension_positions.txt");
+    std::string name;
+    glm::vec3 pos{};
+    while (file >> std::quoted(name) >> pos.x >> pos.y >> pos.z) {
+        if (find_dimension_info(name) && std::isfinite(pos.x) && std::isfinite(pos.y) &&
+            std::isfinite(pos.z)) m_dimension_positions[name] = pos;
+    }
+}
+
+void Game::save_dimension_positions() const {
+    const auto final = m_world_file.get_path().parent_path() / "dimension_positions.txt";
+    const auto temp = final.string() + ".tmp";
+    {
+        std::ofstream file(temp, std::ios::trunc);
+        if (!file) return;
+        file << std::setprecision(std::numeric_limits<float>::max_digits10);
+        for (const auto& [name, pos] : m_dimension_positions)
+            file << std::quoted(name) << ' ' << pos.x << ' ' << pos.y << ' ' << pos.z << '\n';
+        if (!file) return;
+    }
+    std::error_code error;
+    std::filesystem::rename(temp, final, error);
+    if (error) { // Windows rename may require removing an existing destination.
+        std::filesystem::remove(final, error);
+        std::filesystem::rename(temp, final, error);
+    }
+}
+
+bool Game::switch_dimension(const std::string& name, bool via_portal) {
+    const Dimension_Info* destination = find_dimension_info(name);
+    if (!destination || !m_player_ptr || !m_chunk_manager_ptr) return false;
+    if (m_world_settings.dimension == name) return true;
+    const glm::vec3 departure = m_player_ptr->get_position();
+    const Dimension_Info& source = get_dimension_info(dimension_from_name(m_world_settings.dimension));
+    // Preserve legacy positions and chunk writes before changing the storage namespace.
     save_world();
-    m_world_settings.dimension = info.name;
+    const auto saved = m_dimension_positions.find(name);
+    glm::vec3 arrival;
+    // /portal <name> is an administrative jump and restores that world's last position.
+    // Physical Nether portals always remap the X/Z coordinates, even on repeat visits.
+    // The End's exit returns to the saved Overworld position instead of mapping island coordinates.
+    const bool restore_saved = saved != m_dimension_positions.end() &&
+        (!via_portal || source.terrain == Terrain_Mode::End);
+    if (restore_saved) arrival = saved->second;
+    else if (destination->terrain == Terrain_Mode::End) arrival = {8.f, 70.f, 8.f};
+    else arrival = {departure.x * source.coordinate_scale / destination->coordinate_scale,
+                    static_cast<float>(destination->spawn_height),
+                    departure.z * source.coordinate_scale / destination->coordinate_scale};
+    m_world_settings.dimension = name;
+    m_pending_portal_type.clear();
+    m_pending_command_portal_type.clear();
+    // Old manager and its workers are drained by reload_world before new jobs are issued.
+    m_player_ptr->set_position(arrival);
     reload_world(m_generation_folder);
+    // reload_world selects a safe generated surface for first visits. For revisits,
+    // restore the exact saved position. Always reset old-world velocity/fall state.
+    teleport_player(restore_saved ? arrival : m_player_ptr->get_position());
+    m_portal_contact_time = 0.f;
+    m_portal_cooldown = 2.f;
+    m_dimension_landing = true;
     save_world();
     return true;
+}
+
+bool Game::construct_portal_at(const std::string& type, const glm::ivec3& origin, bool along_z) {
+    if (!m_chunk_manager_ptr || (type != "nether" && type != "end")) return false;
+    const auto kind = type == "nether" ? Portal_Placement::Kind::Nether : Portal_Placement::Kind::End;
+    const auto plane = along_z ? Portal_Placement::Plane::Along_Z : Portal_Placement::Plane::Along_X;
+    const Portal_Placement::Position pos{origin.x, origin.y, origin.z};
+
+    // A chunk may still be streaming. Never write the first blocks until ALL cells
+    // of the portal, including the End support pad, are available and within bounds.
+    bool ready = true;
+    Portal_Placement::for_each_cell(kind, pos, plane, [&](const Portal_Placement::Cell& cell) {
+        if (!ready) return;
+        const int x = cell.pos.x, y = cell.pos.y, z = cell.pos.z;
+        if (y < Config::world_min_y || y > Config::world_max_y) { ready = false; return; }
+        const int cx = Math_Helpers::floor_div(x, Config::chunk_size);
+        const int cy = Math_Helpers::floor_div(y, Config::chunk_height);
+        const int cz = Math_Helpers::floor_div(z, Config::chunk_size);
+        ready = m_chunk_manager_ptr->get_chunk(cx, cy, cz) != nullptr;
+    });
+    if (!ready) return false;
+
+    bool ok = true;
+    Portal_Placement::for_each_cell(kind, pos, plane, [&](const Portal_Placement::Cell& cell) {
+        if (!ok) return;
+        Block_Types block = Block_Types::Air;
+        if (kind == Portal_Placement::Kind::Nether)
+            block = cell.rim ? Block_Types::Obsidian : Block_Types::Nether_Portal;
+        else if (cell.support)
+            block = Block_Types::End_Stone;
+        else
+            block = cell.rim ? Block_Types::End_Portal_Frame_Filled : Block_Types::End_Portal;
+        ok = set_block_at(cell.pos.x, cell.pos.y, cell.pos.z, block);
+    });
+    return ok;
+}
+
+bool Game::build_portal(const std::string& type) {
+    if (!m_player_ptr || !m_camera_ptr || !m_chunk_manager_ptr ||
+        (type != "nether" && type != "end")) return false;
+
+    const glm::vec3 p = m_player_ptr->get_position();
+    glm::vec3 forward = m_camera_ptr->get_front();
+    forward.y = 0.f;
+    const float len = glm::length(forward);
+    if (len > 0.001f) forward /= len;
+    else forward = glm::vec3(0.f, 0.f, -1.f);
+    // Place the structure in front of the player, not invariably on +X where
+    // it might be behind the camera or viewed edge-on.
+    const glm::vec3 target = p + forward * 6.f;
+    const glm::ivec3 at(static_cast<int>(std::floor(target.x)),
+                         static_cast<int>(std::floor(p.y)) - 1,
+                         static_cast<int>(std::floor(target.z)));
+    const bool along_z = (type == "nether" && std::abs(forward.x) > std::abs(forward.z));
+    const int bottom = at.y - (type == "end" ? 1 : 0);
+    const int top = at.y + (type == "nether" ? 4 : 0);
+    if (bottom < Config::world_min_y || top > Config::world_max_y) return false;
+
+    if (construct_portal_at(type, at, along_z)) {
+        m_pending_command_portal_type.clear();
+        return true;
+    }
+    // The command should not fail simply because one neighbor is still streaming.
+    // Reattempt on game ticks, after Chunk_Manager collects completed chunks.
+    m_pending_command_portal_type = type;
+    m_pending_command_portal_origin = at;
+    m_pending_command_portal_along_z = along_z;
+    return true;
+}
+
+bool Game::ignite_nether_portal() {
+    if (!m_player_ptr || !m_chunk_manager_ptr) return false;
+    const glm::ivec3 center = glm::ivec3(glm::floor(m_player_ptr->get_position()));
+    // Search X-oriented and Z-oriented obsidian frames, only filled if completely valid.
+    for (int axis = 0; axis < 2; ++axis) {
+        for (int y = center.y - 4; y <= center.y + 2; ++y)
+        for (int a = -5; a <= 5; ++a)
+        for (int b = -5; b <= 5; ++b) {
+            const glm::ivec3 start = center + glm::ivec3(axis ? b : a, y, axis ? a : b);
+            auto cell = [&](int along, int up) {
+                return start + glm::ivec3(axis ? 0 : along, up, axis ? along : 0);
+            };
+            bool valid = true;
+            for (int yy = 0; yy < 5 && valid; ++yy) for (int xx = 0; xx < 4; ++xx) {
+                const glm::ivec3 c = cell(xx, yy);
+                const Block_Types block = m_chunk_manager_ptr->get_block_world(c.x, c.y, c.z);
+                const bool frame = yy == 0 || yy == 4 || xx == 0 || xx == 3;
+                if (frame ? block != Block_Types::Obsidian :
+                    (block != Block_Types::Air && block != Block_Types::Nether_Portal)) {
+                    valid = false; break;
+                }
+            }
+            if (!valid) continue;
+            // A missing chunk may be sampled through World_Generator, but cannot be edited.
+            // Reject incomplete frames instead of announcing a successful ignition.
+            for (int yy = 0; yy < 5 && valid; ++yy) for (int xx = 0; xx < 4; ++xx) {
+                const glm::ivec3 c = cell(xx, yy);
+                if (!m_chunk_manager_ptr->get_chunk(
+                        Math_Helpers::floor_div(c.x, Config::chunk_size),
+                        Math_Helpers::floor_div(c.y, Config::chunk_height),
+                        Math_Helpers::floor_div(c.z, Config::chunk_size))) { valid = false; break; }
+            }
+            if (!valid) continue;
+            bool activated = true;
+            for (int yy = 1; yy <= 3; ++yy) for (int xx = 1; xx <= 2; ++xx) {
+                const glm::ivec3 c = cell(xx, yy);
+                activated = set_block_at(c.x, c.y, c.z, Block_Types::Nether_Portal) && activated;
+            }
+            return activated;
+        }
+    }
+    return false;
+}
+
+// Place an Eye into an existing End frame. Activate only when all 16 ring cells
+// of a horizontal 5x5 frame are filled and the center is clear (or already active).
+bool Game::insert_ender_eye(const glm::ivec3& clicked) {
+    if (!m_chunk_manager_ptr || m_chunk_manager_ptr->get_block_world(clicked.x, clicked.y, clicked.z)
+        != Block_Types::End_Portal_Frame) return false;
+    if (!set_block_at(clicked.x, clicked.y, clicked.z, Block_Types::End_Portal_Frame_Filled)) return false;
+    // Search candidate centers; clicking any rim cell may be the last Eye.
+    for (int cx = clicked.x - 2; cx <= clicked.x + 2; ++cx)
+        for (int cz = clicked.z - 2; cz <= clicked.z + 2; ++cz) {
+            if (std::max(std::abs(cx - clicked.x), std::abs(cz - clicked.z)) != 2) continue;
+            bool complete = true;
+            for (int dz = -2; dz <= 2 && complete; ++dz)
+                for (int dx = -2; dx <= 2; ++dx) {
+                    const Block_Types b = m_chunk_manager_ptr->get_block_world(
+                        cx + dx, clicked.y, cz + dz);
+                    if (std::max(std::abs(dx), std::abs(dz)) == 2) {
+                        if (b != Block_Types::End_Portal_Frame_Filled) {complete = false; break;}
+                    } else if (b != Block_Types::Air && b != Block_Types::End_Portal) {
+                        complete = false; break;
+                    }
+                }
+            if (!complete) continue;
+            for (int dz = -1; dz <= 1; ++dz)
+                for (int dx = -1; dx <= 1; ++dx)
+                    set_block_at(cx + dx, clicked.y, cz + dz, Block_Types::End_Portal);
+            push_chat_message("End portal activated");
+            return true;
+        }
+    return true;
+}
+
+void Game::tick_portal_travel(float dt) {
+    if (!m_player_ptr || !m_chunk_manager_ptr) return;
+    m_portal_cooldown = std::max(0.f, m_portal_cooldown - dt);
+    // Complete queued /portal build requests after the whole geometry is loaded.
+    if (!m_pending_command_portal_type.empty() &&
+        construct_portal_at(m_pending_command_portal_type, m_pending_command_portal_origin,
+                            m_pending_command_portal_along_z)) {
+        push_chat_message("Portal built: " + m_pending_command_portal_type);
+        m_pending_command_portal_type.clear();
+    }
+    // Complete the return portal after the destination chunk actually exists.
+    if (!m_pending_portal_type.empty() &&
+        construct_portal_at(m_pending_portal_type, m_pending_portal_origin,
+                            m_pending_portal_along_z)) {
+        m_pending_portal_type.clear();
+    }
+    if (m_dimension_landing) {
+        m_portal_cooldown = 2.f;
+        return;
+    }
+    if (m_portal_cooldown > 0.f) return;
+    const glm::vec3 p = m_player_ptr->get_position();
+    const int x = static_cast<int>(std::floor(p.x));
+    const int y = static_cast<int>(std::floor(p.y));
+    const int z = static_cast<int>(std::floor(p.z));
+    Block_Types portal = Block_Types::Air;
+    for (int dy = -1; dy <= 1; ++dy) {
+        const Block_Types b = m_chunk_manager_ptr->get_block_world(x, y + dy, z);
+        if (b == Block_Types::Nether_Portal || b == Block_Types::End_Portal) {
+            portal = b; break;
+        }
+    }
+    if (portal == Block_Types::Air) { m_portal_contact_time = 0.f; return; }
+    m_portal_contact_time += dt;
+    if (m_portal_contact_time < 0.8f) return;
+    const std::string source = m_world_settings.dimension;
+    const std::string destination = portal == Block_Types::Nether_Portal
+        ? (source == "nether" ? "overworld" : "nether")
+        : (source == "end" ? "overworld" : "end");
+    if (switch_dimension(destination, true)) {
+        // Put a linked usable portal beside the arrival point, never on top of the player.
+        const glm::vec3 arrival = m_player_ptr->get_position();
+        m_pending_portal_type = portal == Block_Types::Nether_Portal ? "nether" : "end";
+        const glm::vec3 front = m_camera_ptr->get_front();
+        glm::vec3 horizontal(front.x, 0.f, front.z);
+        const float horizontal_length = glm::length(horizontal);
+        horizontal = horizontal_length > 0.001f ? horizontal / horizontal_length : glm::vec3(0.f, 0.f, -1.f);
+        const glm::vec3 return_portal = arrival + horizontal * 6.f;
+        m_pending_portal_origin = glm::ivec3(static_cast<int>(std::floor(return_portal.x)),
+            static_cast<int>(std::floor(arrival.y)) - 1, static_cast<int>(std::floor(return_portal.z)));
+        m_pending_portal_along_z = m_pending_portal_type == "nether" && std::abs(horizontal.x) > std::abs(horizontal.z);
+        push_chat_message("Dimension: " + destination);
+    }
 }
 
 bool Game::set_block_at(int x, int y, int z, Block_Types type) {
