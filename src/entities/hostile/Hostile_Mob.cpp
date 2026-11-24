@@ -62,6 +62,8 @@ Hostile_Mob::Hostile_Mob(Hostile_Kind kind, std::string name, const glm::vec3& s
 
 bool Hostile_Mob::load_model() {
     const bool ok = m_mob.load(stats().model_path);
+    // Spiders cannot equip tools or armor; zombies and skeletons are humanoid.
+    m_mob.set_anthropomorphic(m_kind != Hostile_Kind::Spider);
     if (ok && m_mob.has_animation("Idle")) m_mob.play_animation("Idle");
     return ok;
 }
@@ -76,6 +78,7 @@ void Hostile_Mob::set_walking(bool walking) {
         std::uniform_real_distribution<float> angle_dist(0.0f, 6.2831853f);
         const float angle = angle_dist(m_rng);
         m_walk_direction = glm::vec3(std::cos(angle), 0.0f, std::sin(angle));
+        m_wander_target = m_mob.get_position() + m_walk_direction * 7.0f;
         m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_walk_direction.x, m_walk_direction.z)));
     }
     play_clip(walking ? "Walk" : "Idle");
@@ -170,7 +173,7 @@ bool Hostile_Mob::take_damage(float amount, const glm::vec3& attacker_position) 
     return false;
 }
 
-Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager, const Hostile_Context& context) {
+Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager, const Hostile_Context& context, Mob_Nav::System* nav) {
     const Hostile_Stats& s = stats();
     const int regen_ticks = m_effects.update(dt);
     if (!m_dying && regen_ticks > 0) m_health = std::min(s.max_health, m_health + static_cast<float>(regen_ticks));
@@ -218,6 +221,7 @@ Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager,
     glm::vec3 horizontal{0.0f};   // желаемая скорость по XZ
     int damage = 0;
     Hostile_Result out;
+    bool nav_jump = false;
 
     if (context.prey_valid) {
         // --- Охота на лошадь (пауки): идут за ней круглые сутки, игрока при этом не трогают -
@@ -241,7 +245,12 @@ Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager,
                 play_clip("Idle");
             }
         } else {
-            horizontal = prey_dir * s.run_speed;
+            if (nav) {
+                const auto steer=m_navigation_agent.steer(*nav,chunk_manager,dt,position,
+                                                           context.prey_position,s.width,s.height,Mob_Nav::Travel::Ground,0);
+                horizontal=steer.direction*s.run_speed;
+                nav_jump=steer.jump;
+            } else horizontal=prey_dir*s.run_speed;
             play_clip("Walk");
         }
     } else if (m_memory_timer > 0.0f) {
@@ -274,23 +283,17 @@ Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager,
                 // Пришли к последней известной точке, а игрока нет — теряем след.
                 m_memory_timer = 0.0f;
             } else {
-                // Обход: если недавно не сдвинулись, на секунду уходим боком от прямой линии.
-                m_stuck_check_timer += dt;
-                if (m_stuck_check_timer >= Config::hostile_stuck_check_seconds) {
-                    const float moved = glm::length(position - m_stuck_check_position);
-                    if (moved < 0.2f && m_detour_timer <= 0.0f) {
-                        m_detour_timer = Config::hostile_detour_seconds;
-                        const float side = std::uniform_int_distribution<int>(0, 1)(m_rng) == 0 ? 1.0f : -1.0f;
-                        m_detour_direction = glm::normalize(glm::vec3(-dir.z, 0.0f, dir.x)) * side;
-                    }
-                    m_stuck_check_position = position;
-                    m_stuck_check_timer = 0.0f;
-                }
-                if (m_detour_timer > 0.0f) {
-                    m_detour_timer = std::max(0.0f, m_detour_timer - dt);
-                    horizontal = m_detour_direction * s.run_speed;
+                // Asynchronous A* route from an immutable world snapshot.
+                // The old random-strafe detour is only a fallback if navigation is unavailable.
+                if (nav) {
+                    const auto steer=m_navigation_agent.steer(*nav,chunk_manager,dt,position,
+                                                               m_target_position,s.width,s.height,Mob_Nav::Travel::Ground,0);
+                    horizontal=steer.direction*s.run_speed;
+                    nav_jump=steer.jump;
+                    if (glm::length(steer.direction)>0.05f)
+                        m_mob.set_yaw_degrees(glm::degrees(std::atan2(steer.direction.x,steer.direction.z)));
                 } else {
-                    horizontal = dir * s.run_speed;
+                    horizontal=dir*s.run_speed;
                 }
                 play_clip("Walk");
             }
@@ -303,7 +306,16 @@ Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager,
             set_walking(!m_walking);
             m_state_timer = m_walking ? walk_time(m_rng) : idle_time(m_rng);
         }
-        if (m_walking) horizontal = m_walk_direction * s.walk_speed;
+        if (m_walking) {
+            if (nav) {
+                const auto steer=m_navigation_agent.steer(*nav,chunk_manager,dt,position,
+                                                           m_wander_target,s.width,s.height,Mob_Nav::Travel::Ground,4);
+                horizontal=steer.direction*s.walk_speed;
+                nav_jump=steer.jump;
+                if (glm::length(steer.direction)>0.05f)
+                    m_mob.set_yaw_degrees(glm::degrees(std::atan2(steer.direction.x,steer.direction.z)));
+            } else horizontal=m_walk_direction*s.walk_speed;
+        } else m_navigation_agent.reset();
     }
 
     horizontal += m_knockback;
@@ -321,7 +333,7 @@ Hostile_Result Hostile_Mob::update(float dt, const Chunk_Manager& chunk_manager,
     if (!collides_at(target, chunk_manager)) position.z = target.z;
     else if (std::abs(horizontal.z) > 0.01f) blocked = true;
 
-    if (blocked && m_on_ground && m_memory_timer > 0.0f) {
+    if ((blocked || nav_jump) && m_on_ground && (m_memory_timer > 0.0f || context.prey_valid)) {
         m_vertical_velocity = 7.0f;
         m_on_ground = false;
     }

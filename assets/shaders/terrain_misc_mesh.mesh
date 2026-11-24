@@ -35,6 +35,7 @@ out float BlockLight[];
 out float SkyLight[];
 out float Appearance[];
 flat out vec4 Rect[];
+flat out uint LiquidIsLava[];
 
 // The old vertex shader used these same corner sequences for winding and diagonal choice.
 const int kOrder[6] = int[6](0,1,3, 0,3,2);
@@ -151,5 +152,6 @@ void main() {
         BlockLight[out_vertex] = float(packed_light & 15u);
         SkyLight[out_vertex] = float(packed_light >> 4u);
         Rect[out_vertex] = rect;
+        LiquidIsLava[out_vertex] = (u_kind == 3) ? ((rec.y >> 15u) & 1u) : 0u;
     }
 }

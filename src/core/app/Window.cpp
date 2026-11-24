@@ -17,16 +17,26 @@ Window::Window(int width, int height, const std::string& title)
 {}
 
 Window::~Window() {
-    if (m_window_ptr) {
-        glfwDestroyWindow(m_window_ptr);
-    }
+    if (m_vk_window) glfwDestroyWindow(m_vk_window);
+    if (m_gl_window) glfwDestroyWindow(m_gl_window);
     // glfwTerminate() вызывается в Game::~Game
 }
 
-bool Window::initialize() {
+bool Window::initialize(bool try_vulkan) {
     if (!glfwInit()) {
         LOG_ERROR("Failed to initialize GLFW");
         return false;
+    }
+
+    if (try_vulkan && glfwVulkanSupported()) {
+        glfwDefaultWindowHints();
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        m_vk_window = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
+        if (m_vk_window) attach_callbacks(m_vk_window);
+        else LOG_WARN("Vulkan window creation failed; selecting OpenGL");
+    } else if (try_vulkan) {
+        LOG_WARN("Vulkan loader unavailable; selecting OpenGL");
     }
 
     // Ask for a modern context first so EXT/NV mesh shading can be used when the driver
@@ -35,11 +45,13 @@ bool Window::initialize() {
     constexpr int requested_versions[][2] = {{4, 6}, {4, 5}, {4, 3}};
     for (const auto& version : requested_versions) {
         glfwDefaultWindowHints();
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, version[0]);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, version[1]);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         m_window_ptr = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
         if (m_window_ptr) {
+            m_gl_window = m_window_ptr;
             LOG_INFO("Created OpenGL context request " + std::to_string(version[0]) + "." +
                      std::to_string(version[1]));
             break;
@@ -47,7 +59,6 @@ bool Window::initialize() {
     }
     if (!m_window_ptr) {
         LOG_ERROR("Failed to create an OpenGL 4.3+ core context");
-        glfwTerminate();
         return false;
     }
 
@@ -76,21 +87,39 @@ bool Window::initialize() {
     glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
 
-    // Регистрация статических коллбэков
-    glfwSetWindowUserPointer(m_window_ptr, this);
-    glfwSetCursorPosCallback(m_window_ptr, mouse_callback_static);
-    glfwSetKeyCallback(m_window_ptr, key_callback_static);
-    glfwSetCharCallback(m_window_ptr, char_callback_static);
-    glfwSetScrollCallback(m_window_ptr, scroll_callback_static);
-    glfwSetFramebufferSizeCallback(m_window_ptr, framebuffer_size_callback_static);
-    int framebuffer_width = 0;
-    int framebuffer_height = 0;
-    glfwGetFramebufferSize(m_window_ptr, &framebuffer_width, &framebuffer_height);
+    attach_callbacks(m_gl_window);
+    int framebuffer_width = 0, framebuffer_height = 0;
+    glfwGetFramebufferSize(m_gl_window, &framebuffer_width, &framebuffer_height);
     update_framebuffer_size(framebuffer_width, framebuffer_height);
-
     m_is_open = true;
-    LOG_INFO("Window initialized: " + m_title);
     return true;
+}
+
+void Window::attach_callbacks(GLFWwindow* window) {
+    glfwSetWindowUserPointer(window, this);
+    glfwSetCursorPosCallback(window, mouse_callback_static);
+    glfwSetKeyCallback(window, key_callback_static);
+    glfwSetCharCallback(window, char_callback_static);
+    glfwSetScrollCallback(window, scroll_callback_static);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback_static);
+}
+
+void Window::select_vulkan(bool enabled) {
+    GLFWwindow* next = enabled && m_vk_window ? m_vk_window : m_gl_window;
+    if (!next) return;
+    if (m_window_ptr && m_window_ptr != next) glfwHideWindow(m_window_ptr);
+    m_window_ptr = next;
+    // Keep the legacy resource context current, but never present it in Vulkan mode.
+    glfwMakeContextCurrent(m_gl_window);
+    int w=0,h=0;
+    glfwGetFramebufferSize(next,&w,&h);
+    update_framebuffer_size(w,h);
+    glfwSetInputMode(next, GLFW_CURSOR, m_cursor_mode);
+    glfwSetWindowTitle(next, m_title.c_str());
+    glfwShowWindow(next);
+    if (!enabled && m_vk_window) {
+        glfwDestroyWindow(m_vk_window); m_vk_window = nullptr;
+    }
 }
 
 bool Window::should_close() const {
@@ -98,6 +127,7 @@ bool Window::should_close() const {
 }
 
 void Window::swap_buffers() {
+    if (is_vulkan()) return;
     const double start_time = glfwGetTime();
     glfwSwapBuffers(m_window_ptr);
     const double elapsed = glfwGetTime() - start_time;
@@ -116,6 +146,7 @@ void Window::poll_events() {
 }
 
 void Window::set_cursor_mode(int mode) {
+    m_cursor_mode = mode;
     glfwSetInputMode(m_window_ptr, GLFW_CURSOR, mode);
 }
 
@@ -147,34 +178,34 @@ void Window::set_title(const std::string& title) {
 // Статические коллбэки
 void Window::scroll_callback_static(GLFWwindow* window, double xoffset, double yoffset) {
     Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self && self->m_scroll_callback) {
+    if (self && self->m_window_ptr == window && self->m_scroll_callback) {
         self->m_scroll_callback(xoffset, yoffset);
     }
 }
 void Window::mouse_callback_static(GLFWwindow* window, double xpos, double ypos) {
     Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self && self->m_mouse_callback) {
+    if (self && self->m_window_ptr == window && self->m_mouse_callback) {
         self->m_mouse_callback(xpos, ypos);
     }
 }
 
 void Window::key_callback_static(GLFWwindow* window, int key, int scancode, int action, int mods) {
     Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self && self->m_key_callback) {
+    if (self && self->m_window_ptr == window && self->m_key_callback) {
         self->m_key_callback(key, action, mods);
     }
 }
 
 void Window::char_callback_static(GLFWwindow* window, unsigned int codepoint) {
     Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self && self->m_char_callback) {
+    if (self && self->m_window_ptr == window && self->m_char_callback) {
         self->m_char_callback(codepoint);
     }
 }
 
 void Window::framebuffer_size_callback_static(GLFWwindow* window, int width, int height) {
     Window* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-    if (self) {
+    if (self && self->m_window_ptr == window) {
         self->update_framebuffer_size(width, height);
     }
 }
@@ -182,5 +213,5 @@ void Window::framebuffer_size_callback_static(GLFWwindow* window, int width, int
 void Window::update_framebuffer_size(int width, int height) {
     m_width = width;
     m_height = height;
-    glViewport(0, 0, width, height);
+    if (!is_vulkan()) glViewport(0, 0, width, height);
 }

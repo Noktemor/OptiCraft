@@ -7,6 +7,7 @@
 #include <string>
 #include <glm/glm.hpp>
 #include "mobs/Mob.h"
+#include "mobs/Knight_Adaptive_Tactics.h"
 #include "entities/effects/Status_Effects.h"
 
 class Chunk_Manager;
@@ -80,7 +81,7 @@ public:
 
     bool load_model();
     void face_towards(const glm::vec3& target);
-    Knight_Tick_Result update(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks);
+    Knight_Tick_Result update(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks, Mob_Nav::System* navigation = nullptr);
     void render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient) const;
 
     bool take_damage(float amount, const glm::vec3& attacker_position);
@@ -90,6 +91,8 @@ public:
     void apply_effect(Status_Effect effect, float duration, int amplifier) { m_effects.apply(effect, duration, amplifier); }
 
     const std::string& name() const { return m_name; }
+    bool equip(Mob_Equipment_Slot slot, const Item_Stack& item) { return m_model.equip(slot, item); }
+    const Mob_Equipment* equipment() const { return m_model.equipment(); }
     const glm::vec3& get_position() const { return m_position; }
     float get_health() const { return m_health; }
     float get_health_percent() const { return m_health / MAX_HEALTH; }
@@ -99,10 +102,14 @@ public:
     Knight_Player_Pattern get_learned_pattern() const { return m_learned_pattern; }
     float get_learning_confidence() const { return m_learning_confidence; }
     float get_pattern_evidence() const;
+    int learned_dodge_events() const { return m_tactics.dodge_events(); }
     bool is_dying() const { return m_dying; }
     bool is_removable() const { return m_dying && m_death_timer >= 3.0f; }
 
     void compute_hitbox(glm::vec3& out_min, glm::vec3& out_max) const;
+    Mob_Hit_Result raycast_body_part(const glm::vec3& eye, const glm::vec3& direction, float reach) const {
+        return m_model.raycast_body_part(eye, direction, reach);
+    }
 
 private:
     struct Arena {
@@ -119,6 +126,8 @@ private:
     // Представление и базовое состояние существа.
     std::string m_name;
     Mob m_model;
+    Mob_Nav::Agent m_navigation_agent;
+    Mob_Nav::System* m_navigation_system = nullptr;
     Status_Effects m_effects;
     Arena m_arena;
     glm::vec3 m_position{0.0f};
@@ -169,6 +178,13 @@ private:
     float m_jump_pattern_window = 0.0f;
     int m_jump_pattern_events = 0;
     float m_player_hit_event_cooldown = 0.0f;
+    Knight_Adaptive_Tactics m_tactics;
+    float m_feint_remaining = 0.0f;
+    bool m_feint_started = false;
+    bool m_attack_connected = false;
+    uint32_t m_attack_sequence = 0;
+    Knight_Attack m_planned_followup = Knight_Attack::None;
+    float m_followup_timer = 0.0f;
 
     // Габарит тела используется и коллизией перемещения, и внешней системой hitbox.
     static constexpr float BODY_HALF_X = 1.15f;

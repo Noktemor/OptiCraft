@@ -21,7 +21,20 @@ Texture::~Texture() {
     }
 }
 
-bool Texture::load_from_file(const std::string& path, bool flip_vertically, bool nearest) {
+bool Texture::load_from_file(const std::string& path, bool flip_vertically, bool nearest,
+                             bool upload_to_opengl) {
+    // Vulkan asset initialization needs the atlas dimensions/UVs without ever
+    // creating an OpenGL context or issuing a GL call.
+    if (!upload_to_opengl) {
+        int imageChannels = 0;
+        if (!stbi_info(path.c_str(), &m_width, &m_height, &imageChannels)) {
+            LOG_ERROR("Failed to read atlas metadata: " + path);
+            return false;
+        }
+        m_channels = imageChannels;
+        m_is_loaded = true;
+        return true;
+    }
     stbi_set_flip_vertically_on_load(flip_vertically);
 
     unsigned char* data = stbi_load(path.c_str(), &m_width, &m_height, &m_channels, 4);

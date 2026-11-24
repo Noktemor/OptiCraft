@@ -140,3 +140,11 @@ int Input_Manager::get_key_binding(int action) const {
         default: return -1;
     }
 }
+
+void Input_Manager::rebind_window(GLFWwindow* window_ptr) {
+    m_window_ptr = window_ptr;
+    m_key_current.clear(); m_key_previous.clear();
+    m_mouse_current.clear(); m_mouse_previous.clear();
+    m_scroll_accum = m_scroll_frame = 0.0f;
+    reset_mouse_tracking();
+}

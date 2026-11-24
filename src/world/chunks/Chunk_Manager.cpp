@@ -7,6 +7,7 @@
 #include "utils/configs/Config_World.h"
 #include "utils/profiling/Profiler.h"
 #include "world/chunks/Chunk_Manager.h"
+#include "world/chunks/Chunk_Stream_Window.h"
 #include "world/generation/Gpu_Worldgen.h"
 #include "world/crafting/Smelting.h"
 #include "utils/logging/Logger.h"
@@ -55,6 +56,34 @@ namespace {
     inline uint64_t sunlight_world_column_key(int wx, int wz) {
         return (static_cast<uint64_t>(static_cast<uint32_t>(wx)) << 32) |
                static_cast<uint32_t>(wz);
+    }
+
+    // Compact local light-source coordinates. Works for negative chunk positions
+    // because the chunk origin is computed using floor-divided coordinates.
+    constexpr uint16_t light_source_index(int lx, int ly, int lz) {
+        return static_cast<uint16_t>((ly * Config::chunk_size + lz) * Config::chunk_size + lx);
+    }
+    inline glm::ivec3 light_source_local(uint16_t index) {
+        constexpr int N = Config::chunk_size;
+        return {index % N, index / (N * N), (index / N) % N};
+    }
+    inline glm::ivec3 light_source_world(int cx, int cy, int cz, uint16_t index) {
+        const glm::ivec3 local = light_source_local(index);
+        return {cx * Config::chunk_size + local.x,
+                cy * Config::chunk_height + local.y,
+                cz * Config::chunk_size + local.z};
+    }
+
+    // Nether occupies Y=[0,127]; End occupies Y=[24,112]. Outside those bounds
+    // there are no procedural blocks, but the old loader requested thousands of
+    // air-only vertical chunks at larger render distances.
+    inline bool dimension_chunk_y_may_contain_terrain(const World_Generator* generator, int cy) {
+        if (!generator) return true;
+        switch (generator->get_dimension().terrain) {
+            case Terrain_Mode::Nether: return cy >= 0 && cy <= 3;
+            case Terrain_Mode::End: return cy >= 0 && cy <= 3;
+            default: return true;
+        }
     }
 
     int64_t generation_region_key_for_chunk(int cx, int cz) {
@@ -349,7 +378,44 @@ void Chunk_Manager::sync_block_entity(int wx, int wy, int wz, Block_Types old_ty
 
 void Chunk_Manager::update_fluids(float delta_time) {
     OC_ZONE("ChunkMgr::update_fluids");
+    m_processing_fluid_ticks = true;
     m_fluids.update(*this, delta_time);
+    m_processing_fluid_ticks = false;
+
+    // Save at most 8 changed chunks per frame. Repeated flowing updates in the
+    // same chunk are merged; the final state is always saved on unload/save_all.
+    for (int n = 0; n < 8 && !m_fluid_save_queue.empty(); ++n) {
+        const glm::ivec3 key = m_fluid_save_queue.front();
+        m_fluid_save_queue.pop_front();
+        m_fluid_save_pending.erase(key.x, key.y, key.z);
+        if (const Chunk* chunk = get_chunk(key.x, key.y, key.z)) {
+            if (!save_chunk_to_disk(*chunk)) {
+                LOG_ERROR("Chunk_Manager: fluid batch write failed");
+            }
+        }
+    }
+
+    // No unbounded synchronous lighting recalculation inside a fluid tick.
+    // Tile granularity deduplicates neighbouring updates from one lava front.
+    constexpr int tile = 4;
+    for (int n = 0; n < 2 && !m_fluid_light_queue.empty(); ++n) {
+        const glm::ivec3 key = m_fluid_light_queue.front();
+        m_fluid_light_queue.pop_front();
+        const auto it = m_fluid_light_regions.find(key);
+        if (it == m_fluid_light_regions.end()) continue;
+        const int r = it->second;
+        m_fluid_light_regions.erase(it);
+        const glm::ivec3 lo = key * tile;
+        relight_block_light_box(lo.x - r, std::max(Config::world_min_y, lo.y - r), lo.z - r,
+                                lo.x + tile - 1 + r, std::min(Config::world_max_y, lo.y + tile - 1 + r),
+                                lo.z + tile - 1 + r);
+    }
+    OC_PLOT("Fluid light regions pending", m_fluid_light_regions.size());
+    OC_PLOT("Fluid save chunks pending", m_fluid_save_queue.size());
+    OC_PLOT("Resident chunks", m_chunks.size());
+    OC_PLOT("Chunk generation in-flight", m_requested_chunks.size());
+    OC_PLOT("Emissive source chunks", m_light_sources.size());
+    OC_PLOT("Fluid pending cells", m_fluids.pending_count());
 }
 
 void Chunk_Manager::update_block_entities(float delta_time) {
@@ -1881,14 +1947,19 @@ bool Chunk_Manager::is_chunk_wanted(const glm::ivec3& position) const {
         return true;
     }
 
-    // Вертикально столбец загружается целиком (см. Config::world_height_chunks) — здесь
-    // Вертикаль теперь тоже стримится: весь диапазон -256..1024 существует, но нет
-    // смысла держать все 41 chunk-Y в RAM одновременно.
+    // Outside procedural terrain, permit chunks immediately around a player
+    // (building above the End/Nether) and any previously saved construction.
+    // Otherwise keep the vast empty vertical space out of the streaming queue.
+    if (!dimension_chunk_y_may_contain_terrain(m_world_generator, position.y) &&
+        std::abs(position.y - m_player_chunk_y) > 1) {
+        const auto region = Region_File::get(m_world_file.get_region_path(m_generation_folder));
+        if (!region || !m_chunk_io->has_saved(region, Region_File::Key{position.x, position.y, position.z}))
+            return false;
+    }
     const int dx = std::abs(position.x - m_player_chunk.x);
     const int dz = std::abs(position.z - m_player_chunk.y);
     const int dy = std::abs(position.y - m_player_chunk_y);
-    return dx <= m_load_radius && dz <= m_load_radius &&
-           dy <= m_vertical_half;
+    return Chunk_Stream_Window::wanted(m_load_radius, m_vertical_half, dx, dy, dz);
 }
 
 void Chunk_Manager::set_load_radius(int radius) {
@@ -1907,13 +1978,17 @@ void Chunk_Manager::load_around(int player_cx, int player_cz) {
     OC_ZONE("ChunkMgr::load_around");
     const size_t cap = max_inflight_chunks();
     const size_t inflight = m_requested_chunks.size();
-    const int min_cy = std::max(Config::world_min_chunk_y, m_player_chunk_y - m_vertical_half);
-    const int max_cy = std::min(Config::world_max_chunk_y, m_player_chunk_y + m_vertical_half);
+    int min_cy = std::max(Config::world_min_chunk_y, m_player_chunk_y - m_vertical_half);
+    int max_cy = std::min(Config::world_max_chunk_y, m_player_chunk_y + m_vertical_half);
+    // Preserve the full vertical world, including edits outside the natural
+    // terrain height of Nether/End. The loader selectively skips only empty,
+    // never-saved chunks that are not within one layer of the player.
 
     const bool backlog_matches =
         m_column_backlog_center.x == player_cx && m_column_backlog_center.y == player_cz &&
         m_column_backlog_radius == m_load_radius &&
         m_column_backlog_vertical_half == m_vertical_half &&
+        m_column_backlog_min_cy == min_cy && m_column_backlog_max_cy == max_cy &&
         m_column_backlog_generation == m_generation_id;
 
     // Build and sort the window only when its key changes. Follow-up calls merely
@@ -1924,10 +1999,18 @@ void Chunk_Manager::load_around(int player_cx, int player_cz) {
         m_column_backlog_center = {player_cx, player_cz};
         m_column_backlog_radius = m_load_radius;
         m_column_backlog_vertical_half = m_vertical_half;
+        m_column_backlog_min_cy = min_cy;
+        m_column_backlog_max_cy = max_cy;
         m_column_backlog_generation = m_generation_id;
 
         std::vector<Chunk_Column_Job> columns;
         columns.reserve(static_cast<size_t>((m_load_radius * 2 + 1) * (m_load_radius * 2 + 1)));
+        const bool finite_dimension = m_world_generator &&
+            (m_world_generator->get_dimension().terrain == Terrain_Mode::Nether ||
+             m_world_generator->get_dimension().terrain == Terrain_Mode::End);
+        const auto region = finite_dimension
+            ? Region_File::get(m_world_file.get_region_path(m_generation_folder))
+            : std::shared_ptr<Region_File>{};
         for (int cx = player_cx - m_load_radius; cx <= player_cx + m_load_radius; ++cx) {
             for (int cz = player_cz - m_load_radius; cz <= player_cz + m_load_radius; ++cz) {
                 Chunk_Column_Job column;
@@ -1936,7 +2019,17 @@ void Chunk_Manager::load_around(int player_cx, int player_cz) {
                 column.generation_id = m_generation_id;
                 column.priority = std::numeric_limits<int>::max();
                 column.chunks.reserve(static_cast<size_t>(max_cy - min_cy + 1));
-                for (int cy = min_cy; cy <= max_cy; ++cy) {
+                const int horizontal_ring = std::max(std::abs(cx - player_cx),
+                                                     std::abs(cz - player_cz));
+                const int column_half = Chunk_Stream_Window::vertical_half(
+                    m_load_radius, m_vertical_half, horizontal_ring);
+                for (int cy = std::max(min_cy, m_player_chunk_y - column_half);
+                     cy <= std::min(max_cy, m_player_chunk_y + column_half); ++cy) {
+                    if (!dimension_chunk_y_may_contain_terrain(m_world_generator, cy) &&
+                        std::abs(cy - m_player_chunk_y) > 1 &&
+                        (!region || !m_chunk_io->has_saved(region, Region_File::Key{cx, cy, cz}))) {
+                        continue;
+                    }
                     if (is_chunk_loaded(cx, cy, cz) || m_requested_chunks.contains(cx, cy, cz)) continue;
                     const int priority = chunk_job_priority(cx, cy, cz);
                     column.chunks.push_back({{cx, cy, cz}, m_generation_id, priority});
@@ -1990,33 +2083,41 @@ void Chunk_Manager::load_around(int player_cx, int player_cz) {
 
 void Chunk_Manager::unload_distant(int center_cx, int center_cz, int max_distance) {
     OC_ZONE("ChunkMgr::unload_distant");
-    // Выгрузка плавная: по высоте держим на один слой больше окна загрузки (сужение окна при быстром
-    // полёте ничего не выгружает), а лишнее убираем порциями от самых далёких. Раньше при смене высоты
-    // целый слой уходил за один кадр и потом заново генерировался.
-    const int keep_half = std::max(m_vertical_half, m_vertical_normal) + 1;
+    // Keep a one-chunk hysteresis band so a player crossing a chunk boundary
+    // does not immediately trigger an unload/reload cycle.
     struct Far { glm::ivec3 key; int ring; };
-    std::vector<Far> to_unload;
+    auto farther = [](const Far& a, const Far& b) { return a.ring > b.ring; };
 
+    // In older builds every frame allocated a vector containing *all* distant
+    // chunks, then sorted it to remove only 24. At 70k resident chunks that
+    // produced enormous repeated allocations and extended the memory spike.
+    // Retain only the farthest k candidates in a bounded min-heap.
+    const size_t max_per_frame = m_chunks.size() > 20000 ? 192u : 32u;
+    std::vector<Far> farthest;
+    farthest.reserve(max_per_frame);
+    size_t distant_count = 0;
     m_chunks.for_each([&](const glm::ivec3& key, const Chunk_Ptr&) {
         const int dx = std::abs(key.x - center_cx);
         const int dz = std::abs(key.z - center_cz);
         const int dy = std::abs(key.y - m_player_chunk_y);
-        if (dx > max_distance || dz > max_distance || dy > keep_half) {
-            to_unload.push_back({key, std::max({dx, dz, dy * 4})});
+        const int ring_xz = std::max(dx, dz);
+        const int allowed_y = std::max(m_vertical_half, m_vertical_normal);
+        const int keep_y = Chunk_Stream_Window::vertical_half(max_distance, allowed_y, ring_xz) + 1;
+        if (dx <= max_distance && dz <= max_distance && dy <= keep_y) return;
+        ++distant_count;
+        const Far candidate{key, std::max({dx, dz, dy * 4})};
+        if (farthest.size() < max_per_frame) {
+            farthest.push_back(candidate);
+            std::push_heap(farthest.begin(), farthest.end(), farther);
+        } else if (candidate.ring > farthest.front().ring) {
+            std::pop_heap(farthest.begin(), farthest.end(), farther);
+            farthest.back() = candidate;
+            std::push_heap(farthest.begin(), farthest.end(), farther);
         }
     });
 
-    constexpr size_t kUnloadPerCall = 24;
-    if (to_unload.size() > kUnloadPerCall) {
-        std::partial_sort(to_unload.begin(), to_unload.begin() + static_cast<std::ptrdiff_t>(kUnloadPerCall),
-                          to_unload.end(), [](const Far& a, const Far& b) { return a.ring > b.ring; });
-        to_unload.resize(kUnloadPerCall);
-        m_unload_backlog = true;
-    } else {
-        m_unload_backlog = false;
-    }
-
-    for (const Far& far : to_unload) {
+    m_unload_backlog = distant_count > farthest.size();
+    for (const Far& far : farthest) {
         unload_chunk(far.key.x, far.key.y, far.key.z);
     }
 }
@@ -2173,7 +2274,7 @@ void Chunk_Manager::collect_finished_chunks() {
                 }
             }
 
-            std::vector<glm::ivec3> found_sources;
+            std::vector<uint16_t> found_sources;
             if (has_interesting_blocks) {
                 static thread_local std::array<Block_ID, Chunk_Block_Grid::voxel_count> flat;
                 new_chunk->get_blocks().unpack(flat.data());
@@ -2212,7 +2313,7 @@ void Chunk_Manager::collect_finished_chunks() {
                             const Block_ID id = flat[i];
                             if (static_cast<size_t>(id) >= id_capacity) continue;
                             if (emission[id] > 0u) {
-                                found_sources.push_back({base_x + lx, base_y + ly, base_z + lz});
+                                found_sources.push_back(light_source_index(lx, ly, lz));
                             }
                             if (liquid[id] == 0u) continue;
 
@@ -2335,6 +2436,15 @@ void Chunk_Manager::collect_finished_chunks() {
     // Захват области делает свет отдельной фазой (pump_capture_region): после загрузки ВСЕХ
     // чанков, один раз, а не на каждой волне.
     if (capture_active()) return;
+
+    // Nether and End have no sky lighting. Block light still needs its own
+    // incremental propagation and must not be disabled here.
+    if (m_world_generator && !m_world_generator->get_dimension().has_sky_light) {
+        m_columns_pending_sky_recompute.clear();
+        m_pending_sky_edits.clear();
+        relight_block_light_new_chunks(8);
+        return;
+    }
 
     // User edits use a local, deferred relight job. It is separate from the full-column
     // direct-sun pass used when a chunk streams in, so a block edit never forces every
@@ -2594,6 +2704,12 @@ void Chunk_Manager::rebuild_dirty_chunks() {
     }
 }
 
+void Chunk_Manager::prepare_for_reload() {
+    // Prevent old workers from publishing results while clear() is releasing
+    // their chunk slots. Do not restart this manager; Game replaces it.
+    stop_workers();
+}
+
 void Chunk_Manager::clear() {
     ++m_generation_id;
     clear_gpu_worldgen();
@@ -2625,6 +2741,11 @@ void Chunk_Manager::clear() {
     m_light_sources.clear();
     m_chunks_pending_block_light.clear();
     m_fluids.clear();
+    m_processing_fluid_ticks = false;
+    m_fluid_save_pending.clear();
+    m_fluid_save_queue.clear();
+    m_fluid_light_regions.clear();
+    m_fluid_light_queue.clear();
     m_columns_pending_sky_recompute.clear();
     m_pending_sky_edits.clear();
     m_sunlight_heightmap.clear();
@@ -2755,7 +2876,8 @@ bool Chunk_Manager::set_block_world(int wx, int wy, int wz, Block_Types type, ui
                                      sky_transparent[static_cast<Block_ID>(type)];
     // Зафиксировать старый top ДО изменения блока: от него зависит диапазон, который
     // придётся перелить после правки. Кэш остаётся прежним до обработки отложенной задачи.
-    if (sky_opacity_changed) (void)sunlight_height_at(wx, wz);
+    if (sky_opacity_changed && (!m_world_generator || m_world_generator->get_dimension().has_sky_light))
+        (void)sunlight_height_at(wx, wz);
     const bool geometry_changed = chunk->set_block(lx, ly, lz, type);
     // Метаданные применяются ВСЕГДА, в том числе нулевые. Chunk::set_block у того же самого блока выходит
     // сразу и метаданные не трогает, а при смене блока они уже сброшены. Раньше нулевые пропускались
@@ -2792,18 +2914,37 @@ bool Chunk_Manager::set_block_world(int wx, int wy, int wz, Block_Types type, ui
     const bool new_emits_light = get_block_props(type).light_emission > 0;
     const glm::ivec3 world_pos{wx, wy, wz};
 
-    if (old_emits_light) remove_light_source(world_pos);
-    if (new_emits_light) add_light_source(world_pos);
+    if (old_type != type) {
+        if (old_emits_light) remove_light_source(world_pos);
+        if (new_emits_light) add_light_source(world_pos);
+    }
 
-    // Если прозрачность для света у блока не изменилась (воздух <-> вода, цветок <-> воздух,
-    // камень <-> земля) и ничего не излучает, освещение измениться не может: пересчёт пропускаем.
-    // Иначе каждый шаг растекания воды или смена одного непрозрачного блока на другой запускали бы
-    // пересчёт света.
+    // Changing ONLY lava flow metadata must not delete/reinsert an emitter or
+    // relight a 29x29x29 region. Light propagation changes only if emission or
+    // light transparency actually changes, regardless of whether the block emits.
     const bool* transparency = registry.transparent_table();
-    const bool light_unaffected =
-        transparency[static_cast<Block_ID>(old_type)] == transparency[static_cast<Block_ID>(type)] &&
-        !old_emits_light && !new_emits_light;
-    if (!light_unaffected) relight_block_light_near(world_pos);
+    const bool same_transparency =
+        transparency[static_cast<Block_ID>(old_type)] == transparency[static_cast<Block_ID>(type)];
+    const uint8_t old_emission = get_block_props(old_type).light_emission;
+    const uint8_t new_emission = get_block_props(type).light_emission;
+    const bool light_unaffected = same_transparency && old_emission == new_emission;
+    if (!light_unaffected) {
+        if (m_processing_fluid_ticks) {
+            constexpr int tile = 4;
+            const glm::ivec3 region{
+                floor_div_chunk(wx, tile), floor_div_chunk(wy, tile), floor_div_chunk(wz, tile)};
+            // If transparency is unchanged, only the emitter's own light radius
+            // can change (lava = 5). Otherwise other nearby light may reroute.
+            const int radius = same_transparency
+                ? std::max<int>(old_emission, new_emission) : Config::max_light_level;
+            const auto [it, inserted] = m_fluid_light_regions.try_emplace(
+                region, static_cast<uint8_t>(radius));
+            if (inserted) m_fluid_light_queue.push_back(region);
+            else it->second = std::max<uint8_t>(it->second, static_cast<uint8_t>(radius));
+        } else {
+            relight_block_light_near(world_pos);
+        }
+    }
 
     // Прямой солнечный свет пересчитывается от карты высот, а не синхронно в обработчике
     // правки. Колонка попадёт в frame-budget очередь; меши этой колонки не отправятся на
@@ -2815,7 +2956,12 @@ bool Chunk_Manager::set_block_world(int wx, int wy, int wz, Block_Types type, ui
     // Chunk_IO объединяет ещё не начатые записи одного ключа, чтобы серия быстрых правок
     // не создавала очередь из устаревших копий одного и того же чанка.
     chunk->mark_modified();
-    if (!save_chunk_to_disk(*chunk)) {
+    if (m_processing_fluid_ticks) {
+        if (!m_fluid_save_pending.contains(cx, cy, cz)) {
+            m_fluid_save_pending.insert(cx, cy, cz);
+            m_fluid_save_queue.push_back({cx, cy, cz});
+        }
+    } else if (!save_chunk_to_disk(*chunk)) {
         LOG_ERROR("Chunk_Manager: не удалось поставить изменённый чанк на сохранение");
     }
 
@@ -2853,7 +2999,7 @@ void Chunk_Manager::set_blocks_world_batch(const std::vector<std::pair<glm::ivec
         const Block_Types old_type = chunk->get_block(lx, ly, lz);
         const bool sky_opacity_changed = sky_transparent[static_cast<Block_ID>(old_type)] !=
                                          sky_transparent[static_cast<Block_ID>(type)];
-        if (sky_opacity_changed) {
+        if (sky_opacity_changed && (!m_world_generator || m_world_generator->get_dimension().has_sky_light)) {
             // Сохраняем старую высоту до первого блока пакетной операции в этой X/Z-колонке.
             (void)sunlight_height_at(pos.x, pos.z);
             const uint64_t key = sunlight_world_column_key(pos.x, pos.z);
@@ -2888,12 +3034,14 @@ void Chunk_Manager::set_blocks_world_batch(const std::vector<std::pair<glm::ivec
         // Источники света: учитываются по клетке, как в set_block_world.
         const bool old_emits = get_block_props(old_type).light_emission > 0;
         const bool new_emits = get_block_props(type).light_emission > 0;
-        if (old_emits) remove_light_source(pos);
-        if (new_emits) add_light_source(pos);
+        if (old_type != type) {
+            if (old_emits) remove_light_source(pos);
+            if (new_emits) add_light_source(pos);
+        }
 
         const bool light_unaffected =
             transparency[static_cast<Block_ID>(old_type)] == transparency[static_cast<Block_ID>(type)] &&
-            !old_emits && !new_emits;
+            get_block_props(old_type).light_emission == get_block_props(type).light_emission;
         if (!light_unaffected) {
             any_light_change = true;
             light_lo = glm::min(light_lo, pos);
@@ -3053,10 +3201,14 @@ int Chunk_Manager::sunlight_height_at(int world_x, int world_z) {
 }
 
 void Chunk_Manager::queue_sunlight_rebuild(int chunk_x, int chunk_z) {
+    // Nether and End have no sunlight. A full-column skylight pass in those
+    // dimensions is pure wasted work (many thousands of voxels per arrival).
+    if (m_world_generator && !m_world_generator->get_dimension().has_sky_light) return;
     m_columns_pending_sky_recompute.insert(sunlight_column_key(chunk_x, chunk_z));
 }
 
 void Chunk_Manager::queue_sunlight_edit(int world_x, int world_y, int world_z) {
+    if (m_world_generator && !m_world_generator->get_dimension().has_sky_light) return;
     const uint64_t key = sunlight_world_column_key(world_x, world_z);
     auto [it, inserted] = m_pending_sky_edits.try_emplace(
         key, Pending_Sky_Edit{world_x, world_z, world_y, world_y});
@@ -3148,6 +3300,7 @@ void Chunk_Manager::recompute_sky_lighting(
     const std::unordered_set<uint64_t>& changed_chunk_columns
 ) {
     OC_ZONE("ChunkMgr::recompute_sky_lighting");
+    if (m_world_generator && !m_world_generator->get_dimension().has_sky_light) return;
     // Rebuild skylight only for the (chunk_x, chunk_z) columns that gained a newly loaded
     // chunk since the last call - NOT the whole currently loaded voxel volume.
     // IMPORTANT: an earlier version of this function rebuilt the entire loaded world every
@@ -3547,16 +3700,28 @@ void Chunk_Manager::relight_sky_light_box(int x0, int y0, int z0, int x1, int y1
 
 void Chunk_Manager::add_light_source(const glm::ivec3& world_pos) {
     const glm::ivec3 key = get_chunk_coords_for_world(world_pos.x, world_pos.y, world_pos.z);
-    std::vector<glm::ivec3>& bucket = m_light_sources[key];
-    if (std::find(bucket.begin(), bucket.end(), world_pos) == bucket.end()) bucket.push_back(world_pos);
+    const uint16_t local_index = light_source_index(
+        world_pos.x - key.x * Config::chunk_size,
+        world_pos.y - key.y * Config::chunk_height,
+        world_pos.z - key.z * Config::chunk_size);
+    std::vector<uint16_t>& bucket = m_light_sources[key];
+    // Buckets are naturally sorted during the streaming scan; keep that order
+    // on edits to avoid an O(lava_cells) linear search for every flowing source.
+    const auto it = std::lower_bound(bucket.begin(), bucket.end(), local_index);
+    if (it == bucket.end() || *it != local_index) bucket.insert(it, local_index);
 }
 
 void Chunk_Manager::remove_light_source(const glm::ivec3& world_pos) {
     const glm::ivec3 key = get_chunk_coords_for_world(world_pos.x, world_pos.y, world_pos.z);
     const auto it = m_light_sources.find(key);
     if (it == m_light_sources.end()) return;
-    std::vector<glm::ivec3>& bucket = it->second;
-    bucket.erase(std::remove(bucket.begin(), bucket.end(), world_pos), bucket.end());
+    const uint16_t local_index = light_source_index(
+        world_pos.x - key.x * Config::chunk_size,
+        world_pos.y - key.y * Config::chunk_height,
+        world_pos.z - key.z * Config::chunk_size);
+    std::vector<uint16_t>& bucket = it->second;
+    const auto entry = std::lower_bound(bucket.begin(), bucket.end(), local_index);
+    if (entry != bucket.end() && *entry == local_index) bucket.erase(entry);
     if (bucket.empty()) m_light_sources.erase(it);
 }
 
@@ -3609,9 +3774,11 @@ void Chunk_Manager::relight_block_light_box(int x0, int y0, int z0, int x1, int 
                 for (int cx = cx0; cx <= cx1; ++cx) {
                     const auto it = m_light_sources.find({cx, cy, cz});
                     if (it == m_light_sources.end()) continue;
-                    for (const glm::ivec3& s : it->second) {
-                        if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1 || s.z < z0 || s.z > z1) continue;
-                        seed_light_source(*this, s, queue);
+                    for (const uint16_t source : it->second) {
+                        const glm::ivec3 world = light_source_world(cx, cy, cz, source);
+                        if (world.x < x0 || world.x > x1 || world.y < y0 || world.y > y1 ||
+                            world.z < z0 || world.z > z1) continue;
+                        seed_light_source(*this, world, queue);
                     }
                 }
     }
@@ -3677,11 +3844,42 @@ void Chunk_Manager::relight_block_light_new_chunks(size_t max_chunks) {
         Chunk* chunk = get_chunk(pos.x, pos.y, pos.z);
         if (!chunk) continue;
 
-        // Собственные источники чанка.
+        // A Nether sea can contain thousands of lava emitters per chunk. First set
+        // every emitter's OWN light, then enqueue only the boundary emitters that
+        // can actually illuminate a dimmer transparent neighbour. Enqueuing all
+        // buried emitters into BFS caused massive CPU stalls during streaming.
         if (const auto it = m_light_sources.find(pos); it != m_light_sources.end()) {
-            for (const glm::ivec3& s : it->second) {
-                Voxel_Cursor c;
-                if (seed_light_source(*this, s, queue, &c)) dirty.note(c.cx, c.cy, c.cz, c.lx, c.ly, c.lz);
+            const uint8_t* emission = Block_Registry::get_instance().light_emission_table();
+            const bool* transparent = Block_Registry::get_instance().sky_transparent_table();
+            bool changed_self = false;
+            for (const uint16_t source : it->second) {
+                const glm::ivec3 local = light_source_local(source);
+                const uint8_t level = emission[static_cast<Block_ID>(
+                    chunk->get_block(local.x, local.y, local.z))];
+                if (level != 0u && chunk->get_light(local.x, local.y, local.z) < level) {
+                    chunk->set_light(local.x, local.y, local.z, level);
+                    changed_self = true;
+                }
+            }
+            if (changed_self) dirty.note(pos.x, pos.y, pos.z, 0, 0, 0);
+            for (const uint16_t source : it->second) {
+                const glm::ivec3 local = light_source_local(source);
+                const uint8_t level = emission[static_cast<Block_ID>(
+                    chunk->get_block(local.x, local.y, local.z))];
+                if (level <= 1u) continue;
+                const Voxel_Cursor c{pos.x, pos.y, pos.z, local.x, local.y, local.z, chunk};
+                bool can_spread = false;
+                for (int side = 0; side < 6; ++side) {
+                    const Voxel_Cursor nb = step_cursor(c, k_dx6[side], k_dy6[side], k_dz6[side], *this);
+                    if (!nb.chunk) continue;
+                    const Block_ID id = static_cast<Block_ID>(
+                        nb.chunk->get_block(nb.lx, nb.ly, nb.lz));
+                    if (transparent[id] && nb.chunk->get_light(nb.lx, nb.ly, nb.lz) < level - 1u) {
+                        can_spread = true;
+                        break;
+                    }
+                }
+                if (can_spread) queue.push({c, level});
             }
         }
 
@@ -4005,6 +4203,20 @@ bool is_reached(const Reach_Scratch& s, const glm::ivec3& key, int section) {
     return s.reached_gen[sec] == s.gen;
 }
 } // namespace
+
+const std::vector<Renderable_Chunk>& Chunk_Manager::get_vulkan_resident_chunks() {
+    // Raw resident list: do not depend on OpenGL meshing or camera frustum.
+    // Include air chunks: they carry neighbour lighting and boundary state.
+    if(m_vulkan_resident_epoch!=m_chunk_set_epoch){
+        m_vulkan_resident_cache.clear();
+        m_vulkan_resident_cache.reserve(m_chunks.size());
+        m_chunks.for_each([&](const glm::ivec3& key, const Chunk_Ptr& chunk){
+            m_vulkan_resident_cache.push_back({key,nullptr,chunk->get_mesh_version()});
+        });
+        m_vulkan_resident_epoch=m_chunk_set_epoch;
+    }
+    return m_vulkan_resident_cache;
+}
 
 std::vector<Renderable_Chunk> Chunk_Manager::get_renderable_chunks(
     const Frustum* frustum,

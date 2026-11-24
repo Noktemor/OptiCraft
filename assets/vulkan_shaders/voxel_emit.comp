@@ -1,0 +1,20 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+#include "mesher_common.glsl"
+#include "voxel_row_runs.glsl"
+void main(){
+    uint task=gl_WorkGroupID.x;
+    if(task>=FACE_PLANE_TASKS)return;
+    uint batchIdx=dispatchParams.firstJob+gl_WorkGroupID.y;
+    uint slotIndex=slotIndices[batchIdx];
+    if(slotIndex==0xffffffffu)return;
+    ChunkSlot chunk=slots[slotIndex];
+    buildPlane(chunk,slotIndex,task/32u,task%32u);
+    if(gl_LocalInvocationID.x==0u)planeBase=planeCount==0u?0u:atomicAdd(counts[batchIdx],planeCount);
+    barrier();
+    for(uint i=gl_LocalInvocationID.x;i<planeCount;i+=64u){
+        uint index=planeBase+i;
+        if(index<chunk.source.z)faces[chunk.source.y+index]=planeRects[i];
+    }
+}

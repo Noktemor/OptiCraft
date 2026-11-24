@@ -24,6 +24,7 @@
 #include <random>
 #include "entities/animals/ai/Horse_AI.h"
 #include "mobs/Mob.h"
+#include "mobs/navigation/Navigation_System.h"
 #include "entities/animals/Breeding.h"
 #include "physics/Liquid_Physics.h"
 #include "world/blocks/Block_Types.h"
@@ -64,7 +65,7 @@ public:
     bool load_model(const std::string& glb_path);
 
     void update(float delta_time, const Chunk_Manager& chunk_manager,
-                const Horse_Context& context, const Horse_Ride_Input& ride_input);
+                const Horse_Context& context, const Horse_Ride_Input& ride_input, Mob_Nav::System* nav = nullptr);
     void render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const;
 
     const glm::vec3& get_position() const { return m_mob.get_position(); }
@@ -97,6 +98,8 @@ public:
     const Breeding_State& breeding() const { return m_breeding; }
     bool is_baby() const { return m_breeding.is_baby(); }
     void seek_towards(const glm::vec3& target);
+    // Only free horses react; a ridden horse remains controllable by its rider.
+    void on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill);
     // Накормить. Запоминает ПОСЛЕДНЮЮ съеденную еду (см. get_last_food) и, если можно, запускает
     // «любовь». true — еда принята (Game списывает предмет).
     bool feed(Block_Types food);
@@ -116,6 +119,9 @@ public:
     glm::vec3 get_hitbox_min() const;
     glm::vec3 get_hitbox_max() const;
     void compute_hitbox(glm::vec3& out_min, glm::vec3& out_max) const;
+    Mob_Hit_Result raycast_body_part(const glm::vec3& eye, const glm::vec3& direction, float reach) const {
+        return m_mob.raycast_body_part(eye, direction, reach);
+    }
     bool take_damage(float amount, const glm::vec3& attacker_position);
     // Урон среды (утопление): без отбрасывания. Возвращает true, если умерла.
     bool take_drowning_damage(float amount);
@@ -152,6 +158,7 @@ public:
 private:
     Horse_AI m_ai;
     Mob m_mob;
+    Mob_Nav::Agent m_navigation_agent;
     std::mt19937 m_rng;
 
     float m_yaw = 0.0f; // радианы; вперёд = (sin yaw, 0, cos yaw), как у Mob (модель смотрит в +Z)
@@ -193,6 +200,7 @@ private:
     float m_yaw_rate = 0.0f;   // рад/сек, для наклона корпуса
     float m_roll = 0.0f;       // градусы, сглаженный наклон
     float m_hop_timer = 0.0f;
+    bool m_nav_jump_requested = false;
 
     // Блуждание.
     glm::vec3 m_wander_target{0.0f};
@@ -204,7 +212,7 @@ private:
     bool collides_at(const glm::vec3& position, const Chunk_Manager& chunk_manager) const;
 
     void update_perception(float dt, const Horse_Context& context);
-    void update_free_motion(float dt, const Horse_Context& context);
+    void update_free_motion(float dt, const Horse_Context& context, const Chunk_Manager& world, Mob_Nav::System* nav);
     void update_taming_motion(float dt);
     void update_riding_motion(float dt, const Horse_Ride_Input& input);
     // Двигает по m_ride_velocity с коллизиями, гравитацией и прыжком через уступ в 1 блок.

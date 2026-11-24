@@ -152,6 +152,7 @@ void Knight_Ai::face_towards(const glm::vec3& target) {
 
 // Загружает обязательную модель, проверяет скелет и все клипы, без которых поведение босса неполноценно.
 bool Knight_Ai::load_model() {
+    m_model.set_anthropomorphic(true);
     if (!m_model.load(MODEL_PATH)) {
         LOG_ERROR(std::string("Knight_Ai: required model could not be loaded: ") + MODEL_PATH);
         return false;
@@ -587,6 +588,8 @@ void Knight_Ai::update_phase() {
     m_phase = next_phase;
     m_state_timer = 1.0f;
     m_attack_cooldown = std::min(m_attack_cooldown, 0.65f);
+    m_model.set_animation_speed(1.0f);
+    m_feint_remaining = 0.0f;
     if (m_state != Knight_State::Dead) m_state = Knight_State::Recovery;
     set_animation("Attack_Slam", false);
 }
@@ -670,6 +673,10 @@ Knight_Attack Knight_Ai::choose_attack(const Knight_Player_View& player, const C
             default:
                 break;
         }
+        // Update preferences from actual completed attacks against this
+        // player. Avoid overfitting: Bayesian smoothing + bounded impact.
+        weight *= m_tactics.preference(static_cast<int>(attack));
+        if (attack == m_planned_followup && m_followup_timer > 0.0f) weight *= 3.0f;
         candidates[count] = attack;
         weights[count] = weight;
         ++count;
@@ -700,6 +707,14 @@ void Knight_Ai::start_attack(Knight_Attack attack, const Knight_Player_View& pla
     m_state = Knight_State::Windup;
     m_state_timer = info.windup;
     m_hit_primary = m_hit_secondary = m_hit_tertiary = false;
+    m_attack_connected = false;
+    m_tactics.begin_windup();
+    ++m_attack_sequence;
+    m_planned_followup = Knight_Attack::None;
+    m_followup_timer = 0.0f;
+    m_feint_remaining = m_tactics.intentional_delay(m_attack_sequence);
+    m_feint_started = false;
+    m_model.set_animation_speed(1.0f);
     set_animation(attack_animation(attack), false);
 }
 
@@ -709,8 +724,16 @@ void Knight_Ai::move_towards(const glm::vec3& target, float speed, float dt, con
     delta.y = 0.0f;
     const float distance = glm::length(delta);
     if (distance < 0.12f) return;
-    const glm::vec3 direction = delta / distance;
-    rotate_towards(target, dt);
+    glm::vec3 direction = delta / distance;
+    if (m_navigation_system) {
+        // Knight has a wide body. The navigation AABB conservatively uses its
+        // widest axis; special leaps/charge attacks keep their original combat physics.
+        const auto steering = m_navigation_agent.steer(*m_navigation_system,chunks,dt,m_position,target,
+                                                        BODY_HALF_X*2.0f,BODY_HEIGHT,Mob_Nav::Travel::Ground,0);
+        if (glm::length(steering.direction)<0.01f) return;
+        direction = steering.direction;
+    }
+    rotate_towards(m_position+direction,dt);
 
     glm::vec3 step = direction * (speed * dt);
     if (distance < glm::length(step)) step = direction * distance;
@@ -803,8 +826,10 @@ void Knight_Ai::update_jump(float dt, const Knight_Player_View& player, const Ch
         m_position.y = std::max(m_position.y, m_arena.floor_y);
         m_velocity = glm::vec3(0.0f);
         if (m_pending_leap_impact) {
-            if (can_see_at_impact(player, chunks) && horizontal_distance(m_position, player.position) <= 8.0f)
+            if (can_see_at_impact(player, chunks) && horizontal_distance(m_position, player.position) <= 8.0f) {
                 result.player_damage += 34;
+                m_attack_connected = true;
+            }
             m_pending_leap_impact = false;
             m_state = Knight_State::Recovery;
             m_state_timer = attack_properties(Knight_Attack::Leap_Strike).recovery;
@@ -835,11 +860,14 @@ void Knight_Ai::apply_attack_hit(const Knight_Player_View& player, const Chunk_M
         }
     }
     result.player_damage += static_cast<int>(std::round(damage));
+    m_attack_connected = true;
 }
 
 // Фаза предупреждения перед атакой: рыцарь доворачивается к прогнозируемой позиции и отменяет удар, если потерял цель.
 void Knight_Ai::update_windup(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks) {
     if (!can_see_player(player, chunks)) {
+        m_model.set_animation_speed(1.0f);
+        m_feint_remaining = 0.0f;
         m_state = Knight_State::Recovery;
         m_state_timer = 0.45f;
         m_current_attack = Knight_Attack::None;
@@ -847,8 +875,28 @@ void Knight_Ai::update_windup(float dt, const Knight_Player_View& player, const 
         set_animation("Idle", true);
         return;
     }
+    const Attack_Properties info = attack_properties(m_current_attack);
+    const float elapsed = info.windup - m_state_timer;
+    // Observe a dodge only during a visible windup (not arbitrary movement).
+    glm::vec3 radial = player.position - m_position;
+    radial.y = 0.0f;
+    if (glm::length(radial) > .001f) {
+        radial = glm::normalize(radial);
+        const float outward = glm::dot(player.velocity, radial);
+        const float sideways = glm::dot(player.velocity, glm::vec3(-radial.z,0,radial.x));
+        m_tactics.observe_dodge(elapsed, sideways, outward);
+    }
     m_attack_aim = predict_player(player, m_state_timer);
     rotate_towards(m_attack_aim, dt, 1.25f);
+    // Pause the actual skeletal clip mid-windup and resume it after a
+    // learned delay. Visual tell stays visible; hit timing is delayed too.
+    if (m_feint_remaining > 0.0f && elapsed >= info.windup * .55f) {
+        m_feint_started = true;
+        m_model.set_animation_speed(0.0f);
+        m_feint_remaining = std::max(0.0f, m_feint_remaining - dt);
+        if (m_feint_remaining <= 0.0f) m_model.set_animation_speed(1.0f);
+        return;
+    }
     m_state_timer -= dt;
     if (m_state_timer > 0.0f) return;
 
@@ -964,6 +1012,15 @@ void Knight_Ai::update_attack(float dt, const Knight_Player_View& player, const 
 void Knight_Ai::update_recovery(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks) {
     m_state_timer -= dt;
     if (m_state_timer > 0.0f) return;
+    if (m_current_attack != Knight_Attack::None) {
+        m_tactics.complete_attack(static_cast<int>(m_current_attack),m_attack_connected);
+        const int followup = m_tactics.propose_followup(static_cast<int>(m_current_attack),
+                                                        static_cast<int>(m_learned_pattern),
+                                                        m_attack_connected,m_phase);
+        m_planned_followup = static_cast<Knight_Attack>(followup);
+        m_followup_timer = 9.0f; // enough to outlast long move cooldowns
+    }
+    m_model.set_animation_speed(1.0f);
     m_current_attack = Knight_Attack::None;
     if (can_see_player(player, chunks)) m_state = Knight_State::Chase;
     else m_state = Knight_State::Returning;
@@ -1005,6 +1062,19 @@ void Knight_Ai::update_movement(float dt, const Knight_Player_View& player, cons
         return;
     }
 
+    // If the player is too close for a readable sword swing, create space
+    // instead of repeatedly attempting impossible hits. move_towards uses
+    // occupancy + A* / local sidestep and never pushes through walls.
+    if (distance < 2.65f && m_grounded) {
+        glm::vec3 away = m_position - player.position;
+        away.y = 0.0f;
+        const float len = glm::length(away);
+        away = len > 0.01f ? away / len : -forward_from_yaw(m_yaw);
+        const glm::vec3 retreat = m_position + away * 2.8f;
+        move_towards(retreat, speed * 1.38f, dt, chunks);
+        set_animation("Walk", true);
+        return;
+    }
     if (distance > (m_phase == 1 ? 5.0f : 6.3f)) {
         move_towards(target, speed, dt, chunks);
         if (m_grounded && horizontal_distance(m_position, target) > 1.0f) set_animation("Walk", true);
@@ -1078,7 +1148,9 @@ void Knight_Ai::update_ai(float dt, const Knight_Player_View& player, const Chun
             }
             update_movement(dt, player, chunks);
             if (m_state == Knight_State::Jumping) break;
-            if (facing_player(player)) {
+            // Allow one fast step back before swinging when the player
+            // crowds inside the blade's inner radius.
+            if (horizontal_distance(m_position,player.position) >= 2.65f && facing_player(player)) {
                 const Knight_Attack attack = choose_attack(player, chunks);
                 if (attack != Knight_Attack::None) start_attack(attack, player);
             }
@@ -1115,7 +1187,8 @@ void Knight_Ai::update_ai(float dt, const Knight_Player_View& player, const Chun
 }
 
 // Один шаг симуляции босса: ограничивает dt, обновляет эффекты/фазы/ИИ, гравитацию и скелетную анимацию.
-Knight_Tick_Result Knight_Ai::update(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks) {
+Knight_Tick_Result Knight_Ai::update(float dt, const Knight_Player_View& player, const Chunk_Manager& chunks, Mob_Nav::System* navigation) {
+    m_navigation_system = navigation;
     Knight_Tick_Result result;
     dt = glm::clamp(dt, 0.0f, 0.05f);
     if (dt <= 0.0f) return result;
@@ -1123,7 +1196,10 @@ Knight_Tick_Result Knight_Ai::update(float dt, const Knight_Player_View& player,
     const int regeneration = m_effects.update(dt);
     if (regeneration > 0) m_health = std::min(MAX_HEALTH, m_health + static_cast<float>(regeneration));
     m_attack_cooldown = std::max(0.0f, m_attack_cooldown - dt);
+    m_tactics.decay(dt);
     m_jump_cooldown = std::max(0.0f, m_jump_cooldown - dt);
+    m_followup_timer = std::max(0.0f, m_followup_timer - dt);
+    if (m_followup_timer <= 0.0f) m_planned_followup = Knight_Attack::None;
     m_hurt_timer = std::max(0.0f, m_hurt_timer - dt);
     m_model.set_hurt_flash(m_hurt_timer / kHurtSeconds);
 
@@ -1167,7 +1243,11 @@ bool Knight_Ai::take_damage(float amount, const glm::vec3& attacker_position) {
         m_has_target = true;
         m_last_seen_position = attacker_position;
     }
+    if (m_current_attack != Knight_Attack::None)
+        m_tactics.complete_attack(static_cast<int>(m_current_attack),m_attack_connected);
     m_current_attack = Knight_Attack::None;
+    m_model.set_animation_speed(1.0f);
+    m_feint_remaining = 0.0f;
     m_state = Knight_State::Recovery;
     m_state_timer = 0.28f;
     m_attack_cooldown = std::max(m_attack_cooldown, 0.25f);
@@ -1184,6 +1264,7 @@ bool Knight_Ai::kill() {
     m_health = 0.0f;
     m_death_timer = 0.0f;
     m_state = Knight_State::Dead;
+    m_model.set_animation_speed(1.0f);
     set_animation("Death", false);
     return true;
 }

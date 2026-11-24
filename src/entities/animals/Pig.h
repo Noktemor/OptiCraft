@@ -18,6 +18,7 @@
 #include <random>
 #include "entities/animals/ai/Pig_AI.h"
 #include "mobs/Mob.h"
+#include "mobs/navigation/Navigation_System.h"
 #include "entities/animals/Breeding.h"
 #include "physics/Liquid_Physics.h"
 #include "world/blocks/Block_Types.h"
@@ -31,7 +32,7 @@ public:
     // Грузит (или берёт из общего кэша Mob) модель по пути — см. Mob::load.
     bool load_model(const std::string& glb_path);
 
-    void update(float delta_time, const Chunk_Manager& chunk_manager);
+    void update(float delta_time, const Chunk_Manager& chunk_manager, Mob_Nav::System* nav = nullptr);
     void render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const;
 
     const glm::vec3& get_position() const { return m_mob.get_position(); }
@@ -42,6 +43,9 @@ public:
     glm::vec3 get_hitbox_min() const;
     glm::vec3 get_hitbox_max() const;
     void compute_hitbox(glm::vec3& out_min, glm::vec3& out_max) const;
+    Mob_Hit_Result raycast_body_part(const glm::vec3& eye, const glm::vec3& direction, float reach) const {
+        return m_mob.raycast_body_part(eye, direction, reach);
+    }
 
     // Наносит урон и отбрасывает свинью от attacker_position; после удара она убегает
     // (Config::pig_panic_seconds). Возвращает true, если ЭТИМ ударом свинья умерла.
@@ -70,6 +74,9 @@ public:
     bool is_baby() const { return m_breeding.is_baby(); }
     // Идти к точке (партнёру) — вызывается каждый кадр, пока ищет пару.
     void seek_towards(const glm::vec3& target);
+    bool is_panicking() const { return m_panic_timer > 0.0f; }
+    // Non-damaging social response; every nearby peaceful species hears the alarm.
+    void on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill);
 
     // Анимация смерти доиграна — свинью можно удалять из мира.
     bool is_removable() const { return m_dying && m_death_timer >= Config::pig_death_seconds; }
@@ -77,6 +84,7 @@ public:
 private:
     Pig_AI m_ai;
     Mob m_mob;
+    Mob_Nav::Agent m_navigation_agent;
     std::mt19937 m_rng;
 
     // Здоровье и реакция на удары.
@@ -90,6 +98,9 @@ private:
     float m_death_timer = 0.0f;
     Breeding_State m_breeding;
     float m_seek_timer = 0.0f;
+    glm::vec3 m_seek_target{0.0f};
+    glm::vec3 m_panic_target{0.0f};
+    glm::vec3 m_wander_target{0.0f};
     glm::vec3 m_seek_dir{0.0f};
 
     // Направление блуждания (единичный вектор по XZ), перевыбирается каждый

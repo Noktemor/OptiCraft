@@ -21,9 +21,17 @@
   <component name="CMakeRunConfigurationManager">
     <generated>
       <config projectName="OptiCraft" targetName="treepack" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan" />
       <config projectName="OptiCraft" targetName="embed" folderName="ExternalProjectTargets/embed" />
+      <config projectName="OptiCraft" targetName="OptiCraft_VulkanBackend" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Core_Tests" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Stream_Tests" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Mesh_Transactions_Tests" />
+      <config projectName="OptiCraft" targetName="OptiCraft_VulkanCore" />
       <config projectName="OptiCraft" targetName="json2bin" />
+      <config projectName="OptiCraft" targetName="OptiCraft_VulkanWindow" />
       <config projectName="OptiCraft" targetName="OptiCraft" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Shaders" />
     </generated>
   </component>
   <component name="CMakeSettings">
@@ -36,27 +44,75 @@
   <component name="ChangeListManager">
     <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="beta 0.12">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/PORTAL_PATCH_ID.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/blocks.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/blocks.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/recipe.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/recipe.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.ocb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/gpu_cull_commands.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/gpu_cull_commands.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/gpu_cull_meshlets.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/gpu_cull_meshlets.comp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_fragment.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_fragment.glsl" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/structures/structures.struct" beforeDir="false" afterPath="$PROJECT_DIR$/assets/structures/structures.struct" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/texture/texture_atlas.png" beforeDir="false" afterPath="$PROJECT_DIR$/assets/texture/texture_atlas.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/documentation/DIMENSIONS_AND_PORTALS.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/DIMENSIONS_AND_PORTALS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/documentation/history_version.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/history_version.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/commands/Command_System.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/Command_System.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/app/Window.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Window.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/app/Window.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Window.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Horse.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Horse.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Horse.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Horse.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Pig.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Pig.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/animals/Pig.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Pig.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/entities/player/Player.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/player/Player.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/hud/Hud.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/hud/Hud.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input/Input_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/input/Input_Manager.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/input/Input_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/input/Input_Manager.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Boss.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Boss.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Boss.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Boss.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Knight_Ai.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Knight_Ai.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Knight_Ai.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Knight_Ai.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mob.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mob.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mobs_Update.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mobs_Update.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/mobs/Mobs_Update.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mobs_Update.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/physics/Raycast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/physics/Raycast.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/dimensions/Dimension.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/structurepack/build_structures.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/structurepack/build_structures.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/stubs/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/stubs/world/blocks/Block_Types.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/test.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/test.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -89,9 +145,7 @@
   }
 }</component>
   <component name="HighlightingSettingsPerFile">
-    <setting file="mock:///home/noktemor/CLionProjects/OptiCraft/src/utils/Config.h" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///home/noktemor/CLionProjects/OptiCraft/src/world/chunks/Chunk_Manager.cpp" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///home/noktemor/CLionProjects/OptiCraft/src/world/chunks/Chunk_Manager.h" root0="SKIP_HIGHLIGHTING" />
+    <setting file="mock:///dummy.cpp" root0="SKIP_HIGHLIGHTING" />
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="7SCk5Smy" />
@@ -102,23 +156,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0000301006092862" />
-      <entry key="MS500" value="1.1519365649101956" />
-      <entry key="S2" value="2.2626830073028916" />
-      <entry key="S5" value="3.099820374284261" />
-      <entry key="S10" value="3.505490845206934" />
-      <entry key="S30" value="3.9245556857569857" />
-      <entry key="S60" value="5.716565774387096" />
-      <entry key="M2" value="13.527736057478249" />
-      <entry key="M5" value="40.11463941845388" />
-      <entry key="M10" value="70.14416070448802" />
-      <entry key="M15" value="90.40907621065361" />
-      <entry key="M30" value="142.62589517281236" />
-      <entry key="H1" value="256.4813477034319" />
-      <entry key="H2" value="596.5544592240201" />
-      <entry key="H4" value="1503.1551188502988" />
-      <entry key="D1" value="4702.91284883307" />
-      <entry key="W1" value="5910.110336095699" />
+      <entry key="MS100" value="1.0000000261248863" />
+      <entry key="MS500" value="1.0306424926179618" />
+      <entry key="S2" value="1.753911204160596" />
+      <entry key="S5" value="4.00287023909015" />
+      <entry key="S10" value="7.132948795494146" />
+      <entry key="S30" value="11.976437914309637" />
+      <entry key="S60" value="15.217709087971253" />
+      <entry key="M2" value="23.42195724397119" />
+      <entry key="M5" value="50.12515050117718" />
+      <entry key="M10" value="80.49852855109748" />
+      <entry key="M15" value="101.01892569217885" />
+      <entry key="M30" value="153.55441991173316" />
+      <entry key="H1" value="267.5362435711164" />
+      <entry key="H2" value="607.470993478454" />
+      <entry key="H4" value="1513.7990228768404" />
+      <entry key="D1" value="4714.207676054928" />
+      <entry key="W1" value="5921.9837685339235" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -127,36 +181,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="5.27274842771639E-209" />
-      <entry key="M2" value="7.261369311442663E-105" />
-      <entry key="M5" value="2.210077026596887E-42" />
-      <entry key="M10" value="1.4866394914774689E-21" />
-      <entry key="M15" value="1.3030670391823455E-14" />
-      <entry key="M30" value="1.1788168079488019E-7" />
-      <entry key="H1" value="4.4317146436189016E-4" />
-      <entry key="H2" value="0.03612402645806002" />
-      <entry key="H4" value="0.36618287689551415" />
-      <entry key="D1" value="2.6728124238113713" />
-      <entry key="W1" value="3.7757300057491703" />
+      <entry key="S60" value="4.25007558263214E-209" />
+      <entry key="M2" value="6.5192603741773755E-105" />
+      <entry key="M5" value="2.116797581799218E-42" />
+      <entry key="M10" value="1.454928414308206E-21" />
+      <entry key="M15" value="1.284470298753549E-14" />
+      <entry key="M30" value="1.1703748290416567E-7" />
+      <entry key="H1" value="4.41581748997436E-4" />
+      <entry key="H2" value="0.03605917739105534" />
+      <entry key="H4" value="0.3658540474822554" />
+      <entry key="D1" value="2.6724122465460596" />
+      <entry key="W1" value="3.7756492423311205" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.8526637660780506" />
-      <entry key="MS500" value="1.1190521175927128" />
-      <entry key="S2" value="2.2505328201177175" />
-      <entry key="S5" value="3.0936519930308584" />
-      <entry key="S10" value="3.5020809376706206" />
-      <entry key="S30" value="3.9232938064506757" />
-      <entry key="S60" value="5.715580574012792" />
-      <entry key="M2" value="13.526417223175018" />
-      <entry key="M5" value="40.11295553890522" />
-      <entry key="M10" value="70.14270584253596" />
-      <entry key="M15" value="90.40783495865024" />
-      <entry key="M30" value="142.62486773688914" />
-      <entry key="H1" value="256.48081479154024" />
-      <entry key="H2" value="596.5895523218736" />
-      <entry key="H4" value="1503.520039985362" />
-      <entry key="D1" value="4705.584896288949" />
-      <entry key="W1" value="5913.8859230741" />
+      <entry key="MS100" value="0.9265880864352959" />
+      <entry key="MS500" value="1.0151285537255876" />
+      <entry key="S2" value="1.7472658574674527" />
+      <entry key="S5" value="3.9919239675524976" />
+      <entry key="S10" value="7.118571879209924" />
+      <entry key="S30" value="11.966351813526211" />
+      <entry key="S60" value="15.211312296676148" />
+      <entry key="M2" value="23.417689577390217" />
+      <entry key="M5" value="50.12223072046335" />
+      <entry key="M10" value="80.49643846996238" />
+      <entry key="M15" value="101.01725511031132" />
+      <entry key="M30" value="153.55317486352834" />
+      <entry key="H1" value="267.53559972191556" />
+      <entry key="H2" value="607.5059670622755" />
+      <entry key="H4" value="1514.1635880348629" />
+      <entry key="D1" value="4716.879318731457" />
+      <entry key="W1" value="5925.7592740780865" />
     </decayedShown>
   </component>
   <component name="ProjectApplicationVersion">
@@ -177,6 +231,7 @@
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
     &quot;CMake Application.OptiCraft.executor&quot;: &quot;Run&quot;,
+    &quot;CMake Application.OptiCraft_Vulkan.executor&quot;: &quot;Run&quot;,
     &quot;CidrDebugProfileConversion&quot;: &quot;true&quot;,
     &quot;CidrDebugProfileConversion262&quot;: &quot;true&quot;,
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
@@ -192,7 +247,8 @@
     &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
     &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ctest.advertisement.all.test.configuration.is.created&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;vulkan-render&quot;,
     &quot;last_opened_file_path&quot;: &quot;/home/noktemor/Изображения/Снимки экрана/Снимок экрана от 2026-11-17 10-20-05.png&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
@@ -210,8 +266,41 @@
       <recent name="$PROJECT_DIR$/cmake-build-debug/assets/mobs" />
     </key>
   </component>
-  <component name="RunManager" selected="Shell Script.OptiCraft session + report">
+  <component name="RunManager" selected="CMake Application.OptiCraft">
     <configuration name="OptiCraft" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft">
+      <envs>
+        <env name="OPTICRAFT_VULKAN_GPU" value="integrated" />
+      </envs>
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_VulkanBackend" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_VulkanBackend" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_VulkanCore" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_VulkanCore" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_VulkanWindow" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_VulkanWindow" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_Vulkan_Core_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Core_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Core_Tests">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_Vulkan_Mesh_Transactions_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Mesh_Transactions_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Mesh_Transactions_Tests">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_Vulkan_Stream_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Stream_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Stream_Tests">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -236,20 +325,32 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration name="All CTest" type="CTestRunConfiguration" factoryName="CTestRun" PROGRAM_PARAMS="--extra-verbose" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$CMakeCurrentLocalGenerationDir$" PASS_PARENT_ENVS_2="true" CONFIG_NAME="Debug" RUN_PATH="$CTestCurrentExecutableName$" EXPLICIT_BUILD_TARGET_NAME="all" TEST_MODE="SUITE_TEST">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+        <option name="BeforeTestRunTask" enabled="true" />
+      </method>
+    </configuration>
     <list>
       <item itemvalue="CMake Application.embed" />
       <item itemvalue="CMake Application.OptiCraft" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_Core_Tests" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_Mesh_Transactions_Tests" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_Stream_Tests" />
+      <item itemvalue="CMake Application.OptiCraft_VulkanBackend" />
+      <item itemvalue="CMake Application.OptiCraft_VulkanCore" />
+      <item itemvalue="CMake Application.OptiCraft_VulkanWindow" />
       <item itemvalue="CMake Application.treepack" />
       <item itemvalue="CMake Application.json2bin" />
-      <item itemvalue="Shell Script.OptiCraft + Tracy" />
-      <item itemvalue="Shell Script.OptiCraft session + report" />
+      <item itemvalue="CTest Application.All CTest" />
     </list>
   </component>
   <component name="SelectedDebugProfileService">{
   &quot;profileIdByStamp&quot;: [
     {
       &quot;first&quot;: {
-        &quot;##RUN_CONFIGURATION##&quot;: &quot;Shell Script.OptiCraft + Tracy&quot;
+        &quot;##RUN_CONFIGURATION##&quot;: &quot;CMake Application.embed&quot;,
+        &quot;cmake&quot;: null
       },
       &quot;second&quot;: &quot;60d91498-5adc-4d2b-8faf-05c41025995f&quot;
     },
@@ -262,7 +363,8 @@
     },
     {
       &quot;first&quot;: {
-        &quot;##RUN_CONFIGURATION##&quot;: &quot;Shell Script.OptiCraft session + report&quot;
+        &quot;##RUN_CONFIGURATION##&quot;: &quot;CMake Application.OptiCraft&quot;,
+        &quot;cmake&quot;: &quot;CMakeBuildProfile:Debug-event-trace&quot;
       },
       &quot;second&quot;: &quot;60d91498-5adc-4d2b-8faf-05c41025995f&quot;
     },
@@ -281,7 +383,7 @@
       &quot;second&quot;: &quot;60d91498-5adc-4d2b-8faf-05c41025995f&quot;
     }
   ],
-  &quot;modificationCount&quot;: 53
+  &quot;modificationCount&quot;: 55
 }</component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">

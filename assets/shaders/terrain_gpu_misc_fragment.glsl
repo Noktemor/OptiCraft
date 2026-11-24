@@ -22,9 +22,9 @@ uniform vec3 fogColor;
 uniform vec2 fogRange;
 uniform vec3 sunDirection;
 uniform int u_kind;
-// Левый-нижний угол спрайта воды в UV атласа и его размер (см. liquid_fragment.glsl).
-uniform vec2 tile_origin;
-uniform vec2 tile_size;
+// Per-face atlas rectangle comes from the packed GPU quad; no global water sprite uniforms.
+// The liquid kind is encoded in bit 15 of rec.y (0 = water, 1 = lava).
+flat in uint LiquidIsLava;
 
 float appearance_hash(vec3 cell_position) {
     vec3 p = fract(cell_position * vec3(0.1031, 0.11369, 0.13787));
@@ -52,14 +52,17 @@ void main() {
         tex_color = texture(textureAtlas, TexCoord);
         if (tex_color.a < 0.1) discard;
     } else {
-        vec2 local_uv = TexCoord - tile_origin;
-        const vec2 flow = vec2(sin(time * 0.15) * 0.15, time * 0.35) * tile_size;
-        local_uv = mod(local_uv + flow, tile_size);
-        tex_color = texture(textureAtlas, tile_origin + local_uv);
-        // Keep water motion mostly in texture flow/waves. A large time-driven brightness
-        // pulse made large, overlapping water surfaces look as if their colour flickered.
-        shimmer = 0.985 + 0.015 * sin(FragPos.x * 1.3 + FragPos.z * 1.1 + time * 0.7);
-        alpha_scale = 0.78;
+        // Each liquid quad already stores its own UV rect; animate within THAT tile.
+        // Using a single water tile here previously painted lava faces with water.
+        const bool lava = LiquidIsLava != 0u;
+        const vec2 flow = lava ? vec2(time * 0.045, time * 0.025)
+                               : vec2(sin(time * 0.15) * 0.15, time * 0.35);
+        const vec2 uv = clamp(fract(Local + flow), vec2(0.001), vec2(0.999));
+        tex_color = texture(textureAtlas, mix(Rect.xy, Rect.zw, uv));
+        // Lava is opaque and glows subtly; water remains translucent.
+        shimmer = lava ? (0.97 + 0.03 * sin(FragPos.x + FragPos.z + time * 0.8))
+                       : (0.985 + 0.015 * sin(FragPos.x * 1.3 + FragPos.z * 1.1 + time * 0.7));
+        alpha_scale = lava ? 1.0 : 0.78;
     }
 
     const float sky_scene_light = (SkyLight / 15.0) * ambient;

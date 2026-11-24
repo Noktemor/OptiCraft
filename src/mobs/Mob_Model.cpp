@@ -10,6 +10,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include "mobs/Mob_Model.h"
+#include <cctype>
 #include "utils/logging/Logger.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -495,4 +496,46 @@ void Mob_Model::upload_mesh(const std::vector<Mob_Vertex>& vertices, const std::
     glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Mob_Vertex), reinterpret_cast<void*>(offsetof(Mob_Vertex, joint_weights)));
 
     glBindVertexArray(0);
+}
+
+// Per-bone local hit volumes: authored from the same skinned vertices that the GPU renders.
+// Cached once per model; per-instance raycasts transform just 8 corners per volume.
+const std::vector<Mob_Model::Hit_Region>& Mob_Model::get_hit_regions() const {
+    if (m_hit_regions_ready) return m_hit_regions;
+    m_hit_regions_ready = true;
+    if (m_bones.empty() || m_cpu_vertices.empty()) return m_hit_regions;
+    std::vector<glm::vec3> lows(m_bones.size(), glm::vec3(1e30f));
+    std::vector<glm::vec3> highs(m_bones.size(), glm::vec3(-1e30f));
+    std::vector<int> counts(m_bones.size(), 0);
+    for (const Mob_Vertex& v : m_cpu_vertices) {
+        int dominant = -1;
+        float best_weight = 0.0f;
+        for (int j = 0; j < 4; ++j) {
+            if (v.joint_weights[j] > best_weight && v.joint_indices[j] >= 0 &&
+                v.joint_indices[j] < static_cast<int>(m_bones.size())) {
+                dominant = v.joint_indices[j];
+                best_weight = v.joint_weights[j];
+            }
+        }
+        if (dominant < 0) continue;
+        const glm::vec3 local = glm::vec3(m_bones[dominant].inverse_bind_matrix * glm::vec4(v.position, 1.0f));
+        if (glm::any(glm::isnan(local)) || glm::any(glm::isinf(local)) ||
+            glm::any(glm::greaterThan(glm::abs(local), glm::vec3(8.0f)))) continue;
+        lows[dominant] = glm::min(lows[dominant], local);
+        highs[dominant] = glm::max(highs[dominant], local);
+        ++counts[dominant];
+    }
+    for (size_t i = 0; i < m_bones.size(); ++i) {
+        if (counts[i] < 3) continue;
+        std::string name = m_bones[i].name;
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        Mob_Hit_Zone zone = Mob_Hit_Zone::Torso;
+        if (name.find("head") != std::string::npos || name.find("neck") != std::string::npos) zone = Mob_Hit_Zone::Head;
+        else if (name.find("leg") != std::string::npos || name.find("foot") != std::string::npos) zone = Mob_Hit_Zone::Leg;
+        else if (name.find("arm") != std::string::npos || name.find("hand") != std::string::npos) zone = Mob_Hit_Zone::Arm;
+        // 'Root' vertices are retained as torso: no missing mesh pieces between joints.
+        m_hit_regions.push_back(Hit_Region{static_cast<int>(i), zone, lows[i], highs[i],
+                                           glm::inverse(m_bones[i].inverse_bind_matrix)});
+    }
+    return m_hit_regions;
 }

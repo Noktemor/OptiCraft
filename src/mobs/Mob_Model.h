@@ -32,6 +32,7 @@
 #include <unordered_map>
 #include <memory>
 #include "rendering/atlas/Texture.h"
+#include "mobs/Mob_Hit_Zone.h"
 
 // Максимум костей на одного моба — ограничение размера uniform-массива в
 // шейдере (см. assets/shaders/mob_vertex.glsl, bones[MAX_MOB_BONES]).
@@ -143,6 +144,18 @@ public:
     // Вершины, оставленные в оперативной памяти после загрузки на GPU (у свиньи их немного) —
     // нужны для расчёта реальных габаритов модели, см. Mob::get_local_bounds().
     const std::vector<Mob_Vertex>& get_cpu_vertices() const { return m_cpu_vertices; }
+
+    struct Hit_Region {
+        int bone_index = -1;
+        Mob_Hit_Zone zone = Mob_Hit_Zone::Torso;
+        glm::vec3 local_min{0.0f};
+        glm::vec3 local_max{0.0f};
+        glm::mat4 bind_joint_matrix{1.0f}; // cached inverse of inverse_bind_matrix
+    };
+    // Dominant skin joint per vertex; calculated once per shared GLB model.
+    // Coordinates are bind-pose joint local, so animation transforms the region too.
+    const std::vector<Hit_Region>& get_hit_regions() const;
+
     // Кэш габаритов в bind-позе (ось Y от ног). Считается один раз на модель.
     bool has_bounds() const { return m_has_bounds; }
     void set_bounds(const glm::vec3& min_corner, const glm::vec3& max_corner) {
@@ -174,6 +187,8 @@ private:
 
     std::vector<Primitive_Range> m_primitive_ranges;
     std::vector<Mob_Vertex> m_cpu_vertices;
+    mutable bool m_hit_regions_ready = false;
+    mutable std::vector<Hit_Region> m_hit_regions;
     bool m_has_bounds = false;
     glm::vec3 m_bounds_min{0.0f};
     glm::vec3 m_bounds_max{0.0f};

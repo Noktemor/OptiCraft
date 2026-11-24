@@ -19,10 +19,15 @@
 #define OPTICRAFT_MOB_H
 
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 #include "mobs/Mob_Model.h"
+#include "mobs/Mob_Hit_Zone.h"
+#include "mobs/Mob_Equipment.h"
+#include "mobs/navigation/Navigation_System.h"
+#include <functional>
 #include "rendering/Shader.h"
 
 class Mob {
@@ -42,6 +47,9 @@ public:
     // конца клип останавливается на последнем кадре, см. is_animation_finished().
     // Повторный вызов с уже проигрываемым именем — no-op (не сбрасывает время).
     void play_animation(const std::string& name, bool loop = true);
+    // Temporarily hold an existing authored pose (e.g. knight's feint)
+    // without changing the attack's hit windows or restarting its clip.
+    void set_animation_speed(float value) { m_animation_speed = std::max(0.0f,value); }
     const std::string& get_current_animation() const { return m_current_animation; }
     bool is_animation_finished() const;
     // Есть ли в загруженной модели клип с таким именем — проверять перед
@@ -67,11 +75,37 @@ public:
     bool is_loaded() const { return m_model && m_model->is_loaded(); }
     bool has_skeleton() const { return m_model && !m_model->get_bones().empty(); }
 
+    // Movement capability is separate from animation and species AI.
+    enum class Movement_Mode : uint8_t { Ground, Flying, Swimming };
+    Movement_Mode movement_mode() const { return m_movement_mode; }
+    void set_movement_mode(Movement_Mode mode) { m_movement_mode = mode; }
+    // Collides callback checks the full body at a candidate feet-position.
+    // Call from species AI; no gravity in Flying mode.
+    void move_flying(float dt, const glm::vec3& desired_velocity,
+                     const std::function<bool(const glm::vec3&)>& collides);
+    // Uses the same async A* as ground creatures, but all three axes are navigable.
+    void navigate_flying(float dt, const glm::vec3& target, float speed, float width, float height,
+                         Mob_Nav::Agent& agent, Mob_Nav::System& nav, const Chunk_Manager& chunks);
+
+    void set_anthropomorphic(bool enabled) { m_anthropomorphic = enabled; }
+    bool can_equip() const { return m_anthropomorphic; }
+    bool equip(Mob_Equipment_Slot slot, const Item_Stack& item) {
+        if (!m_anthropomorphic) return false;
+        m_equipment.set(slot, item);
+        return true;
+    }
+    const Mob_Equipment* equipment() const { return m_anthropomorphic ? &m_equipment : nullptr; }
+
     // Габариты модели в её локальных координатах (до поворота по yaw, до масштаба), посчитанные
     // по РЕАЛЬНОЙ геометрии со скиннингом в bind-позе — ровно то, что рисует шейдер. Возвращает
     // false, если модель не загружена или геометрия пустая. Нужно для хитбоксов: размеры из
     // Config (pig_width/pig_height) описывают коллизию, а не то, во что игрок целится глазами.
     bool get_local_bounds(glm::vec3& out_min, glm::vec3& out_max) const;
+
+    // Detailed attack raycast. Separate from fixed gameplay/physics collision box.
+    // Returns the closest animated limb/head/torso volume (+0.10 block tolerance).
+    Mob_Hit_Result raycast_body_part(const glm::vec3& origin, const glm::vec3& direction,
+                                     float max_distance) const;
 
     // Чистит статический кэш моделей (см. Mob::load) — ОБЯЗАТЕЛЬНО вызвать
     // ДО разрушения GL-контекста при завершении игры (Game::shutdown(),
@@ -102,9 +136,14 @@ private:
     float m_roll_degrees = 0.0f;
     float m_roll_pivot_y = 0.3f;
     float m_hurt_flash = 0.0f;
+    Movement_Mode m_movement_mode = Movement_Mode::Ground;
+    glm::vec3 m_flight_velocity{0.0f};
+    bool m_anthropomorphic = false;
+    Mob_Equipment m_equipment;
 
     std::string m_current_animation;
     float m_animation_time = 0.0f;
+    float m_animation_speed = 1.0f;
     bool m_loop = true;
 
     // Считает итоговые skin-матрицы (по одной на кость, в порядке m_model->get_bones())

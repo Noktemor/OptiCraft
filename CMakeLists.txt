@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(OptiCraft)
+project(OptiCraft VERSION 0.13)
 
 # =============== Настройки ===============
 set(CMAKE_CXX_STANDARD 20)
@@ -48,12 +48,14 @@ set(SOURCES
         ${SRC_DIR}/mobs/Boss.cpp
         ${SRC_DIR}/mobs/Knight_Ai.cpp
         ${SRC_DIR}/mobs/Mobs_Update.cpp
+        ${SRC_DIR}/mobs/navigation/Navigation_System.cpp
 
         # entities
         ${SRC_DIR}/entities/player/Camera.cpp
         ${SRC_DIR}/entities/player/Player.cpp
         ${SRC_DIR}/entities/player/Player_Model.cpp
         ${SRC_DIR}/entities/player/Inventory.cpp
+        ${SRC_DIR}/mobs/village/Village_System.cpp
         ${SRC_DIR}/entities/items/Dropped_Item.cpp
 
         # input
@@ -62,6 +64,7 @@ set(SOURCES
         # rendering
         ${SRC_DIR}/rendering/capture/Isometric_Capture.cpp
         ${SRC_DIR}/rendering/Renderer.cpp
+        ${SRC_DIR}/rendering/vulkan/VulkanGameChunkFeed.cpp
         ${SRC_DIR}/rendering/Shader.cpp
         ${SRC_DIR}/rendering/atlas/Texture_Atlas.cpp
         ${SRC_DIR}/rendering/atlas/Atlas_Registry.cpp
@@ -115,6 +118,8 @@ set(SOURCES
         # mobs
         ${SRC_DIR}/mobs/Mob_Model.cpp
         ${SRC_DIR}/mobs/Mob.cpp
+        ${SRC_DIR}/mobs/Mob_Equipment.h
+        ${SRC_DIR}/mobs/Mob_Hit_Zone.h
 
         # entities/AI
         ${SRC_DIR}/entities/animals/ai/Pig_AI.cpp
@@ -240,6 +245,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 
         ${SRC_DIR}/mobs/Mob_Model.h
         ${SRC_DIR}/mobs/Mob.h
+        ${SRC_DIR}/mobs/village/Village_Rules.h
+        ${SRC_DIR}/mobs/village/Village_System.h
         ${SRC_DIR}/mobs/Knight_Ai.h
         ${SRC_DIR}/mobs/Mobs_Update.h
 
@@ -355,3 +362,121 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 # =============== Финальное сообщение ===============
 message(STATUS "✅ OptiCraft configured successfully with modern structure!")
+
+# ======================================================================
+# Vulkan backend — incremental replacement for OpenGL. Game voxel data
+# feed is wired, production graphics/HUD migration remains unfinished. Keep the existing OptiCraft executable fully unchanged.
+# The SDK / compiler are optional, so ordinary OpenGL builds still work.
+# ======================================================================
+option(OPTICRAFT_VULKAN "Build the Vulkan GPU-world backend library" ON)
+add_library(OptiCraft_VulkanCore STATIC
+        ${SRC_DIR}/rendering/vulkan/GpuWorldCore.cpp
+        ${SRC_DIR}/rendering/vulkan/GpuFrustum.cpp
+        ${SRC_DIR}/rendering/vulkan/VulkanChunkStreamPlan.cpp
+        ${SRC_DIR}/rendering/vulkan/GpuMeshTransactions.cpp)
+target_compile_features(OptiCraft_VulkanCore PUBLIC cxx_std_20)
+target_include_directories(OptiCraft_VulkanCore PUBLIC ${SRC_DIR})
+
+option(OPTICRAFT_VULKAN_CORE_TESTS "Build Vulkan residency/allocator tests" ON)
+if(OPTICRAFT_VULKAN_CORE_TESTS)
+    add_executable(OptiCraft_Vulkan_Core_Tests
+            tools/tests/test_vulkan_world_core.cpp)
+    target_link_libraries(OptiCraft_Vulkan_Core_Tests PRIVATE
+            OptiCraft_VulkanCore Threads::Threads)
+    enable_testing()
+    add_test(NAME VulkanWorldCore COMMAND OptiCraft_Vulkan_Core_Tests)
+    add_executable(OptiCraft_Vulkan_Stream_Tests
+            tools/tests/test_vulkan_chunk_stream.cpp)
+    target_link_libraries(OptiCraft_Vulkan_Stream_Tests PRIVATE
+            OptiCraft_VulkanCore Threads::Threads)
+    add_test(NAME VulkanChunkStream COMMAND OptiCraft_Vulkan_Stream_Tests)
+    add_executable(OptiCraft_Vulkan_Mesh_Transactions_Tests tools/tests/test_vulkan_mesh_transactions.cpp)
+    target_link_libraries(OptiCraft_Vulkan_Mesh_Transactions_Tests PRIVATE OptiCraft_VulkanCore)
+    add_test(NAME VulkanMeshTransactions COMMAND OptiCraft_Vulkan_Mesh_Transactions_Tests)
+endif()
+
+if(OPTICRAFT_VULKAN)
+    find_package(Vulkan QUIET)
+    if(Vulkan_FOUND)
+        # Window/WSI is an independent library: the runnable smoke test does not
+        # require compiling any compute shader or linking incomplete chunk pipelines.
+        add_library(OptiCraft_VulkanWindow STATIC
+                ${SRC_DIR}/rendering/vulkan/VulkanFrameRuntime.cpp)
+        target_include_directories(OptiCraft_VulkanWindow PUBLIC ${SRC_DIR})
+        target_link_libraries(OptiCraft_VulkanWindow PUBLIC Vulkan::Vulkan glfw Threads::Threads)
+
+        add_library(OptiCraft_VulkanBackend STATIC
+                ${SRC_DIR}/rendering/vulkan/VulkanVoxelPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanGpuCuller.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanGpuMesher.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanChunkMeshing.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanLiveWorldRenderer.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanGameMirror.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanUiPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanDeviceBuffer.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanMaterialTables.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanBlockAtlas.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanChunkStreamGpu.cpp
+                ${SRC_DIR}/rendering/vulkan/ChunkGpuExport.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanBlockCatalog.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanMiscMesher.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanMiscPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanParallelDraw.cpp)
+        target_include_directories(OptiCraft_VulkanBackend PUBLIC ${SRC_DIR}
+                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/stb)
+        target_link_libraries(OptiCraft_VulkanBackend PUBLIC OptiCraft_VulkanWindow
+                OptiCraft_VulkanCore)
+
+        # Runnable Vulkan surface/device/swapchain/frame submission test.
+        # The production OpenGL Game is left unchanged until all block shapes render.
+        add_executable(OptiCraft_Vulkan
+                ${SRC_DIR}/rendering/vulkan/VulkanProbe.cpp)
+        target_link_libraries(OptiCraft_Vulkan PRIVATE OptiCraft_VulkanWindow)
+
+        # Shader compilation is done once at build time, NEVER at runtime.
+        find_program(OPTICRAFT_GLSLANG_VALIDATOR glslangValidator)
+        if(OPTICRAFT_GLSLANG_VALIDATOR)
+            set(OC_VK_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/vulkan_shaders")
+            set(OC_VK_SPV_DIR "${CMAKE_CURRENT_BINARY_DIR}/assets/vulkan_shaders")
+            set(OC_VK_SPVS)
+            foreach(shader
+                    voxel_misc_count.comp voxel_misc_emit.comp
+                    voxel_misc.vert voxel_misc.frag
+                    voxel_textured.vert voxel_textured.frag
+                    voxel_count.comp voxel_emit.comp voxel_finalize.comp
+                    voxel_publish.comp voxel_cull.comp voxel_misc_cull.comp
+                    voxel_debug.vert voxel_debug.frag ui.vert ui.frag)
+                set(input "${OC_VK_SHADER_DIR}/${shader}")
+                set(output "${OC_VK_SPV_DIR}/${shader}.spv")
+                add_custom_command(OUTPUT "${output}"
+                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OC_VK_SPV_DIR}"
+                        COMMAND ${OPTICRAFT_GLSLANG_VALIDATOR} -V --target-env vulkan1.2
+                            "-I${OC_VK_SHADER_DIR}" -o "${output}" "${input}"
+                        DEPENDS "${input}" "${OC_VK_SHADER_DIR}/voxel_row_runs.glsl"
+                            "${OC_VK_SHADER_DIR}/mesher_common.glsl"
+                            "${OC_VK_SHADER_DIR}/voxel_misc_common.glsl"
+                        VERBATIM)
+                list(APPEND OC_VK_SPVS "${output}")
+            endforeach()
+            add_custom_target(OptiCraft_Vulkan_Shaders DEPENDS ${OC_VK_SPVS})
+            add_dependencies(OptiCraft_VulkanBackend OptiCraft_Vulkan_Shaders)
+            # Link the real Game to the Vulkan world-frame consumer only when
+            # the full SDK and shader compiler are available. The existing
+            # Primary Vulkan world/UI path; legacy GL resource context and fallback remain.
+            target_link_libraries(${PROJECT_NAME} PRIVATE OptiCraft_VulkanBackend)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE OPTICRAFT_VULKAN_GAME_MIRROR=1)
+            target_compile_definitions(OptiCraft_VulkanBackend PRIVATE OPTICRAFT_VULKAN_SHADER_DIR=\"${OC_VK_SPV_DIR}\")
+            add_dependencies(${PROJECT_NAME} OptiCraft_Vulkan_Shaders)
+            message(STATUS "Vulkan backend: core/compute library and shaders enabled")
+        else()
+            message(WARNING "Vulkan SDK present, but glslangValidator absent. Install glslang-tools to compile Vulkan shaders")
+        endif()
+    else()
+        message(STATUS "Vulkan SDK not found: core built, Vulkan compute backend skipped")
+    endif()
+endif()
+
+# The game stream adapter consumes pure core serialization, not Vulkan API
+# calls. Keep its code available even when no Vulkan SDK is installed.
+target_link_libraries(${PROJECT_NAME} PRIVATE OptiCraft_VulkanCore)

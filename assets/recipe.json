@@ -5924,6 +5924,110 @@
         "item": "Copper Lamp",
         "count": 1
       }
+    },
+    {
+      "name": "lighter",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Iron Ingot",
+          "count": 1
+        },
+        {
+          "item": "Charcoal",
+          "count": 1
+        }
+      ],
+      "output": {
+        "item": "Lighter",
+        "count": 1
+      }
+    },
+    {
+      "name": "fletching_table",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oak Planks",
+          "count": 4
+        },
+        {
+          "item": "Stick",
+          "count": 2
+        }
+      ],
+      "output": {
+        "item": "Fletching Table",
+        "count": 1
+      }
+    },
+    {
+      "name": "hunter_bench",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oak Planks",
+          "count": 4
+        },
+        {
+          "item": "Stick",
+          "count": 2
+        }
+      ],
+      "output": {
+        "item": "Hunter Bench",
+        "count": 1
+      }
+    },
+    {
+      "name": "smoker",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Furnace",
+          "count": 1
+        },
+        {
+          "item": "Oak Log",
+          "count": 4
+        }
+      ],
+      "output": {
+        "item": "Smoker",
+        "count": 1
+      }
+    },
+    {
+      "name": "composter",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Oak Planks",
+          "count": 7
+        }
+      ],
+      "output": {
+        "item": "Composter",
+        "count": 1
+      }
+    },
+    {
+      "name": "smithing_table",
+      "type": "shapeless",
+      "ingredients": [
+        {
+          "item": "Iron Ingot",
+          "count": 2
+        },
+        {
+          "item": "Oak Planks",
+          "count": 4
+        }
+      ],
+      "output": {
+        "item": "Smithing Table",
+        "count": 1
+      }
     }
   ]
 }

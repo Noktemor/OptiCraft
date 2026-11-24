@@ -137,7 +137,7 @@ const Command_Info k_commands[] = {
     {"breed",       "/breed <pig|cow|sheep|horse>",                 "Make all adult animals of a kind ready to breed"},
     {"clear",       "/clear",                                       "Remove dropped items"},
     {"enchant",     "/enchant durability <1-3>",                    "Enchant held tool/armor (durability)"},
-    {"boss",        "/boss <knight|stone_colossus|shadow_stalker>", "Summon a boss"},
+    {"boss",        "/boss <knight|colossus|stalker|moon_princess|sun_princess>", "Summon a boss"},
     {"dungeon",     "/dungeon [seed]",                              "Build a dungeon room at your feet (seed)"},
     {"portal",      "/portal <dimension|build nether|build end|ignite|status>", "Travel, build or ignite a portal"},
 };
@@ -357,12 +357,14 @@ bool execute_command(Game& game, const std::string& input, std::string& reply) {
 
     // --- /boss <вид> --------------------------------------------------------------
     if (cmd == "boss") {
-        if (args.size() != 2) { reply = "Usage: /boss <knight|stone_colossus|shadow_stalker>"; return false; }
+        if (args.size() != 2) { reply = "Usage: /boss <knight|colossus|stalker|moon_princess|sun_princess>"; return false; }
         const std::string kind = to_lower(args[1]);
         Boss_Kind boss_kind;
         if (kind == "knight" || kind == "knight_ai") boss_kind = Boss_Kind::Knight;
         else if (kind == "stone_colossus" || kind == "colossus") boss_kind = Boss_Kind::Stone_Colossus;
         else if (kind == "shadow_stalker" || kind == "stalker") boss_kind = Boss_Kind::Shadow_Stalker;
+        else if (kind == "moon_princess" || kind == "moon") boss_kind = Boss_Kind::Moon_Princess;
+        else if (kind == "sun_princess" || kind == "sun") boss_kind = Boss_Kind::Sun_Princess;
         else { reply = "Unknown boss: " + args[1]; return false; }
         if (!game.summon_boss(boss_kind)) { reply = "Boss model failed to load or is missing required resources (see log)"; return false; }
         reply = "Boss summoned: " + std::string(boss_stats(boss_kind).label);

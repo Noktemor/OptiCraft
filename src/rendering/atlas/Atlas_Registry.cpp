@@ -7,7 +7,7 @@ Atlas_Registry& Atlas_Registry::get_instance() {
     return instance;
 }
 
-int Atlas_Registry::load_all(const std::string& directory) {
+int Atlas_Registry::load_all(const std::string& directory, bool upload_to_opengl) {
     namespace fs = std::filesystem;
 
     if (!fs::exists(directory) || !fs::is_directory(directory)) {
@@ -31,7 +31,7 @@ int Atlas_Registry::load_all(const std::string& directory) {
 
         auto atlas = std::make_unique<Texture_Atlas>();
         const std::string manifest_path = entry.path().string();
-        if (!atlas->load_from_manifest(manifest_path)) {
+        if (!atlas->load_from_manifest(manifest_path, upload_to_opengl)) {
             LOG_ERROR("Atlas_Registry: failed to load " + manifest_path + ", skipped");
             continue;
         }

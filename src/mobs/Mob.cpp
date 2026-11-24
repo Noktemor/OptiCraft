@@ -1,6 +1,8 @@
 #include "mobs/Mob.h"
+#include "world/chunks/Chunk_Manager.h"
 #include "utils/logging/Logger.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 #include <unordered_map>
 #include <cctype>
 #include <cmath>
@@ -104,7 +106,7 @@ void Mob::update(float delta_time) {
     const Animation_Clip* clip = m_model->find_animation(m_current_animation);
     if (!clip || clip->duration <= 0.0f) return;
 
-    m_animation_time += delta_time;
+    m_animation_time += delta_time * m_animation_speed;
     if (m_animation_time > clip->duration) {
         m_animation_time = m_loop ? std::fmod(m_animation_time, clip->duration) : clip->duration;
     }
@@ -275,4 +277,109 @@ bool Mob::get_local_bounds(glm::vec3& out_min, glm::vec3& out_max) const {
     out_min = m_model->get_bounds_min();
     out_max = m_model->get_bounds_max();
     return true;
+}
+
+Mob_Hit_Result Mob::raycast_body_part(const glm::vec3& origin, const glm::vec3& dir, float max_distance) const {
+    Mob_Hit_Result best;
+    if (!is_loaded()) return best;
+    // Very cheap broad phase: for most mobs no animation/bone evaluation at all.
+    glm::vec3 broad_low, broad_high;
+    if (get_local_bounds(broad_low, broad_high)) {
+        const float model_radius = std::max(glm::length(broad_low), glm::length(broad_high)) * std::abs(m_scale) + 0.75f;
+        const glm::vec3 separation = m_position - origin;
+        const float reach_radius = max_distance + model_radius;
+        if (glm::dot(separation, separation) > reach_radius * reach_radius) return best;
+    }
+    glm::mat4 model(1.0f);
+    model = glm::translate(model, m_position);
+    model = glm::rotate(model, glm::radians(m_yaw_degrees), glm::vec3(0.0f, 1.0f, 0.0f));
+    if (m_roll_degrees != 0.0f) {
+        model = glm::translate(model, glm::vec3(0.0f, m_roll_pivot_y, 0.0f));
+        model = glm::rotate(model, glm::radians(m_roll_degrees), glm::vec3(0.0f, 0.0f, 1.0f));
+        model = glm::translate(model, glm::vec3(0.0f, -m_roll_pivot_y, 0.0f));
+    }
+    model = glm::scale(model, glm::vec3(m_scale));
+    constexpr float margin = 0.10f;
+    const auto evaluate = [&](const glm::vec3& low, const glm::vec3& high,
+                              const glm::mat4& transform, Mob_Hit_Zone zone) {
+        glm::vec3 min_world(1e30f), max_world(-1e30f);
+        for (int corner = 0; corner < 8; ++corner) {
+            const glm::vec3 pt((corner & 1) ? high.x : low.x,
+                               (corner & 2) ? high.y : low.y,
+                               (corner & 4) ? high.z : low.z);
+            const glm::vec3 p(transform * glm::vec4(pt, 1.0f));
+            min_world = glm::min(min_world, p);
+            max_world = glm::max(max_world, p);
+        }
+        const float hit = mob_ray_aabb(origin, dir, min_world - glm::vec3(margin),
+                                       max_world + glm::vec3(margin), max_distance);
+        if (hit >= 0.0f && (best.distance < 0.0f || hit < best.distance - 1e-4f ||
+            (std::abs(hit - best.distance) < 1e-4f &&
+             mob_hit_zone_damage_multiplier(zone) > mob_hit_zone_damage_multiplier(best.zone)))) {
+            best.distance = hit;
+            best.zone = zone;
+        }
+    };
+    const auto& regions = m_model->get_hit_regions();
+    if (!regions.empty()) {
+        std::vector<glm::mat4> pose;
+        compute_bone_matrices(pose);
+        for (const auto& region : regions) {
+            const size_t i = static_cast<size_t>(region.bone_index);
+            if (i >= pose.size()) continue;
+            // pose[i] = current_joint_global * inverse_bind; restore joint-global.
+            const glm::mat4 joint = model * pose[i] * region.bind_joint_matrix;
+            evaluate(region.local_min, region.local_max, joint, region.zone);
+        }
+        return best;
+    }
+    // No skin (horse and unrigged future mobs): split true geometry into body levels.
+    glm::vec3 low, high;
+    if (!get_local_bounds(low, high)) return best;
+    const float h = high.y - low.y;
+    if (h <= 0.0f) return best;
+    glm::vec3 part_low = low, part_high = high;
+    part_high.y = low.y + h * 0.33f;
+    evaluate(part_low, part_high, model, Mob_Hit_Zone::Leg);
+    part_low.y = part_high.y;
+    part_high.y = low.y + h * 0.78f;
+    evaluate(part_low, part_high, model, Mob_Hit_Zone::Torso);
+    part_low.y = part_high.y;
+    part_high.y = high.y;
+    evaluate(part_low, part_high, model, Mob_Hit_Zone::Head);
+    return best;
+}
+
+// Simple collision-aware 3D locomotion usable by any new flying mob type.
+// Navigation/obstacle planning is separate; this is only the physical step.
+void Mob::move_flying(float dt, const glm::vec3& desired_velocity,
+                      const std::function<bool(const glm::vec3&)>& collides) {
+    if (m_movement_mode != Movement_Mode::Flying || dt <= 0.0f) return;
+    dt = std::min(dt, 0.05f);
+    const float factor = 1.0f - std::exp(-6.0f * dt);
+    m_flight_velocity += (desired_velocity - m_flight_velocity) * factor;
+    glm::vec3 candidate = m_position;
+    for (int axis = 0; axis < 3; ++axis) {
+        candidate[axis] += m_flight_velocity[axis] * dt;
+        if (collides(candidate)) {
+            candidate[axis] = m_position[axis];
+            m_flight_velocity[axis] = 0.0f;
+        }
+    }
+    m_position = candidate;
+    const glm::vec2 planar(m_flight_velocity.x, m_flight_velocity.z);
+    if (glm::dot(planar, planar) > 0.02f) {
+        m_yaw_degrees = glm::degrees(std::atan2(m_flight_velocity.x, m_flight_velocity.z));
+    }
+}
+
+void Mob::navigate_flying(float dt, const glm::vec3& target, float speed, float width, float height,
+                          Mob_Nav::Agent& agent, Mob_Nav::System& nav, const Chunk_Manager& chunks) {
+    set_movement_mode(Movement_Mode::Flying);
+    const auto steer=agent.steer(nav,chunks,dt,get_position(),target,width,height,Mob_Nav::Travel::Flying,1);
+    move_flying(dt,steer.direction*speed,[&](const glm::vec3& feet) {
+        return !nav.passable(chunks,feet,width,height,Mob_Nav::Travel::Flying);
+    });
+    if (glm::length(glm::vec2(steer.direction.x,steer.direction.z))>0.05f)
+        set_yaw_degrees(glm::degrees(std::atan2(steer.direction.x,steer.direction.z)));
 }

@@ -11,11 +11,17 @@
 #include "utils/configs/Config_World.h"
 #include "core/app/Window.h"
 #include "world/logic/Logic_Manager.h"
+#include "world/logic/Fire_Simulation.h"
+#include "world/portals/Portal_Link_Registry.h"
 #include <cstdint>
 #include <string>
 #include "input/Input_Manager.h"
 #include "entities/player/Camera.h"
 #include "rendering/Renderer.h"
+#include "rendering/vulkan/VulkanGameChunkFeed.h"
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+#include "rendering/vulkan/VulkanGameMirror.h"
+#endif
 #include "rendering/capture/Isometric_Capture.h"
 #include "world/chunks/Chunk_Manager.h"
 #include "world/blocks/Block_Interaction.h"
@@ -25,6 +31,7 @@
 #include <memory>
 #include <vector>
 #include <unordered_map>
+#include <optional>
 #include "world/generation/World_Generator.h"
 #include "world/storage/World_File.h"
 #include "entities/player/Inventory.h"
@@ -33,6 +40,7 @@
 #include "core/game/Weather_Cycle.h"
 #include "core/game/Tick.h"
 #include "mobs/Mobs_Update.h"
+#include "mobs/village/Village_System.h"
 #include "entities/player/Player_Model.h"
 #include "world/crafting/Crop_Manager.h"
 #include "world/crafting/Sapling_Manager.h"
@@ -46,6 +54,10 @@ private:
     std::unique_ptr<Input_Manager> m_input_ptr;
     std::unique_ptr<Camera> m_camera_ptr;
     std::unique_ptr<Renderer> m_renderer_ptr;
+    OptiCraft::Vulkan::VulkanGameChunkFeed m_vulkan_chunk_feed;
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    std::unique_ptr<OptiCraft::Vulkan::VulkanGameMirror> m_vulkan_game_mirror;
+#endif
     std::unique_ptr<Chunk_Manager> m_chunk_manager_ptr;
     std::unique_ptr<Player> m_player_ptr;
     std::unique_ptr<Inventory> m_inventory_ptr;
@@ -56,6 +68,7 @@ private:
     // уничтожается ДО разрушения GL-контекста (см. предупреждение о времени
     // жизни в src/mobs/Mob_Model.h — иначе деструктор Mob упадёт на мёртвом контексте).
     Mobs_Update m_mobs;  // все животные и враги мира; см. mobs/Mobs_Update.h
+    Village_System m_villages; // жители, профессии, торговля, дома, големы
     // Ctrl у лошади: короткий клик — бег, удержание — дрифт. Состояние нужно, чтобы отличить клик от удержания.
     bool m_ctrl_was_held = false;
     float m_ctrl_hold_time = 0.0f;
@@ -94,6 +107,12 @@ private:
     bool m_loading_world = false;
     // Separate saved positions; old saves without this file retain world.json coordinates.
     std::unordered_map<std::string, glm::vec3> m_dimension_positions;
+    Portal_Link_Registry m_portal_links;
+    Fire_Simulation m_fire;
+    bool m_portal_exit_lock = false;
+    float m_pending_portal_delay = 0.f;
+    std::optional<Portal_Site> m_destination_site_to_validate;
+    float m_fire_damage_timer = 0.f;
     bool m_dimension_landing = false; // hold physics until destination chunks are ready
     float m_portal_contact_time = 0.0f;
     float m_portal_cooldown = 0.0f;
@@ -105,6 +124,9 @@ private:
     bool m_pending_command_portal_along_z = false;
     void load_dimension_positions();
     void save_dimension_positions() const;
+    void remember_touched_nether_portal(const glm::ivec3& portal_cell);
+    bool reuse_loaded_portal();
+    void load_dimension_fire();
     void tick_portal_travel(float dt);
     bool construct_portal_at(const std::string& type, const glm::ivec3& origin, bool along_z = false);
     std::filesystem::path dimension_data_file(const char* basename) const;
@@ -126,6 +148,8 @@ private:
     };
     Panel_View build_inventory_panel() const;
     Panel_View build_container_panel() const;
+    Panel_View build_trade_panel() const;
+    void load_villagers();
     std::string m_generation_folder;
     // Точка изначального спавна игрока (задаётся один раз в initialize()) — сюда игрок
     // возвращается при смерти в Survival (см. update_gameplay).
@@ -216,6 +240,11 @@ public:
 
     bool initialize();
     void run();
+    // Live chunk snapshots for an attached Vulkan backend; inert until enabled.
+    void set_vulkan_chunk_sink(OptiCraft::Vulkan::VulkanGameChunkFeed::UploadSink upload,
+        OptiCraft::Vulkan::VulkanGameChunkFeed::EvictSink evict = {}) {
+        m_vulkan_chunk_feed.setSink(std::move(upload), std::move(evict));
+    }
     void shutdown();
 
     bool is_key_pressed(int key) const;
@@ -237,7 +266,7 @@ public:
                       const std::string& generation_folder, const std::string& dimension,
                       const std::string& biome, std::string& error);
     bool load_world(const std::string& dir);
-    void save_world();                 // настройки, позиция игрока, изменённые чанки
+    void save_world(bool flush_chunks = true);                 // настройки, позиция игрока, изменённые чанки
     void close_world();                // сохранить и выгрузить (выход в меню)
     bool delete_world(const std::string& dir);
     bool is_world_loaded() const { return m_chunk_manager_ptr != nullptr; }
@@ -254,6 +283,7 @@ public:
     bool is_caret_visible() const;
     // Экраны без игры за спиной (главное меню и т.д.) сначала очищают кадр.
     void clear_menu_frame();
+    void switch_to_opengl();
     void render_hud_screen(const Hud_Screen& screen, int hovered,
                            const std::vector<Hud_World_Entry>* worlds = nullptr,
                            int selected_world = -1, float scroll_px = 0.0f);
@@ -272,7 +302,7 @@ public:
     void inventory_click(bool right);
     void inventory_change_page(int direction);
     void on_inventory_closed();
-    bool is_container_open() const { return m_container_session.is_open(); }
+    bool is_container_open() const { return m_container_session.is_open() || m_villages.trade_open(); }
     void draw_container_overlay();
     void container_click(bool right);
     void close_container();

@@ -203,6 +203,7 @@ namespace {
 // --- Жизненный цикл ---------------------------------------------------------------------------
 
 void Mobs_Update::clear() {
+    m_navigation.clear();
     m_bosses.clear();
     m_knights.clear();
     m_target_boss = nullptr;
@@ -215,7 +216,10 @@ void Mobs_Update::clear() {
     m_ridden_horse = nullptr;
     m_ride_input = Horse_Ride_Input{};
     m_dismount_requested = false;
+    m_herd_update_timer = 0.0f;
+    m_horse_herd_timer = 0.0f;
     m_target_kind = Target_Kind::None;
+    m_target_boss_part = -1;
     m_target_pig = nullptr;
     m_target_passive = nullptr;
     m_target_horse = nullptr;
@@ -266,12 +270,14 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
     };
     // Сброс прицела до удаления объектов, на которые он может указывать.
     m_target_kind = Target_Kind::None;
+    m_target_boss_part = -1;
     m_target_pig = nullptr; m_target_passive = nullptr;
     m_target_horse = nullptr; m_target_hostile = nullptr;
     const auto prune = [&](auto& list) {
         list.erase(std::remove_if(list.begin(), list.end(), far), list.end());
     };
     prune(m_pigs); prune(m_cows); prune(m_sheep); prune(m_hostiles);
+    { OC_ZONE("Mobs tick::navigation snapshots"); m_navigation.tick(chunks,player.position); }
     m_horses.erase(std::remove_if(m_horses.begin(), m_horses.end(),
         [&](const auto& horse) { return horse.get() != m_ridden_horse && far(horse); }), m_horses.end());
     { OC_ZONE("Mobs tick::hostiles"); update_hostiles(dt, player, chunks, result); }
@@ -284,7 +290,7 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
         knight_view.eye_height = player.eye_height;
         knight_view.alive = player.alive;
         for (auto& knight : m_knights) {
-            result.player_damage += knight->update(dt, knight_view, chunks).player_damage;
+            result.player_damage += knight->update(dt, knight_view, chunks, &m_navigation).player_damage;
         }
         m_knights.erase(std::remove_if(m_knights.begin(), m_knights.end(),
                            [this](const std::unique_ptr<Knight_Ai>& knight) {
@@ -304,7 +310,7 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
         boss_view.forward = player.forward;
         boss_view.alive = player.alive;
         for (auto& boss : m_bosses) {
-            result.player_damage += boss->update(dt, boss_view).player_damage;
+            result.player_damage += boss->update(dt, boss_view, &chunks, &m_navigation).player_damage;
         }
         m_bosses.erase(std::remove_if(m_bosses.begin(), m_bosses.end(),
                        [this](const std::unique_ptr<Boss>& boss) {
@@ -320,7 +326,7 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
     m_pig_respawn_cooldown = std::max(0.0f, m_pig_respawn_cooldown - dt);
     { OC_ZONE("Mobs tick::spawn pigs"); spawn_missing_pigs(player.position, chunks); }
     { OC_ZONE("Mobs tick::update pigs"); for (auto& pig : m_pigs) {
-        pig->update(dt, chunks);
+        pig->update(dt, chunks, &m_navigation);
     } }
 
     for (Passive_Kind kind : {Passive_Kind::Cow, Passive_Kind::Sheep}) {
@@ -328,10 +334,11 @@ Mob_Result Mobs_Update::update_tick(float dt, const Mob_Player_View& player, Chu
         m_passive_respawn_cooldown[i] = std::max(0.0f, m_passive_respawn_cooldown[i] - dt);
         { OC_ZONE("Mobs tick::spawn passive"); spawn_missing_passive(kind, player.position, chunks); }
         { OC_ZONE("Mobs tick::update passive"); for (auto& animal : passive_list(kind)) {
-            animal->update(dt, chunks);
+            animal->update(dt, chunks, &m_navigation);
         } }
 }
 
+    { OC_ZONE("Mobs tick::herds"); update_herds(dt); }
     { OC_ZONE("Mobs tick::breeding"); update_breeding(); }
 
     // Убитые животные исчезают, когда доиграна анимация падения (мясо выпало ещё в момент удара).
@@ -422,12 +429,15 @@ void Mobs_Update::update_hostiles(float dt, const Mob_Player_View& player, Chunk
             context.prey_max = prey->get_hitbox_max();
             context.prey_position = 0.5f * (context.prey_min + context.prey_max);
         }
-        const Hostile_Result r = hostile.update(dt, chunks, context);
+        const Hostile_Result r = hostile.update(dt, chunks, context, &m_navigation);
         result.player_damage += r.player_damage;
         if (r.hit_horse && prey && !prey->is_dying()) {
+            const glm::vec3 pos = prey->get_position();
+            const float before = prey->get_health();
             if (prey->take_damage(r.horse_damage, hostile.get_position())) {
                 m_horse_respawn_cooldown = Config::horse_respawn_delay;
             }
+            if (prey->get_health() < before) notify_peaceful_mobs(pos, hostile.get_position(), prey->is_dying());
         }
     }
 
@@ -458,6 +468,40 @@ Mob_Result Mobs_Update::update_frame(float dt, const Mob_Player_View& player, co
     if (result.set_player_position) current.position = result.player_position;
 
     spawn_missing_horses(current.position, chunks);
+
+    m_horse_herd_timer -= dt;
+    if (m_horse_herd_timer <= 0.0f) {
+        m_horse_herd_timer = 0.65f;
+        for (auto& horse : m_horses) {
+            const Horse_State state = horse->get_ai().get_state();
+            if (horse->is_dying() || horse->has_rider() || horse->is_tamed() || horse->breeding().in_love() ||
+                state == Horse_State::Flee || state == Horse_State::Scared ||
+                state == Horse_State::Taming || state == Horse_State::Ridden) continue;
+            // Keep spider hunting above herd cohesion in the original horse AI.
+            bool hunting = false;
+            for (const auto& hostile : m_hostiles) {
+                if (hostile->is_dying() || hostile->kind() != Hostile_Kind::Spider) continue;
+                const glm::vec3 delta = hostile->get_position() - horse->get_position();
+                if (glm::dot(delta, delta) < Config::horse_hunt_range * Config::horse_hunt_range) {
+                    hunting = true;
+                    break;
+                }
+            }
+            if (hunting) continue;
+            float nearest_dist = 100.0f;
+            const Horse* nearest = nullptr;
+            for (const auto& other : m_horses) {
+                if (horse.get() == other.get() || other->is_dying()) continue;
+                const glm::vec3 d = other->get_position() - horse->get_position();
+                const float r2 = d.x * d.x + d.z * d.z;
+                if (std::abs(d.y) < 3.0f && r2 < nearest_dist) {
+                    nearest_dist = r2;
+                    nearest = other.get();
+                }
+            }
+            if (nearest && nearest_dist > 4.0f * 4.0f) horse->seek_towards(nearest->get_position());
+        }
+    }
 
     Horse_Context context;
     context.player_position = current.position;
@@ -490,7 +534,7 @@ Mob_Result Mobs_Update::update_frame(float dt, const Mob_Player_View& player, co
             horse_context.prey_min = prey->get_hitbox_min();
             horse_context.prey_max = prey->get_hitbox_max();
         }
-        horse->update(dt, chunks, horse_context, horse.get() == m_ridden_horse ? ride : no_input);
+        horse->update(dt, chunks, horse_context, horse.get() == m_ridden_horse ? ride : no_input, &m_navigation);
         const Horse_Attack_Result hit = horse->consume_attack();
         if (hit.hit && prey && !prey->is_dying() && prey->take_damage(hit.damage, horse->get_position())) {
             m_hostile_respawn_cooldown[index_of(Hostile_Kind::Spider)] = Config::hostile_respawn_delay;
@@ -679,6 +723,8 @@ std::vector<std::string> Mobs_Update::debug_target_lines() const {
         return lines;
     }
 
+    lines.push_back(std::string("Hit zone: ") + mob_hit_zone_name(m_target_hit_zone) +
+                    "  multiplier: " + format_float("%.2f", mob_hit_zone_damage_multiplier(m_target_hit_zone)));
     switch (m_target_kind) {
         case Target_Kind::Pig: {
             const Pig& pig = *m_target_pig;
@@ -765,10 +811,12 @@ float Mobs_Update::aim(const glm::vec3& eye, const glm::vec3& look_dir) {
     m_target_boss = nullptr;
     m_target_knight = nullptr;
     float best = -1.0f;
-    const auto consider = [&](float d, Target_Kind kind, Pig* pig, Passive_Animal* passive,
+    m_target_hit_zone = Mob_Hit_Zone::Torso;
+    const auto consider = [&](Mob_Hit_Result hit, Target_Kind kind, Pig* pig, Passive_Animal* passive,
                               Horse* horse, Hostile_Mob* hostile) {
-        if (d >= 0.0f && (best < 0.0f || d < best)) {
-            best = d;
+        if (hit && (best < 0.0f || hit.distance < best)) {
+            best = hit.distance;
+            m_target_hit_zone = hit.zone;
             m_target_kind = kind;
             m_target_pig = pig;
             m_target_passive = passive;
@@ -779,38 +827,34 @@ float Mobs_Update::aim(const glm::vec3& eye, const glm::vec3& look_dir) {
 
     for (auto& pig : m_pigs) {
         if (pig->is_dying()) continue;
-        const float d = ray_aabb_distance(eye, look_dir, pig->get_hitbox_min(), pig->get_hitbox_max(),
-                                          Config::player_attack_reach);
+        const Mob_Hit_Result d = pig->raycast_body_part(eye, look_dir, Config::player_attack_reach);
         consider(d, Target_Kind::Pig, pig.get(), nullptr, nullptr, nullptr);
     }
     for (auto* list : {&m_cows, &m_sheep}) {
         for (auto& animal : *list) {
             if (animal->is_dying()) continue;
-            const float d = ray_aabb_distance(eye, look_dir, animal->get_hitbox_min(), animal->get_hitbox_max(),
-                Config::player_attack_reach);
+            const Mob_Hit_Result d = animal->raycast_body_part(eye, look_dir, Config::player_attack_reach);
             consider(d, Target_Kind::Passive, nullptr, animal.get(), nullptr, nullptr);
         }
     }
     // Лошадь, на которой сидим, не целим — хитбокс вокруг камеры мешал бы.
     for (auto& horse : m_horses) {
         if (horse->is_dying() || horse.get() == m_ridden_horse) continue;
-        const float d = ray_aabb_distance(eye, look_dir, horse->get_hitbox_min(), horse->get_hitbox_max(),
-                                          Config::player_attack_reach);
+        const Mob_Hit_Result d = horse->raycast_body_part(eye, look_dir, Config::player_attack_reach);
         consider(d, Target_Kind::Horse, nullptr, nullptr, horse.get(), nullptr);
     }
     for (auto& hostile : m_hostiles) {
         if (hostile->is_dying()) continue;
-        const float d = ray_aabb_distance(eye, look_dir, hostile->get_hitbox_min(), hostile->get_hitbox_max(),
-        Config::player_attack_reach);
+        const Mob_Hit_Result d = hostile->raycast_body_part(eye, look_dir, Config::player_attack_reach);
         consider(d, Target_Kind::Hostile, nullptr, nullptr, nullptr, hostile.get());
     }
     for (auto& boss : m_bosses) {
         if (boss->is_dying()) continue;
-        glm::vec3 lo, hi;
-        boss->compute_hitbox(lo, hi);
-        const float d = ray_aabb_distance(eye, look_dir, lo, hi, Config::player_attack_reach);
-        if (d >= 0.0f && (best < 0.0f || d < best)) {
-            best = d;
+        const Mob_Hit_Result d = boss->raycast_body_part(eye, look_dir, Config::player_attack_reach);
+        if (d && (best < 0.0f || d.distance < best)) {
+            best = d.distance;
+            m_target_hit_zone = d.zone;
+            m_target_boss_part = d.subpart;
             m_target_kind = Target_Kind::Boss;
             m_target_pig = nullptr;
             m_target_passive = nullptr;
@@ -821,11 +865,10 @@ float Mobs_Update::aim(const glm::vec3& eye, const glm::vec3& look_dir) {
     }
     for (auto& knight : m_knights) {
         if (knight->is_dying()) continue;
-        glm::vec3 lo, hi;
-        knight->compute_hitbox(lo, hi);
-        const float d = ray_aabb_distance(eye, look_dir, lo, hi, Config::player_attack_reach);
-        if (d >= 0.0f && (best < 0.0f || d < best)) {
-            best = d;
+        const Mob_Hit_Result d = knight->raycast_body_part(eye, look_dir, Config::player_attack_reach);
+        if (d && (best < 0.0f || d.distance < best)) {
+            best = d.distance;
+            m_target_hit_zone = d.zone;
             m_target_kind = Target_Kind::Knight;
             m_target_pig = nullptr;
             m_target_passive = nullptr;
@@ -898,6 +941,8 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
         const float speed_scale = armed ? held_props->speed_damage_scale : 1.0f;
         const float over_walk = std::max(0.0f, input.player.horizontal_speed - Config::player_move_speed);
         damage *= 1.0f + over_walk * Config::melee_speed_bonus_per_speed * speed_scale;
+        // Creative mode stays instant-kill; only survival damage is regional.
+        damage *= mob_hit_zone_damage_multiplier(m_target_hit_zone);
 
         static std::mt19937 s_drop_rng(std::random_device{}());
         const auto roll = [&](int lo, int hi) { return std::uniform_int_distribution<int>(lo, hi)(s_drop_rng); };
@@ -907,7 +952,11 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
             if (survival) drops.spawn_experience(at, roll(low,high));
         };
         bool hit = false;
+        float health_before = 0.0f;
+        glm::vec3 attacked_position(0.0f);
         if (m_target_pig) {
+            health_before = m_target_pig->get_health();
+            attacked_position = m_target_pig->get_position();
             const float d = survival ? damage : Config::pig_max_health * 100.0f;
             hit = true;
             if (m_target_pig->take_damage(d, input.player.position)) {
@@ -919,6 +968,8 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
                 }
             }
         } else if (m_target_passive) {
+            health_before = m_target_passive->get_health();
+            attacked_position = m_target_passive->get_position();
             const Passive_Stats& st = m_target_passive->stats();
             const float d = survival ? damage : st.max_health * 100.0f;
             hit = true;
@@ -936,6 +987,8 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
                 }
             }
         } else if (m_target_horse) {
+            health_before = m_target_horse->get_health();
+            attacked_position = m_target_horse->get_position();
             const float d = survival ? damage : Config::horse_max_health * 100.0f;
             hit = true;
             if (m_target_horse->take_damage(d, input.player.position)) {
@@ -949,6 +1002,8 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
                 }
             }
         } else if (m_target_hostile) {
+            health_before = m_target_hostile->get_health();
+            attacked_position = m_target_hostile->get_position();
             const Hostile_Stats& st = m_target_hostile->stats();
             const float d = survival ? damage : st.max_health * 100.0f;
             hit = true;
@@ -957,15 +1012,32 @@ Mob_Result Mobs_Update::interact(const Mob_Interact_Input& input, Dropped_Item_M
                 m_hostile_respawn_cooldown[index_of(m_target_hostile->kind())] = Config::hostile_respawn_delay;
             }
         } else if (m_target_boss) {
+            health_before = m_target_boss->get_health();
+            attacked_position = m_target_boss->get_position();
             // В креативе босс умирает от одного удара: иначе его нельзя проверить без выживания.
             const float d = survival ? damage : boss_stats(m_target_boss->kind()).max_health * 100.0f;
             hit = true;
-            if (m_target_boss->take_damage(d, input.player.position)) reward_xp(m_target_boss->get_position(),30,50);
+            if (m_target_boss->take_damage(d, input.player.position, m_target_boss_part))
+                reward_xp(m_target_boss->get_position(),30,50);
         } else if (m_target_knight) {
+            health_before = m_target_knight->get_health();
+            attacked_position = m_target_knight->get_position();
             const float d = survival ? damage : Knight_Ai::MAX_HEALTH * 100.0f;
             hit = true;
             if (m_target_knight->take_damage(d, input.player.position)) reward_xp(m_target_knight->get_position(),30,50);
             m_target_knight->observe_player_hit(input.player.position);
+        }
+        if (hit) {
+            float health_after = health_before;
+            bool killed = false;
+            if (m_target_pig) { health_after = m_target_pig->get_health(); killed = m_target_pig->is_dying(); }
+            else if (m_target_passive) { health_after = m_target_passive->get_health(); killed = m_target_passive->is_dying(); }
+            else if (m_target_horse) { health_after = m_target_horse->get_health(); killed = m_target_horse->is_dying(); }
+            else if (m_target_hostile) { health_after = m_target_hostile->get_health(); killed = m_target_hostile->is_dying(); }
+            else if (m_target_boss) { health_after = m_target_boss->get_health(); killed = m_target_boss->is_dying(); }
+            else if (m_target_knight) { health_after = m_target_knight->get_health(); killed = m_target_knight->is_dying(); }
+            // Ignore swings blocked by temporary invulnerability.
+            if (health_after < health_before) notify_peaceful_mobs(attacked_position, input.player.position, killed);
         }
         if (hit && survival) result.damage_held_tool = true;
     }
@@ -1065,6 +1137,7 @@ bool Mobs_Update::summon_boss(Boss_Kind kind, const glm::vec3& around, Chunk_Man
         return true;
     }
 
+    if (kind == Boss_Kind::Moon_Princess || kind == Boss_Kind::Sun_Princess) spawn.y += 3.0f;
     auto boss = std::make_unique<Boss>(kind, name, spawn);
     if (!boss->load_model()) {
         LOG_ERROR(std::string("summon_boss: failed to load ") + boss_stats(kind).model_path);
@@ -1157,6 +1230,7 @@ bool Mobs_Update::is_spawn_egg(Block_Types type) {
         case Block_Types::Zombie_Spawn_Egg: case Block_Types::Skeleton_Spawn_Egg:
         case Block_Types::Spider_Spawn_Egg: case Block_Types::Stone_Colossus_Spawn_Egg:
         case Block_Types::Shadow_Stalker_Spawn_Egg: case Block_Types::Knight_Spawn_Egg:
+        case Block_Types::Moon_Princess_Spawn_Egg: case Block_Types::Sun_Princess_Spawn_Egg:
             return true;
         default: return false;
     }
@@ -1186,11 +1260,16 @@ bool Mobs_Update::spawn_from_egg(Block_Types type, const glm::vec3& feet, Chunk_
     else if (type == Block_Types::Skeleton_Spawn_Egg) kind = Hostile_Kind::Skeleton;
     else if (type == Block_Types::Spider_Spawn_Egg) kind = Hostile_Kind::Spider;
     else if (type == Block_Types::Stone_Colossus_Spawn_Egg ||
-             type == Block_Types::Shadow_Stalker_Spawn_Egg) {
+             type == Block_Types::Shadow_Stalker_Spawn_Egg ||
+             type == Block_Types::Moon_Princess_Spawn_Egg ||
+             type == Block_Types::Sun_Princess_Spawn_Egg) {
         // Spawn eggs appear at the clicked position; /boss deliberately spawns farther away.
-        const Boss_Kind boss_kind = type == Block_Types::Stone_Colossus_Spawn_Egg
-            ? Boss_Kind::Stone_Colossus : Boss_Kind::Shadow_Stalker;
-        auto boss = std::make_unique<Boss>(boss_kind, name, feet);
+        const Boss_Kind boss_kind = type == Block_Types::Stone_Colossus_Spawn_Egg ? Boss_Kind::Stone_Colossus :
+            type == Block_Types::Shadow_Stalker_Spawn_Egg ? Boss_Kind::Shadow_Stalker :
+            type == Block_Types::Moon_Princess_Spawn_Egg ? Boss_Kind::Moon_Princess : Boss_Kind::Sun_Princess;
+        auto boss = std::make_unique<Boss>(boss_kind, name,
+            feet + (boss_kind == Boss_Kind::Moon_Princess || boss_kind == Boss_Kind::Sun_Princess
+                    ? glm::vec3(0.0f,3.0f,0.0f) : glm::vec3(0.0f)));
         if (!boss->load_model()) return false;
         m_bosses.push_back(std::move(boss));
         return true;
@@ -1546,6 +1625,28 @@ void Mobs_Update::update_breeding() {
 
 // --- Отрисовка -------------------------------------------------------------------------------
 
+std::vector<glm::vec3> Mobs_Update::hostile_positions() const {
+    std::vector<glm::vec3> positions;
+    positions.reserve(m_hostiles.size());
+    for(const auto& hostile:m_hostiles)
+        if(!hostile->is_dying()) positions.push_back(hostile->get_position());
+    return positions;
+}
+
+bool Mobs_Update::damage_hostile_near(const glm::vec3& from,float radius,float damage) {
+    Hostile_Mob* nearest=nullptr;
+    float best=radius*radius;
+    for(const auto& hostile:m_hostiles) {
+        if(hostile->is_dying())continue;
+        const glm::vec3 d=hostile->get_position()-from;
+        const float distance2=glm::dot(d,d);
+        if(distance2<best){best=distance2;nearest=hostile.get();}
+    }
+    if(!nearest)return false;
+    nearest->take_damage(damage,from);
+    return true;
+}
+
 void Mobs_Update::render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient) const {
     for (const auto& boss : m_bosses) {
         boss->render(shader, view, projection, ambient);
@@ -1571,9 +1672,18 @@ void Mobs_Update::render(const Shader& shader, const glm::mat4& view, const glm:
 }
 
 void Mobs_Update::damage_in_radius(const glm::vec3& center, float radius, float damage) {
+    if (radius <= 0.0f || damage <= 0.0f) return;
+    bool someone_hit = false;
+    bool someone_killed = false;
     auto hit = [&](const glm::vec3& pos, auto& mob) {
         const float d = glm::distance(pos, center);
-        if (d < radius) mob->take_damage(damage * (1.0f - d / radius), center);
+        if (d >= radius || mob->is_dying()) return;
+        const float before = mob->get_health();
+        mob->take_damage(damage * (1.0f - d / radius), center);
+        if (mob->get_health() < before) {
+            someone_hit = true;
+            someone_killed |= mob->is_dying();
+        }
     };
     for (auto& m : m_pigs) hit(m->get_position(), m);
     for (auto& m : m_cows) hit(m->get_position(), m);
@@ -1582,4 +1692,113 @@ void Mobs_Update::damage_in_radius(const glm::vec3& center, float radius, float 
     for (auto& m : m_hostiles) hit(m->get_position(), m);
     for (auto& m : m_bosses) hit(m->get_position(), m);
     for (auto& m : m_knights) hit(m->get_position(), m);
+    // One shared event, not N*N notifications when a blast hits a crowd.
+    if (someone_hit) notify_peaceful_mobs(center, center, someone_killed);
+}
+
+// Propagates an audible alarm to all living peaceful mobs, regardless of species.
+// More severe reaction for witnessing a kill. Inactive/dead bodies cannot panic.
+void Mobs_Update::notify_peaceful_mobs(const glm::vec3& event_position,
+                                      const glm::vec3& attacker, bool killed) {
+    const float radius = killed ? 22.0f : 12.0f;
+    const float r2 = radius * radius;
+    const auto nearby = [&](const glm::vec3& at) {
+        const glm::vec3 d = at - event_position;
+        return glm::dot(d, d) <= r2;
+    };
+    for (auto& pig : m_pigs)
+        if (!pig->is_dying() && nearby(pig->get_position())) pig->on_nearby_threat(attacker, killed);
+    for (auto* group : {&m_cows, &m_sheep})
+        for (auto& animal : *group)
+            if (!animal->is_dying() && nearby(animal->get_position())) animal->on_nearby_threat(attacker, killed);
+    for (auto& horse : m_horses)
+        if (!horse->is_dying() && nearby(horse->get_position())) horse->on_nearby_threat(attacker, killed);
+}
+
+// Local cohesion for naturally gregarious species. Deliberately not used for
+// zombies, bosses or new solitary kinds. Neighbors are same-kind only; a herd
+// shares a general area but does not try to occupy the same block.
+void Mobs_Update::update_herds(float dt) {
+    m_herd_update_timer -= dt;
+    if (m_herd_update_timer > 0.0f) return;
+    m_herd_update_timer = 0.6f;
+    const auto guide = [](auto& group) {
+        for (auto& mob : group) {
+            if (mob->is_dying() || mob->is_panicking() || mob->breeding().in_love()) continue;
+            const glm::vec3 me = mob->get_position();
+            glm::vec3 center(0.0f);
+            int nearby = 0;
+            float closest = 1e10f;
+            glm::vec3 closest_pos(0.0f);
+            for (auto& other : group) {
+                if (mob.get() == other.get() || other->is_dying()) continue;
+                const glm::vec3 delta = other->get_position() - me;
+                const float d2 = delta.x * delta.x + delta.z * delta.z;
+                if (std::abs(delta.y) > 3.0f || d2 >= 100.0f) continue;
+                center += other->get_position();
+                ++nearby;
+                if (d2 < closest) { closest = d2; closest_pos = other->get_position(); }
+            }
+            // Isolated animals keep their normal idle/wander schedule.
+            if (nearby == 0 || closest < 3.5f * 3.5f) continue;
+            center /= static_cast<float>(nearby);
+            // A maximum of ~6 blocks offset towards the group's centroid,
+            // retaining spread and preventing a crowded single-point destination.
+            glm::vec3 to = center - me;
+            to.y = 0.0f;
+            if (glm::dot(to,to) < 2.5f * 2.5f) continue;
+            const float dist = glm::length(to);
+            const glm::vec3 point = me + to * (std::min(dist, 5.5f) / dist);
+            mob->seek_towards(point);
+        }
+    };
+    guide(m_pigs);
+    guide(m_cows);
+    guide(m_sheep);
+}
+
+std::vector<Mobs_Update::Boss_Bar_Info> Mobs_Update::boss_bars(const glm::vec3& player_position) const {
+    std::vector<Boss_Bar_Info> bars;
+    constexpr float radius_squared = 120.0f * 120.0f;
+    for (const auto& boss : m_bosses) {
+        if (boss->is_dying()) continue;
+        const glm::vec3 d = player_position - boss->get_position();
+        const float d2 = glm::dot(d,d);
+        if (d2 > radius_squared) continue;
+        Boss_Bar_Info bar;
+        bar.name = boss->name();
+        bar.health = boss->get_health();
+        bar.max_health = boss->get_max_health();
+        bar.distance_squared = d2;
+        if (boss->kind() == Boss_Kind::Moon_Princess && boss->active_parts() > 0)
+            bar.state = "Shields: " + std::to_string(boss->active_parts()) + "/4";
+        if (boss->kind() == Boss_Kind::Sun_Princess) {
+            bar.state = boss->second_phase() ? "Phase II" :
+                        "Hands: " + std::to_string(boss->active_parts()) + "/4";
+            if (boss->sun_technique() != Boss_Choreography::Sun_Move::Idle)
+                bar.state += " | " + std::string(boss->sun_technique_name());
+        }
+        bars.push_back(std::move(bar));
+    }
+    for (const auto& knight : m_knights) {
+        if (knight->is_dying()) continue;
+        const glm::vec3 d = player_position - knight->get_position();
+        const float d2 = glm::dot(d,d);
+        if (d2 > radius_squared) continue;
+        Boss_Bar_Info bar;
+        bar.name = knight->name();
+        bar.health = knight->get_health();
+        bar.max_health = Knight_Ai::MAX_HEALTH;
+        bar.distance_squared = d2;
+        bar.state = "Phase: " + std::to_string(knight->get_phase());
+        if (knight->get_learned_pattern() != Knight_Player_Pattern::None &&
+            knight->get_learning_confidence() >= .5f)
+            bar.state += " | " + std::string(knight_pattern_name(knight->get_learned_pattern()));
+        bars.push_back(std::move(bar));
+    }
+    std::sort(bars.begin(),bars.end(),[](const Boss_Bar_Info& a,const Boss_Bar_Info& b) {
+        return a.distance_squared < b.distance_squared;
+    });
+    if (bars.size() > 3) bars.resize(3);
+    return bars;
 }

@@ -15,7 +15,8 @@
 //   y: индекс UV-прямоугольника (15 бит)
 //   shaped: z = x0 | y0<<7 | z0<<14 | x1<<21, w = y1 | z1<<7 — бокс в 1/64 клетки (грань берётся из него)
 //   liquid: z = h0 | h1<<16, w = h2 | h3<<16 — высота угла c = fu + 2*fv, 16 бит (0..65535 = 0..1 клетки)
-//            y: к индексу прямоугольника добавлено (длина - 1) << 16 — верх воды дальних LOD-чанков сливается
+//            y: бит 15 — это лава (вода = 0), индекс UV занимает 0..14;
+//               (длина - 1) << 16 — верх воды дальних LOD-чанков сливается
 //            в полосу клеток по X (все четыре угла на одной высоте, один свет); у остальных граней 0
 layout(local_size_x = 64) in;
 
@@ -47,6 +48,8 @@ const uint FLAG_SHAPE_SHIFT = 10u;   // биты 10..15 — форма (Block_Sh
 const uint KIND_SHAPED = 1u;
 const uint KIND_FLORA = 2u;
 const uint KIND_LIQUID = 3u;
+const uint LAVA_BLOCK_ID = 44u; // Block_Types::Lava, blocks.json; update on id migration
+const uint LAVA_MATERIAL_BIT = 1u << 15u;
 const uint MISC_MASK = 14u;          // биты видов 1..3 в маске вида чанка
 
 const uint HEADER_STRIDE = 27u;
@@ -173,7 +176,7 @@ void emit(uint handle, uint kind, uint sec, uvec4 rec) {
 
 uvec4 make_rec(int x, int y, int z, uint face, uint light, uint rect, uint zz, uint ww) {
     return uvec4(uint(x) | (uint(y) << 5u) | (uint(z) << 10u) | (face << 15u) | (light << 18u),
-                 rect & 0x7FFFu, zz, ww);
+                 rect & 0xFFFFu, zz, ww);
 }
 
 // Слияние верхних граней воды в полосы по X (только дальние LOD-чанки, см. main). Состояние текущей
@@ -189,7 +192,7 @@ void flush_top_run(uint handle, uint sec, int y, int z) {
     const uint hh = g_run_height | (g_run_height << 16u);
     emit(handle, KIND_LIQUID, sec, uvec4(
         uint(g_run_x) | (uint(y) << 5u) | (uint(z) << 10u) | (2u << 15u) | (g_run_light << 18u),
-        (g_run_rect & 0x7FFFu) | (uint(g_run_len - 1) << 16u), hh, hh));
+        (g_run_rect & 0xFFFFu) | (uint(g_run_len - 1) << 16u), hh, hh));
     g_run_len = 0;
 }
 
@@ -245,6 +248,9 @@ void main() {
             const uint shape = (fl >> FLAG_SHAPE_SHIFT) & 63u;
             const uint raw_meta = read_channel(hb, 1u, uint((y * 32 + z) * 32 + x));
             uint meta = shape == 2u ? stairs_effective_meta(hb, cell, raw_meta) : raw_meta;
+            // The original Button_Pressed (id 160) uses a distinct block id; variant
+            // buttons encode the pressed state in metadata bit 3.
+            if (shape == 4u && id == 160u) meta |= 8u;
             // Connection geometry comes from actual neighboring blocks, not stale persisted metadata.
             // Shape ids: fence=6, wall=7, gate=8, pane=12.
             if (shape == 6u || shape == 7u || shape == 12u) {
@@ -395,7 +401,9 @@ void main() {
             if ((visible & (1u << uint(f))) == 0u) continue;
             ivec3 n = cell;
             n[f >> 1] += (f & 1) == 0 ? 1 : -1;
-            const uint rect = rect_lut[(id * 6u + uint(f)) * 256u] & 0x7FFFu;
+            // Retain the per-face atlas rect, and tag lava in the otherwise unused bit 15.
+            const uint rect = (rect_lut[(id * 6u + uint(f)) * 256u] & 0x7FFFu) |
+                              (id == LAVA_BLOCK_ID ? LAVA_MATERIAL_BIT : 0u);
             const uint light = light_at(hb, n.x, n.y, n.z);
             uint c0 = 0u, c1 = 0u, c2 = 0u, c3 = 0u;               // высоты углов fu + 2*fv
             if (f == 2) {                                           // верх: высота поверхности в углах

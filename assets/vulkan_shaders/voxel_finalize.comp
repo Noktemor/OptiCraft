@@ -1,0 +1,17 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "mesher_common.glsl"
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+void main() {
+    uint batchIdx = dispatchParams.firstJob + gl_GlobalInvocationID.x;
+    if (batchIdx >= dispatchParams.totalJobs) return;
+    uint slotIndex = slotIndices[batchIdx];
+    if (slotIndex == 0xffffffffu) return;
+    ChunkSlot chunk = slots[slotIndex];
+    uint count = counts[batchIdx];
+    // Write candidate only. The old published draw must remain visible until host
+    // checks the completed batch and schedules a separate publish operation.
+    // uvec4 exactly matches VkDrawIndirectCommand (vertexCount, instanceCount,
+    // firstVertex, firstInstance). Overflow draws nothing, never partial terrain.
+    candidateDraws[batchIdx] = uvec4(6u, count <= chunk.source.z ? count : 0u, 0u, chunk.source.y);
+}

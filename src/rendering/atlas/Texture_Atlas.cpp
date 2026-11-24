@@ -17,7 +17,7 @@ const Json_Value& field_or_null(const Json_Value* v) {
 }
 } // namespace
 
-bool Texture_Atlas::load_from_manifest(const std::string& manifest_path) {
+bool Texture_Atlas::load_from_manifest(const std::string& manifest_path, bool upload_to_opengl) {
     Json_Value root;
     try {
         root = parse_json_file(manifest_path);
@@ -41,7 +41,7 @@ bool Texture_Atlas::load_from_manifest(const std::string& manifest_path) {
     // Путь к PNG — относительно самого манифеста, чтобы можно было переносить
     // папку атласа целиком (PNG + .atlas.json) без правки путей внутри.
     const std::string texture_path = parent_directory(manifest_path) + "/" + texture_field->string_value;
-    if (!m_texture.load_from_file(texture_path)) {
+    if (!m_texture.load_from_file(texture_path, true, true, upload_to_opengl)) {
         LOG_ERROR("Texture_Atlas: failed to load texture " + texture_path + " for manifest " + manifest_path);
         return false;
     }

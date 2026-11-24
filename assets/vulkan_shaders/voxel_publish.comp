@@ -1,0 +1,13 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "mesher_common.glsl"
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+void main() {
+    uint batchIdx = dispatchParams.firstJob + gl_GlobalInvocationID.x;
+    if (batchIdx >= dispatchParams.totalJobs) return;
+    uint slotIndex = slotIndices[batchIdx];
+    if (slotIndex == 0xffffffffu) return;
+    // The host must have validated ALL jobs in this publish batch, and must
+    // wait for the emit timeline before recording this pass.  No CPU meshing.
+    draws[slotIndex] = candidateDraws[batchIdx];
+}

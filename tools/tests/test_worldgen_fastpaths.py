@@ -107,11 +107,11 @@ AIR_FUNCTION
 bool baseline_air(const World_Generator& g, int cx, int cy, int cz) {
     const auto& dim=*g.m_dimension;
     const int start_y=cy*Config::chunk_height;
-    if (cy == Config::world_min_chunk_y) return false;
+    if (cy == Config::world_min_chunk_y && dim.terrain != Terrain_Mode::Nether) return false;
     switch (dim.terrain) {
         case Terrain_Mode::Void: return true;
         case Terrain_Mode::Flat: return start_y > dim.flat_top_y();
-        case Terrain_Mode::Nether: return start_y > 127 || start_y + Config::chunk_height - 1 < 0;
+        case Terrain_Mode::Nether: return start_y > 512 || start_y + Config::chunk_height - 1 < 0;
         case Terrain_Mode::End: return start_y > 112 || start_y + Config::chunk_height - 1 < 24;
         case Terrain_Mode::Noise: break;
     }

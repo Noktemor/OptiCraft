@@ -156,6 +156,7 @@ void Hud::begin_ui(int window_width, int window_height) {
     m_window_height = std::max(1, window_height);
     m_batch.clear();
     m_batch_atlas = nullptr;
+    if (m_ui_sink) return;
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
@@ -164,6 +165,7 @@ void Hud::begin_ui(int window_width, int window_height) {
 
 void Hud::end_ui() {
     flush_ui();
+    if (m_ui_sink) return;
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
@@ -171,6 +173,11 @@ void Hud::end_ui() {
 
 void Hud::flush_ui() {
     if (m_batch.empty()) return;
+    if (m_ui_sink) {
+        m_ui_sink(m_batch, m_batch_atlas != nullptr);
+        m_batch.clear();
+        return;
+    }
     m_ui_shader->use();
     m_ui_shader->set_int("atlas", 0);
     (m_batch_atlas ? m_batch_atlas : m_ui_atlas)->bind(0);
@@ -382,6 +389,17 @@ void Hud::draw_slot_icon(const Hud_Inventory_Slot& slot, float x, float y, float
         } else if (bed) {
             append(Block_Shape::Bed, 0u, glm::vec3(0));
             append(Block_Shape::Bed, 0u, glm::vec3(0,0,1)); // two-block-long bed
+        } else if (slot.icon_shape == Block_Shape::Button) {
+            // Wall-mounted button, enlarged around its own center in the item icon.
+            // Without this close-up a 6x4px button occupies only a tiny portion of a slot.
+            append(Block_Shape::Button, 5u, glm::vec3(0));
+            for (int i = 0; i < box_count; ++i) {
+                Shape_Box& b = boxes[i].b;
+                const glm::vec3 mid = (b.lo + b.hi) * 0.5f;
+                const glm::vec3 half_extent = (b.hi - b.lo) * glm::vec3(1.15f, 1.4f, 2.3f);
+                b.lo = glm::vec3(0.5f) - half_extent;
+                b.hi = glm::vec3(0.5f) + half_extent;
+            }
         } else append(slot.icon_shape, 0u, glm::vec3(0));
 
         const float x_scale = bed ? 0.82f : 1.0f;
@@ -562,11 +580,11 @@ void Hud::draw_crosshair(int window_width, int window_height, bool target_hit) {
     const float s = static_cast<float>(get_gui_scale(window_width, window_height));
     const float size = 15.0f * s;
     // Инверсия цвета фона — прицел виден и на светлом небе, и в тёмной пещере.
-    glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ZERO);
+    if (!m_ui_sink) glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ZERO);
     draw_sprite("crosshair", std::floor((window_width - size) * 0.5f), std::floor((window_height - size) * 0.5f),
                 size, size, target_hit ? glm::vec4(1.0f, 0.55f, 0.55f, 1.0f) : glm::vec4(1.0f));
     flush_ui();
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (!m_ui_sink) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     end_ui();
 }
 
@@ -583,7 +601,8 @@ void Hud::draw_player_status(int window_width, int window_height,
 
     const float hotbar_x = std::floor((window_width - 182.0f * s) * 0.5f);
     const float hotbar_y = window_height - 22.0f * s;
-    const float row_y = hotbar_y - 10.0f * s;
+    // Hearts and food are ABOVE the experience bar (Minecraft order).
+    const float row_y = hotbar_y - 22.0f * s;
 
     const int heart_units = 10;
     const int hp_per_heart = std::max(1, max_health / heart_units);
@@ -640,11 +659,31 @@ void Hud::draw_experience(int window_width,int window_height,int level,float fra
     const float s=static_cast<float>(get_gui_scale(window_width,window_height));
     const float w=182.0f*s;
     const float x=std::floor((window_width-w)*.5f);
-    const float y=window_height-42.0f*s; // above hearts and food, avoiding overlap
+    // Experience sits directly above the hotbar, below HP/food.
+    const float y=window_height-29.0f*s;
     draw_rect(x,y,w,5.0f*s,glm::vec4(.04f,.13f,.04f,.94f));
     draw_rect(x+s,y+s,std::max(0.0f,(w-2.0f*s)*std::clamp(fraction,0.0f,1.0f)),3.0f*s,
               glm::vec4(.29f,.88f,.19f,1.0f));
     draw_text_centered(std::to_string(level),window_width*.5f,y-11.0f*s,s,glm::vec4(.55f,1.0f,.32f,1.0f),false);
+    end_ui();
+}
+
+void Hud::draw_boss_bar(int window_width, int window_height, const std::string& name,
+                        float health, float max_health, const std::string& state, int row) {
+    begin_ui(window_width, window_height);
+    const float s = static_cast<float>(get_gui_scale(window_width, window_height));
+    const float w = 190.0f * s;
+    const float x = std::floor((window_width - w) * .5f);
+    const float y = (10.0f + 30.0f * static_cast<float>(row)) * s;
+    const float progress = max_health > 0.0f ? std::clamp(health / max_health, 0.0f, 1.0f) : 0.0f;
+    draw_text_centered(name, window_width*.5f, y, s, glm::vec4(.98f,.92f,.98f,1),true);
+    draw_rect(x-1*s,y+11*s,w+2*s,10*s,glm::vec4(.05f,.03f,.08f,.92f));
+    draw_rect(x,y+12*s,w,8*s,glm::vec4(.23f,.13f,.24f,1));
+    const float red = state.find("Shields") != std::string::npos ? .50f : .77f;
+    draw_rect(x,y+12*s,w*progress,8*s,glm::vec4(red,.22f,.59f,1));
+    draw_rect(x,y+12*s,w*progress,2*s,glm::vec4(.98f,.61f,.85f,1));
+    if (!state.empty()) draw_text_centered(state,window_width*.5f,y+21*s,s*.72f,
+                                           glm::vec4(.96f,.87f,.78f,1),false);
     end_ui();
 }
 
@@ -702,9 +741,10 @@ void Hud::draw_hotbar(int window_width, int window_height,
 }
 
 void Hud::draw_vignette(int window_width, int window_height) {
-    if (window_width <= 0 || window_height <= 0 || m_vignette_strength <= 0.0f) return;
+    if (window_width <= 0 || window_height <= 0) return;
     m_window_width = window_width;
     m_window_height = window_height;
+    if (m_ui_sink || m_vignette_strength <= 0.0f) return;
 
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -748,6 +788,25 @@ void Hud::draw_box_highlight(const glm::vec3& lo, const glm::vec3& hi,
     std::vector<float> vertices;
     build_box_wireframe(vertices, lo - glm::vec3(0.002f), hi + glm::vec3(0.002f));
 
+    if (m_ui_sink) {
+        // Project existing selection edges into screen space, omitting edges with endpoints behind the camera.
+        const glm::mat4 vp = projection * view;
+        begin_ui(m_window_width, m_window_height);
+        const auto white = sprite("white").uv;
+        // draw_rect uses the atlas's known white sprite; use its UV for each edge.
+        for (size_t i=0;i+5<vertices.size();i+=6) {
+            glm::vec4 a=vp*glm::vec4(vertices[i],vertices[i+1],vertices[i+2],1.f);
+            glm::vec4 b=vp*glm::vec4(vertices[i+3],vertices[i+4],vertices[i+5],1.f);
+            if(a.w<=0.001f || b.w<=0.001f) continue;
+            glm::vec2 p(a.x/a.w,a.y/a.w),q(b.x/b.w,b.y/b.w);
+            p=(glm::vec2(p.x,-p.y)+1.f)*0.5f*glm::vec2(m_window_width,m_window_height);
+            q=(glm::vec2(q.x,-q.y)+1.f)*0.5f*glm::vec2(m_window_width,m_window_height);
+            glm::vec2 d=q-p; float len=glm::length(d); if(len<0.01f)continue;
+            glm::vec2 n(-d.y/len,d.x/len);
+            quad_skewed(p+n,q+n,q-n,p-n,white,glm::vec4(0,0,0,1));
+        }
+        end_ui(); return;
+    }
     glLineWidth(2.0f);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -774,18 +833,23 @@ void Hud::draw_debug_overlay(int window_width, int window_height, const Hud_Debu
 
     char buffer[128];
     std::vector<std::string> lines;
-    lines.emplace_back("OptiCraft (Classic voxel engine)");
+    lines.emplace_back("OptiCraft 0.12 (Classic voxel engine)");
     std::snprintf(buffer, sizeof(buffer), "%.0f fps, %.2f ms", stats.fps, stats.frame_time_ms);
     lines.emplace_back(buffer);
     std::snprintf(buffer, sizeof(buffer), "Seed: %u  Gen: %s", stats.seed, stats.generation_folder.c_str());
     lines.emplace_back(buffer);
-    std::snprintf(buffer, sizeof(buffer), "Chunks: %d / %d  Tris: %d",
-                  static_cast<int>(stats.chunks_rendered), static_cast<int>(stats.chunks_loaded),
-                  static_cast<int>(stats.triangles_rendered));
+    // GPU cull counters report triangles submitted in draw commands, NOT triangles
+    // visible as pixels after the hardware depth test. Both values can differ greatly
+    // when the player looks at a nearby solid wall.
+    std::snprintf(buffer, sizeof(buffer), "Chunks: %zu / %zu  Submitted tris: %zu",
+                  stats.chunks_rendered, stats.chunks_loaded, stats.triangles_rendered);
     lines.emplace_back(buffer);
-    std::snprintf(buffer, sizeof(buffer), "Sections: %d / %d",
-                  static_cast<int>(stats.sections_rendered),
-                  static_cast<int>(stats.sections_rendered + stats.sections_culled));
+    if (stats.process_rss_mib >= 0.0f) {
+        std::snprintf(buffer, sizeof(buffer), "Process RAM: %.0f MiB", stats.process_rss_mib);
+        lines.emplace_back(buffer);
+    }
+    std::snprintf(buffer, sizeof(buffer), "Sections: %zu drawn, %zu frustum, %zu Hi-Z",
+                  stats.sections_rendered, stats.sections_culled, stats.sections_occluded);
     lines.emplace_back(buffer);
     lines.emplace_back("");
     std::snprintf(buffer, sizeof(buffer), "XYZ: %.3f / %.3f / %.3f",

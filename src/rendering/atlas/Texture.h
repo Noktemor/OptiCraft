@@ -29,7 +29,8 @@ public:
     // в Chunk.cpp/Texture_Atlas.cpp). glTF-модели (мобы) требуют false: у них V идёт СВЕРХУ вниз, и с
     // переворотом UV сэмплировали бы зеркальную по вертикали часть картинки.
     // nearest = true — фильтр NEAREST вместо LINEAR (пиксель-арт без размытия).
-    bool load_from_file(const std::string& path, bool flip_vertically = true, bool nearest = true);
+    bool load_from_file(const std::string& path, bool flip_vertically = true, bool nearest = true,
+                        bool upload_to_opengl = true);
 
     // Загрузка из буфера в памяти (нужно для текстур, встроенных в .glb —
     // там картинка лежит как кусок бинарных PNG/JPEG-байт внутри файла,

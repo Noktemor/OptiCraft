@@ -167,6 +167,7 @@ private:
                            bool spectator, const glm::vec3& camera_position,
                            const glm::mat4& view_projection);
     void poll_gpu_cull_stats();
+    void queue_gpu_cull_stats_readback(bool after_hiz);
     // GPU-таймеры по фазам кадра (glQueryCounter). Опрос неблокирующий: слот читается только когда его
     // последняя метка уже готова. Раз в секунду итог печатается строкой "[GPUSTAT] ..." (см. summarize_trace.py).
     void poll_gpu_phase_timers();
@@ -334,6 +335,7 @@ private:
     bool m_gpu_compact_opaque_commands = false;
     int m_gpu_mesh_shader_mode = 0; // 0 classic, 1 EXT, 2 NV
     GLint m_gpu_loc_cull_candidate_count = -1;
+    GLint m_gpu_loc_cull_stats_offset = -1;
     GLint m_gpu_loc_cull_mesh_mode = -1;
     GLint m_gpu_loc_cull_meshlet_enabled = -1;
     GLint m_gpu_loc_cull_planes = -1;
@@ -369,8 +371,6 @@ private:
     GLint m_gpu_loc_mesh_fog_range_misc = -1;
     GLint m_gpu_loc_mesh_sun_direction_solid = -1;
     GLint m_gpu_loc_mesh_sun_direction_misc = -1;
-    GLint m_gpu_loc_mesh_tile_origin_misc = -1;
-    GLint m_gpu_loc_mesh_tile_size_misc = -1;
     Shader* m_gpu_terrain_shader_ptr = nullptr;   // непрозрачные кубы
     Shader* m_gpu_misc_shader_ptr = nullptr;      // блоки формы, флора, жидкость
     // Облегчённый предпроход глубины для Hi-Z (только позиция + discard появления чанка, без света и текстур).
@@ -433,6 +433,7 @@ private:
     GLint m_gpu_loc_meshlet_view_projection = -1;
     GLint m_gpu_loc_meshlet_viewport = -1;
     GLint m_gpu_loc_meshlet_use_hiz = -1;
+    GLint m_gpu_loc_meshlet_stats_offset = -1;
     GLint m_gpu_loc_meshlet_hiz = -1;
 
     size_t m_gpu_candidates_capacity = 0;   // кандидатов

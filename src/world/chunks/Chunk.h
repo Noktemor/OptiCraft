@@ -608,6 +608,8 @@ private:
     // Истина, если блоки или их метаданные менялись после последней загрузки/генерации.
     // Chunk_Manager использует флаг, чтобы сохранять изменённые чанки и не писать нетронутые.
     bool m_is_modified = false;
+    // Changes even for fully occluded replacements that skip geometry rebuild.
+    uint64_t m_blocks_version = 1;
     uint64_t m_mesh_version = 0;
     // Кольцо относительно игрока (max по |dx|,|dz|,|dy|, 255 = неизвестно) и поколение вида, в котором оно
     // посчитано. Менеджер пересчитывает кольца при каждой смене чанка игрока.
@@ -745,6 +747,7 @@ public:
     uint64_t next_mesh_seq() { return ++m_mesh_seq_issued; }
     uint64_t get_mesh_seq_issued() const { return m_mesh_seq_issued; }
     uint64_t get_instance_id() const { return m_instance_id; }
+    uint64_t get_blocks_version() const { return m_blocks_version; }
     bool is_empty() const;
     bool has_blocks() const {
         for (const int count : m_layer_block_count) {

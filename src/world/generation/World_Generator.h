@@ -259,6 +259,16 @@ private:
         int    key_x = 0, key_z = 0;
     };
 
+    // End island geometry depends on X/Z, not Y. Compute the island profile once
+    // for a whole vertical slice instead of redoing noise and sqrt per voxel.
+    struct End_Column_Shape {
+        bool island = false;
+        int pillar_top = -1;
+        double top = 0.0;
+        double bottom = 0.0;
+    };
+    End_Column_Shape end_column_shape(int x, int z) const;
+    static Block_Types end_column_block(const End_Column_Shape& shape, int y);
     Block_Types dimension_block(int world_x, int world_y, int world_z) const;
 
     // Внутренний путь генерации: outputs и chunk_ys имеют count элементов и относятся к одной X/Z-колонке.

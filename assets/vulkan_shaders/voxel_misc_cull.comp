@@ -1,0 +1,36 @@
+#version 450
+// Identical culling policy to voxel_cull.comp, but the original 96B GpuMiscSlot.
+layout(local_size_x=64) in;
+struct MiscSlot {
+    uvec4 source;
+    ivec4 origin;
+    ivec4 neighborsA;
+    ivec4 neighborsB;
+    ivec4 metaNeighborsA;
+    ivec4 metaNeighborsB;
+};
+layout(std430,binding=0) readonly buffer ChunkSlots {MiscSlot slots[];};
+layout(std430,binding=1) readonly buffer Draws {uvec4 draws[];};
+layout(std430,binding=2) readonly buffer LiveSlots {uint ids[];};
+layout(std430,binding=3) writeonly buffer Visible {uvec4 result[];};
+layout(push_constant) uniform Params {vec4 planes[6]; uint firstJob;uint totalJobs;uint pad0;uint pad1;} params;
+bool intersects(vec3 lo,vec3 hi){
+    for(uint p=0u;p<6u;++p){
+        vec3 n=params.planes[p].xyz;
+        vec3 vertex=mix(lo,hi,greaterThanEqual(n,vec3(0.0)));
+        if(dot(n,vertex)+params.planes[p].w<0.0)return false;
+    }
+    return true;
+}
+void main(){
+    uint batch=params.firstJob+gl_GlobalInvocationID.x;
+    if(batch>=params.totalJobs)return;
+    uint slot=ids[batch];
+    if(slot>=uint(slots.length())||slot>=uint(draws.length())){
+        result[batch]=uvec4(0u);return;
+    }
+    uvec4 draw=draws[slot];
+    vec3 lo=vec3(slots[slot].origin.xyz);
+    if(draw.y==0u || !intersects(lo,lo+vec3(32.0)))draw.y=0u;
+    result[batch]=draw;
+}

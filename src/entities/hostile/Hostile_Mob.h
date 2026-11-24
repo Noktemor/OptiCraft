@@ -22,6 +22,7 @@
 #include <random>
 #include <string>
 #include "mobs/Mob.h"
+#include "mobs/navigation/Navigation_System.h"
 #include "physics/Liquid_Physics.h"
 class Chunk_Manager;
 
@@ -82,7 +83,7 @@ public:
     bool load_model();
 
     // Возвращает урон, который враг нанёс игроку в этом тике (0 — не ударил).
-    Hostile_Result update(float delta_time, const Chunk_Manager& chunk_manager, const Hostile_Context& context);
+    Hostile_Result update(float delta_time, const Chunk_Manager& chunk_manager, const Hostile_Context& context, Mob_Nav::System* nav = nullptr);
     void render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const;
 
     // Тревога от товарища: видел игрока другой враг рядом — этот тоже идёт к нему.
@@ -95,12 +96,17 @@ public:
 
     const glm::vec3& get_position() const { return m_mob.get_position(); }
     const std::string& get_name() const { return m_name; }
+    bool equip(Mob_Equipment_Slot slot, const Item_Stack& item) { return m_mob.equip(slot, item); }
+    const Mob_Equipment* equipment() const { return m_mob.equipment(); }
     // Точка, откуда враг смотрит (для проверки луча).
     glm::vec3 get_eye() const { return m_mob.get_position() + glm::vec3(0.0f, stats().height * 0.8f, 0.0f); }
 
     glm::vec3 get_hitbox_min() const;
     glm::vec3 get_hitbox_max() const;
     void compute_hitbox(glm::vec3& out_min, glm::vec3& out_max) const;
+    Mob_Hit_Result raycast_body_part(const glm::vec3& eye, const glm::vec3& direction, float reach) const {
+        return m_mob.raycast_body_part(eye, direction, reach);
+    }
     // Удар игрока. Враг после удара начинает преследовать атакующего.
     bool take_damage(float amount, const glm::vec3& attacker_position);
     // Урон среды (утопление): без отбрасывания и без злости на кого-то. Возвращает true, если умер.
@@ -117,6 +123,7 @@ private:
     Hostile_Kind m_kind;
     std::string m_name;
     Mob m_mob;
+    Mob_Nav::Agent m_navigation_agent;
     std::mt19937 m_rng;
 
     float m_health;
@@ -132,17 +139,13 @@ private:
     glm::vec3 m_target_position{0.0f};
     float m_attack_cooldown = 0.0f;
 
-    // Обход препятствий: если погоня не сдвинула врага почти никуда (он упёрся в блоки), на
-    // короткое время он уходит боком. Без поиска пути это единственный способ выбраться из ямы.
-    float m_stuck_check_timer = 0.0f;
-    glm::vec3 m_stuck_check_position{0.0f};
-    float m_detour_timer = 0.0f;
-    glm::vec3 m_detour_direction{0.0f};
+    // Навигация/застревание теперь отслеживаются в m_navigation_agent (A*).
 
     // Блуждание, когда никого не преследует.
     bool m_walking = false;
     float m_state_timer = 2.0f;
     glm::vec3 m_walk_direction{1.0f, 0.0f, 0.0f};
+    glm::vec3 m_wander_target{0.0f};
 
     float m_vertical_velocity = 0.0f;
     bool m_on_ground = false;

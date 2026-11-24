@@ -1,0 +1,14 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define MISC_EMIT 1
+#include "voxel_misc_common.glsl"
+layout(local_size_x=64) in;
+void main(){
+    uint cell=gl_GlobalInvocationID.x;
+    if(cell>=32768u)return;
+    uint job=params.firstJob+gl_WorkGroupID.y;
+    if(job>=params.jobCount)return;
+    uint slot=jobSlots[job];
+    if(slot==0xffffffffu)return;
+    meshCell(job,slot,slots[slot],cell);
+}

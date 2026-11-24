@@ -24,6 +24,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
 
+// mesh_misc.comp tags lava in a packed quad bit using this persistent block id.
+static_assert(static_cast<Block_ID>(Block_Types::Lava) == 44u,
+              "Update LAVA_BLOCK_ID in mesh_misc.comp if the registry id changes");
+
 void Renderer::begin_sub_viewport(int x, int y_top, int width, int height, int window_height) {
     const int y = window_height - (y_top + height);   // GL отсчитывает снизу
     glViewport(x, y, width, height);
@@ -574,6 +578,7 @@ bool Renderer::initialize_gpu_mesher() {
     m_gpu_loc_greedy_bake_all = glGetUniformLocation(m_gpu_greedy_program, "u_bake_all");
     m_gpu_loc_volume_chunk_count = glGetUniformLocation(m_gpu_volume_program, "u_chunk_count");
     m_gpu_loc_cull_candidate_count = glGetUniformLocation(m_gpu_cull_program, "u_candidate_count");
+    m_gpu_loc_cull_stats_offset = glGetUniformLocation(m_gpu_cull_program, "u_stats_offset");
     m_gpu_loc_cull_mesh_mode = glGetUniformLocation(m_gpu_cull_program, "u_mesh_mode");
     m_gpu_loc_cull_meshlet_enabled = glGetUniformLocation(m_gpu_cull_program, "u_meshlet_enabled");
     m_gpu_loc_cull_planes = glGetUniformLocation(m_gpu_cull_program, "u_frustum_planes[0]");
@@ -597,6 +602,7 @@ bool Renderer::initialize_gpu_mesher() {
         m_gpu_loc_meshlet_view_projection = glGetUniformLocation(m_gpu_meshlet_cull_program, "u_view_projection");
         m_gpu_loc_meshlet_viewport = glGetUniformLocation(m_gpu_meshlet_cull_program, "u_viewport_size");
         m_gpu_loc_meshlet_use_hiz = glGetUniformLocation(m_gpu_meshlet_cull_program, "u_use_hiz");
+        m_gpu_loc_meshlet_stats_offset = glGetUniformLocation(m_gpu_meshlet_cull_program, "u_stats_offset");
         m_gpu_loc_meshlet_hiz = glGetUniformLocation(m_gpu_meshlet_cull_program, "u_hiz");
     }
     if (m_gpu_hiz_copy_program != 0)
@@ -691,8 +697,6 @@ bool Renderer::initialize_gpu_mesher() {
         m_gpu_loc_mesh_fog_range_misc = glGetUniformLocation(m_gpu_mesh_misc_program, "fogRange");
         m_gpu_loc_mesh_sun_direction_solid = glGetUniformLocation(m_gpu_mesh_solid_program, "sunDirection");
         m_gpu_loc_mesh_sun_direction_misc = glGetUniformLocation(m_gpu_mesh_misc_program, "sunDirection");
-        m_gpu_loc_mesh_tile_origin_misc = glGetUniformLocation(m_gpu_mesh_misc_program, "tile_origin");
-        m_gpu_loc_mesh_tile_size_misc = glGetUniformLocation(m_gpu_mesh_misc_program, "tile_size");
         LOG_INFO(std::string("OpenGL ") + label + " task + mesh shader pipeline enabled");
         return true;
     };
@@ -806,7 +810,7 @@ bool Renderer::initialize_gpu_mesher() {
     m_gpu_payload_ssbo = create_ssbo(m_gpu_payload_capacity, nullptr, GL_STREAM_DRAW);
     // GPU culling counters are copied into a small asynchronous readback ring. Reading them
     // directly from the live SSBO would serialize the CPU with the GPU every frame.
-    m_gpu_cull_stats_ssbo = create_ssbo(5u * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
+    m_gpu_cull_stats_ssbo = create_ssbo(10u * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
     for (Gpu_Cull_Stats_Readback& readback : m_gpu_cull_stats_readbacks) {
         readback.buffer = create_ssbo(5u * sizeof(uint32_t), nullptr, GL_STREAM_READ);
     }
@@ -1244,6 +1248,7 @@ void Renderer::prepare_gpu_meshlet_frame(const std::vector<const Renderable_Chun
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_gpu_meshlet_bounds_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_gpu_meshlet_commands_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_gpu_meshlet_counts_ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_gpu_cull_stats_ssbo);
     if (streams.size() > static_cast<size_t>(std::numeric_limits<GLuint>::max())) {
         LOG_ERROR("GPU Meshlet stream count exceeds the shader's 32-bit index range; using Standard renderer");
         m_meshlet_renderer_enabled = false;
@@ -1264,6 +1269,7 @@ void Renderer::prepare_gpu_meshlet_frame(const std::vector<const Renderable_Chun
                 static_cast<float>(current_viewport[3]));
     // Hi-Z is computed from opaque depth: only solid/shaped meshlets may consume it.
     glUniform1i(m_gpu_loc_meshlet_use_hiz, use_hiz ? 1 : 0);
+    glUniform1ui(m_gpu_loc_meshlet_stats_offset, use_hiz ? 5u : 0u);
     if (use_hiz) {
         constexpr GLint kHiZTextureUnit = 10;
         glActiveTexture(GL_TEXTURE0 + kHiZTextureUnit);
@@ -2308,6 +2314,33 @@ void Renderer::poll_gpu_cull_stats() {
     }
 }
 
+void Renderer::queue_gpu_cull_stats_readback(bool after_hiz) {
+    if (!m_gpu_ready || m_gpu_frame_candidate_count == 0u) {
+        m_last_rendered_chunk_count = 0;
+        m_last_rendered_triangle_count = 0;
+        m_last_rendered_section_count = 0;
+        m_last_culled_section_count = 0;
+        m_last_occluded_section_count = 0;
+        return;
+    }
+    // Pass 0 includes all frustum geometry (also occluded caves). Pass 1 is
+    // current-frame Hi-Z filtered. The HUD should report the latter when present;
+    // readback stays asynchronous, never waiting for a GPU fence here.
+    const GLintptr source_offset = after_hiz ? 5 * static_cast<GLintptr>(sizeof(uint32_t)) : 0;
+    for (size_t offset = 0; offset < m_gpu_cull_stats_readbacks.size(); ++offset) {
+        const size_t slot = (m_gpu_cull_stats_write + offset) % m_gpu_cull_stats_readbacks.size();
+        Gpu_Cull_Stats_Readback& readback = m_gpu_cull_stats_readbacks[slot];
+        if (readback.fence || !readback.buffer) continue;
+        glBindBuffer(GL_COPY_READ_BUFFER, m_gpu_cull_stats_ssbo);
+        glBindBuffer(GL_COPY_WRITE_BUFFER, readback.buffer);
+        glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, source_offset, 0,
+                            static_cast<GLsizeiptr>(5u * sizeof(uint32_t)));
+        readback.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        m_gpu_cull_stats_write = (slot + 1) % m_gpu_cull_stats_readbacks.size();
+        break;
+    }
+}
+
 // Frame preparation is GPU-driven after residency updates:
 // CPU uploads only chunk candidates and immutable section AABBs/reachability. The compute
 // shader performs section frustum culling, optional temporal Hi-Z, transparent-list reversal,
@@ -2622,15 +2655,18 @@ void Renderer::prepare_gpu_frame(const std::vector<const Renderable_Chunk*>& opa
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, m_gpu_cmd_meta_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_gpu_cmd_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, m_gpu_cull_stats_ssbo);
-    const uint32_t zero_stats[5] = {};
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_gpu_cull_stats_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(zero_stats), nullptr, GL_STREAM_DRAW);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(zero_stats), zero_stats);
     GLint current_viewport[4] = {0, 0, 0, 0};
     glGetIntegerv(GL_VIEWPORT, current_viewport);
     // The first cull is frustum-only. Current-frame Hi-Z is not available until after
     // the opaque depth prepass, so the second cull below is the only one allowed to occlude.
     const bool use_hiz = false; // first pass builds the opaque depth buffer for current-frame camera rays
+    // Initialize both frustum and post-Hi-Z counters before either culler writes to them.
+    // The Meshlet culler must contribute its own fine-grained triangle count BEFORE
+    // gpu_cull_commands.comp runs (and must not be reset after that dispatch).
+    const uint32_t zero_stats[10] = {};
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_gpu_cull_stats_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(zero_stats), nullptr, GL_STREAM_DRAW);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(zero_stats), zero_stats);
 
     // Prepare the optional Meshlet command stream BEFORE the legacy chunk culler.
     // If Meshlet allocation/capacity checks fail, the mode is disabled first, so the
@@ -2653,6 +2689,7 @@ void Renderer::prepare_gpu_frame(const std::vector<const Renderable_Chunk*>& opa
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_gpu_cmd_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, m_gpu_cull_stats_ssbo);
     glUniform1ui(m_gpu_loc_cull_candidate_count, static_cast<GLuint>(candidate_count));
+    glUniform1ui(m_gpu_loc_cull_stats_offset, 0u);
     glUniform1i(m_gpu_loc_cull_mesh_mode, use_task_mesh_shaders() ? m_gpu_mesh_shader_mode : 0);
     glUniform1i(m_gpu_loc_cull_meshlet_enabled, m_meshlet_renderer_enabled ? 1 : 0);
     glUniform4fv(m_gpu_loc_cull_planes, static_cast<GLsizei>(planes.size()), &planes[0].x);
@@ -2683,20 +2720,7 @@ void Renderer::prepare_gpu_frame(const std::vector<const Renderable_Chunk*>& opa
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, m_gpu_origins_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, m_gpu_volume_ssbo);
 
-    // Queue a tiny stats copy into a free ring slot. If all slots are busy, skip this sample
-    // rather than waiting; the visible debug counters may lag a frame but rendering never stalls.
-    for (size_t offset = 0; offset < m_gpu_cull_stats_readbacks.size(); ++offset) {
-        const size_t slot = (m_gpu_cull_stats_write + offset) % m_gpu_cull_stats_readbacks.size();
-        Gpu_Cull_Stats_Readback& readback = m_gpu_cull_stats_readbacks[slot];
-        if (readback.fence || !readback.buffer) continue;
-        glBindBuffer(GL_COPY_READ_BUFFER, m_gpu_cull_stats_ssbo);
-        glBindBuffer(GL_COPY_WRITE_BUFFER, readback.buffer);
-        glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0,
-                            static_cast<GLsizeiptr>(5u * sizeof(uint32_t)));
-        readback.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-        m_gpu_cull_stats_write = (slot + 1) % m_gpu_cull_stats_readbacks.size();
-        break;
-    }
+
 }
 
 
@@ -2733,6 +2757,7 @@ void Renderer::recull_gpu_frame_with_current_depth(
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_gpu_cmd_ssbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, m_gpu_cull_stats_ssbo);
     glUniform1ui(m_gpu_loc_cull_candidate_count, m_gpu_frame_candidate_count);
+    glUniform1ui(m_gpu_loc_cull_stats_offset, 5u);
     glUniform1i(m_gpu_loc_cull_mesh_mode,
         use_task_mesh_shaders() ? m_gpu_mesh_shader_mode : 0);
     glUniform1i(m_gpu_loc_cull_meshlet_enabled, m_meshlet_renderer_enabled ? 1 : 0);
@@ -3125,9 +3150,6 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
     };
 
     const Shader& misc = *m_gpu_misc_shader_ptr;
-    const glm::vec4& water_uv = get_block_props(Block_Types::Water).uv_side;
-    const glm::vec2 water_origin(water_uv.x, water_uv.y);
-    const glm::vec2 water_size(water_uv.z - water_uv.x, water_uv.w - water_uv.y);
     const auto bind_misc_program = [&]() {
         if (use_task_mesh_shaders()) {
             glUseProgram(m_gpu_mesh_misc_program);
@@ -3141,8 +3163,6 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
             glUniform3fv(m_gpu_loc_mesh_fog_color_misc, 1, &fog_color[0]);
             glUniform2fv(m_gpu_loc_mesh_fog_range_misc, 1, &fog_range[0]);
             glUniform3fv(m_gpu_loc_mesh_sun_direction_misc, 1, &sun_direction[0]);
-            glUniform2f(m_gpu_loc_mesh_tile_origin_misc, water_origin.x, water_origin.y);
-            glUniform2f(m_gpu_loc_mesh_tile_size_misc, water_size.x, water_size.y);
         } else {
             misc.use();
             misc.set_mat4("view_projection", view_projection);
@@ -3155,8 +3175,6 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
             misc.set_vec3("fogColor", fog_color);
             misc.set_vec2("fogRange", fog_range);
             misc.set_vec3("sunDirection", sun_direction);
-            misc.set_vec2("tile_origin", water_origin);
-            misc.set_vec2("tile_size", water_size);
         }
     };
 
@@ -3188,6 +3206,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    bool did_hiz_recull = false;
     if (gpu_ray_visibility) {
         GLint saved_read_fbo = 0;
         GLint saved_draw_fbo = 0;
@@ -3262,6 +3281,7 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
             build_gpu_hiz(view_projection, true);
             if (m_gpu_hiz_valid) {
                 recull_gpu_frame_with_current_depth(opaque_order, spectator, view_projection);
+                did_hiz_recull = true;
             }
         }
 
@@ -3285,6 +3305,8 @@ void Renderer::render_chunks(const std::vector<Renderable_Chunk>& chunks,
         glDepthFunc(GL_LESS);
         glDepthMask(GL_TRUE);
     }
+
+    queue_gpu_cull_stats_readback(did_hiz_recull);
 
     // Always issue each timestamp, even when the optional prepass is disabled or fails.
     // Reusing a query without writing it would mix this frame with an older frame.

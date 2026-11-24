@@ -92,6 +92,8 @@ private:
                                        std::numeric_limits<int>::min()};
     int m_column_backlog_radius = -1;
     int m_column_backlog_vertical_half = -1;
+    int m_column_backlog_min_cy = std::numeric_limits<int>::min();
+    int m_column_backlog_max_cy = std::numeric_limits<int>::max();
     uint64_t m_column_backlog_generation = 0;
 
     // После однократной подготовки X/Z-данных уровни колонки распараллеливаются внутри
@@ -295,6 +297,8 @@ private:
     // (m_chunk_set_epoch), а не каждый кадр обходом хеш-таблицы.
     mutable std::vector<std::pair<glm::ivec3, Chunk*>> m_loaded_cache;
     mutable uint64_t m_loaded_cache_epoch = ~0ull;
+    std::vector<Renderable_Chunk> m_vulkan_resident_cache;
+    uint64_t m_vulkan_resident_epoch = ~0ull;
     // Скан грязных чанков (rebuild_dirty_chunks) пропускается, пока с прошлого скана, не нашедшего
     // ни одного грязного чанка, никто не стал грязным и набор чанков не менялся.
     bool m_dirty_scan_clean = false;
@@ -381,7 +385,10 @@ private:
     // локальному пересчёту света нужны только источники в окрестности правки, а не весь список мира,
     // и при загрузке чанка список его источников просто заменяется — без поиска дубликатов.
     // Запись удаляется при выгрузке чанка и восстанавливается сканом при следующей загрузке.
-    std::unordered_map<glm::ivec3, std::vector<glm::ivec3>, Chunk_Key_Hash> m_light_sources;
+    // 32^3 = 32768 voxels: a local uint16 index is sufficient. Storing world
+    // ivec3 per glowing lava cell used 12 bytes/source and made Nether seas
+    // multiply the memory footprint of every loaded chunk.
+    std::unordered_map<glm::ivec3, std::vector<uint16_t>, Chunk_Key_Hash> m_light_sources;
     // Чанки, пришедшие с пустой сеткой блочного света: свет соседей и их собственных источников
     // дотягивается до них одним инкрементальным проходом (relight_block_light_new_chunks).
     std::vector<glm::ivec3> m_chunks_pending_block_light;
@@ -397,6 +404,14 @@ private:
     // Растекание жидкостей (вода и т.п.): тики назначаются при правке блоков рядом с жидкостью
     // и при загрузке чанков с текущей водой, см. Fluid_Simulator.
     Fluid_Simulator m_fluids;
+    // A fluid tick can change hundreds of cells. Save touched chunks once, and
+    // coalesce block-light changes into small 4^3 regions instead of performing
+    // a 29^3 flood fill and a disk snapshot for each flowing lava cell.
+    bool m_processing_fluid_ticks = false;
+    Chunk_Coord_Set m_fluid_save_pending;
+    std::deque<glm::ivec3> m_fluid_save_queue;
+    std::unordered_map<glm::ivec3, uint8_t, Chunk_Key_Hash> m_fluid_light_regions;
+    std::deque<glm::ivec3> m_fluid_light_queue;
     // Ставит/связывает/удаляет Block_Entity при постановке/поломке блока-контейнера —
     // вызывается из set_block_world, вынесено отдельно только чтобы не раздувать и без
     // того длинную функцию.
@@ -522,6 +537,9 @@ public:
     // Нужно звать каждый кадр, как и collect_finished_chunks — см. Game.cpp.
     void collect_finished_mesh_jobs();
     void rebuild_dirty_chunks();
+    // Only before destroying/replacing this manager: cancel the old dimension's
+    // queues and join workers before clearing chunks and their backing pool.
+    void prepare_for_reload();
     void clear();
     // Сохраняет все изменённые чанки и сбрасывает индекс region-файла на диск.
     // Зовётся из деструктора (то есть на выходе из игры) и доступна отдельно,
@@ -555,6 +573,7 @@ public:
         int flora_render_distance_chunks = -1,
         bool spectator = false
     );
+    const std::vector<Renderable_Chunk>& get_vulkan_resident_chunks();
     std::vector<glm::ivec3> take_unloaded_chunk_positions();
 
     // Block_Entity блока-контейнера в этой позиции, если он там есть (nullptr иначе).

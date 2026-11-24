@@ -37,7 +37,7 @@ public:
 
     // Грузит атлас из .atlas.json (см. формат в Atlas_Registry.h). Путь к текстуре
     // внутри манифеста — относительно самого манифеста.
-    bool load_from_manifest(const std::string& manifest_path);
+    bool load_from_manifest(const std::string& manifest_path, bool upload_to_opengl = true);
 
     // UV-прямоугольник (u_min, v_min, u_max, v_max) для спрайта по имени. Если такого
     // спрайта нет — пишет в лог и возвращает (0,0,0,0) (виден как "дырка", не падение).

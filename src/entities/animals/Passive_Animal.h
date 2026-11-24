@@ -16,6 +16,7 @@
 #include <string>
 #include "entities/animals/Breeding.h"
 #include "mobs/Mob.h"
+#include "mobs/navigation/Navigation_System.h"
 #include "physics/Liquid_Physics.h"
 #include "world/blocks/Block_Types.h"
 
@@ -56,7 +57,7 @@ public:
     const Passive_Stats& stats() const { return passive_stats(m_kind); }
 
     bool load_model();
-    void update(float delta_time, const Chunk_Manager& chunk_manager);
+    void update(float delta_time, const Chunk_Manager& chunk_manager, Mob_Nav::System* nav = nullptr);
     void render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const;
 
     const glm::vec3& get_position() const { return m_mob.get_position(); }
@@ -65,6 +66,9 @@ public:
     glm::vec3 get_hitbox_min() const;
     glm::vec3 get_hitbox_max() const;
     void compute_hitbox(glm::vec3& out_min, glm::vec3& out_max) const;
+    Mob_Hit_Result raycast_body_part(const glm::vec3& eye, const glm::vec3& direction, float reach) const {
+        return m_mob.raycast_body_part(eye, direction, reach);
+    }
     bool take_damage(float amount, const glm::vec3& attacker_position);
     // Урон среды (утопление): без отбрасывания. Возвращает true, если умер.
     bool take_drowning_damage(float amount);
@@ -88,11 +92,13 @@ public:
     // One fleece per shearing; regenerates after grazing time (no sheep recoloring yet).
     bool shear();
     void seek_towards(const glm::vec3& target);
+    void on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill);
 
 private:
     Passive_Kind m_kind;
     std::string m_name;
     Mob m_mob;
+    Mob_Nav::Agent m_navigation_agent;
     std::mt19937 m_rng;
     Breeding_State m_breeding;
 
@@ -112,6 +118,9 @@ private:
     float m_state_timer = 2.0f;
     glm::vec3 m_walk_direction{1.0f, 0.0f, 0.0f};
     float m_seek_timer = 0.0f;
+    glm::vec3 m_seek_target{0.0f};
+    glm::vec3 m_panic_target{0.0f};
+    glm::vec3 m_wander_target{0.0f};
     glm::vec3 m_seek_dir{0.0f};
 
     float m_vertical_velocity = 0.0f;

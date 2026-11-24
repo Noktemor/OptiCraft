@@ -155,18 +155,20 @@ int shape_boxes(Block_Shape shape, uint8_t meta, Shape_Box out[16]) {
             return n;
         }
         case Block_Shape::Button: {
-            // Кнопка 3 (ширина) x 2 (высота) x 2 (вынос от опоры) пикселя по центру грани крепления.
-            // meta & 7 — индекс стороны опоры: +X, -X, +Y, -Y, +Z, -Z (как kDirs в Logic_Manager).
+            // Button is a 6x4-pixel plate mounted on one of six supporting faces.
+            // The same box is used for GPU mesh generation, ray-picking and UI previews.
+            // Bits 0..2: mount (+X,-X,+Y,-Y,+Z,-Z); bit 3: pressed (depth 1 vs 2px).
             constexpr float p = 1.0f / 16.0f;
-            constexpr float w0 = 6.5f * p, w1 = 9.5f * p;   // ширина 3 пикселя
-            constexpr float h0 = 7.0f * p, h1 = 9.0f * p;   // высота / глубина 2 пикселя
+            constexpr float width0 = 5.0f * p, width1 = 11.0f * p;
+            constexpr float height0 = 6.0f * p, height1 = 10.0f * p;
+            const float thickness = ((meta & Block_Meta::active_bit) != 0u ? 1.0f : 2.0f) * p;
             switch (meta & 7u) {
-                case 0:  out[0] = {glm::vec3(1.0f - 2.0f * p, h0, w0), glm::vec3(1.0f, h1, w1)}; break;          // опора +X
-                case 1:  out[0] = {glm::vec3(0.0f, h0, w0), glm::vec3(2.0f * p, h1, w1)}; break;                 // опора -X
-                case 2:  out[0] = {glm::vec3(w0, 1.0f - 2.0f * p, h0), glm::vec3(w1, 1.0f, h1)}; break;          // опора +Y
-                case 4:  out[0] = {glm::vec3(w0, h0, 1.0f - 2.0f * p), glm::vec3(w1, h1, 1.0f)}; break;          // опора +Z
-                case 5:  out[0] = {glm::vec3(w0, h0, 0.0f), glm::vec3(w1, h1, 2.0f * p)}; break;                 // опора -Z
-                default: out[0] = {glm::vec3(w0, 0.0f, h0), glm::vec3(w1, 2.0f * p, h1)}; break;                 // опора -Y (пол)
+                case 0:  out[0] = {glm::vec3(1.0f - thickness, height0, width0), glm::vec3(1.0f, height1, width1)}; break;
+                case 1:  out[0] = {glm::vec3(0.0f, height0, width0), glm::vec3(thickness, height1, width1)}; break;
+                case 2:  out[0] = {glm::vec3(width0, 1.0f - thickness, height0), glm::vec3(width1, 1.0f, height1)}; break;
+                case 3:  out[0] = {glm::vec3(width0, 0.0f, height0), glm::vec3(width1, thickness, height1)}; break;
+                case 4:  out[0] = {glm::vec3(width0, height0, 1.0f - thickness), glm::vec3(width1, height1, 1.0f)}; break;
+                default: out[0] = {glm::vec3(width0, height0, 0.0f), glm::vec3(width1, height1, thickness)}; break;
             }
             return 1;
         }

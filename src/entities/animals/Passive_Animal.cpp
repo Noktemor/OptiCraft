@@ -65,6 +65,7 @@ void Passive_Animal::set_walking(bool walking) {
         std::uniform_real_distribution<float> angle_dist(0.0f, 6.2831853f);
         const float angle = angle_dist(m_rng);
         m_walk_direction = glm::vec3(std::cos(angle), 0.0f, std::sin(angle));
+        m_wander_target = m_mob.get_position() + m_walk_direction * 7.0f;
         m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_walk_direction.x, m_walk_direction.z)));
     }
     const char* animation = walking ? "Walk" : "Idle";
@@ -151,6 +152,7 @@ bool Passive_Animal::take_damage(float amount, const glm::vec3& attacker_positio
     }
     m_panic_timer = stats().panic_seconds;
     m_walk_direction = away;
+    m_panic_target = m_mob.get_position() + away * 12.0f;
     m_mob.set_yaw_degrees(glm::degrees(std::atan2(away.x, away.z)));
     if (m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
     return false;
@@ -161,12 +163,13 @@ void Passive_Animal::seek_towards(const glm::vec3& target) {
     d.y = 0.0f;
     if (glm::length(d) < 0.05f) return;
     m_seek_dir = glm::normalize(d);
+    m_seek_target = target;
     if (m_seek_timer <= 0.0f && m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
     m_seek_timer = 0.3f;
     m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_seek_dir.x, m_seek_dir.z)));
 }
 
-void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager) {
+void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager, Mob_Nav::System* nav) {
     const Passive_Stats& s = stats();
     const int regen_ticks = m_effects.update(dt);
     if (!m_dying && regen_ticks > 0) m_health = std::min(s.max_health, m_health + static_cast<float>(regen_ticks));
@@ -226,9 +229,28 @@ void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager) {
     const bool panicking = m_panic_timer > 0.0f;
     const bool seeking = m_seek_timer > 0.0f && !panicking;
     glm::vec3 velocity = m_knockback;
-    if (panicking) velocity += m_walk_direction * s.panic_speed;
-    else if (seeking) velocity += m_seek_dir * s.walk_speed * 1.8f;
-    else if (m_walking) velocity += m_walk_direction * s.walk_speed;
+    bool nav_jump = false;
+    const bool moving = panicking || seeking || m_walking;
+    if (moving && nav) {
+        glm::vec3 goal = panicking ? m_panic_target : (seeking ? m_seek_target : m_wander_target);
+        if (panicking && glm::length(glm::vec2(goal.x-position.x,goal.z-position.z)) < 2.5f) {
+            m_panic_target = position + m_walk_direction * 10.0f;
+            goal = m_panic_target;
+        }
+        const auto steer = m_navigation_agent.steer(*nav,chunk_manager,dt,position,goal,
+                                                     s.width,s.height,Mob_Nav::Travel::Ground,
+                                                     panicking ? 0 : (seeking ? 2 : 4));
+        nav_jump = steer.jump;
+        const float speed = panicking ? s.panic_speed : (seeking ? s.walk_speed*1.8f : s.walk_speed);
+        velocity += steer.direction * speed;
+        if (glm::length(steer.direction)>0.05f)
+            m_mob.set_yaw_degrees(glm::degrees(std::atan2(steer.direction.x,steer.direction.z)));
+    } else {
+        m_navigation_agent.reset();
+        if (panicking) velocity += m_walk_direction * s.panic_speed;
+        else if (seeking) velocity += m_seek_dir * s.walk_speed * 1.8f;
+        else if (m_walking) velocity += m_walk_direction * s.walk_speed;
+    }
     m_knockback *= std::exp(-6.0f * dt);
     if (glm::length(m_knockback) < 0.05f) m_knockback = glm::vec3(0.0f);
 
@@ -245,7 +267,7 @@ void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager) {
     if (!collides_at(target, chunk_manager)) position.z = target.z;
     else if (std::abs(velocity.z) > 0.01f) blocked = true;
 
-    if (blocked && m_on_ground) {
+    if ((blocked || nav_jump) && m_on_ground) {
         if (panicking || seeking || m_walking) { m_vertical_velocity = 7.0f; m_on_ground = false; }
         if (m_walking && !panicking && !seeking) { m_state_timer = 0.0f; } // упёрлась — выбирает новое направление
     }
@@ -266,4 +288,16 @@ void Passive_Animal::update(float dt, const Chunk_Manager& chunk_manager) {
 
 void Passive_Animal::render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const {
     m_mob.render(shader, view, projection, ambient_intensity);
+}
+
+void Passive_Animal::on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill) {
+    if (m_dying) return;
+    const glm::vec3 to = glm::vec3(m_mob.get_position().x - attacker.x, 0.0f, m_mob.get_position().z - attacker.z);
+    if (glm::dot(to, to) < 0.001f) return;
+    m_walk_direction = glm::normalize(to);
+    m_panic_target = m_mob.get_position() + m_walk_direction * (witnessed_kill ? 16.0f : 10.0f);
+    m_panic_timer = std::max(m_panic_timer, witnessed_kill ? stats().panic_seconds * 1.8f : 1.4f);
+    m_seek_timer = 0.0f;
+    m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_walk_direction.x, m_walk_direction.z)));
+    if (m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
 }

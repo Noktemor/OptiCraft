@@ -28,6 +28,25 @@ int main(){
   assert(boxes[0].lo.z==0.0f && boxes[0].hi.z==1.0f);
   assert(shape_boxes(Block_Shape::Wire,static_cast<uint8_t>(1|(3<<3)),boxes)==3);
   for(int i=0;i<3;++i)for(float v:{boxes[i].lo.x,boxes[i].lo.y,boxes[i].lo.z,boxes[i].hi.x,boxes[i].hi.y,boxes[i].hi.z})assert(v>=0&&v<=1);
+  // All six button mounting faces use a 6x4 face and a 2px shaft.
+  // When pressed the protrusion shrinks to exactly 1px (meta bit 3).
+  for (uint8_t mount = 0; mount < 6; ++mount) {
+      Shape_Box up[16], down[16];
+      assert(shape_boxes(Block_Shape::Button, mount, up) == 1);
+      assert(shape_boxes(Block_Shape::Button, static_cast<uint8_t>(mount | 8u), down) == 1);
+      auto extent = [](const Shape_Box& b, int ax) {
+          return (ax == 0 ? b.hi.x - b.lo.x : ax == 1 ? b.hi.y - b.lo.y : b.hi.z - b.lo.z);
+      };
+      const int axis = mount / 2;
+      assert(std::abs(extent(up[0], axis) - 2.0f / 16.0f) < 1e-6f);
+      assert(std::abs(extent(down[0], axis) - 1.0f / 16.0f) < 1e-6f);
+      const int a = (axis + 1) % 3, b = (axis + 2) % 3;
+      const float e1 = extent(up[0], a), e2 = extent(up[0], b);
+      assert((std::abs(e1-6.0f/16.0f)<1e-6f && std::abs(e2-4.0f/16.0f)<1e-6f) ||
+             (std::abs(e2-6.0f/16.0f)<1e-6f && std::abs(e1-4.0f/16.0f)<1e-6f));
+      for(float v : {up[0].lo.x, up[0].lo.y, up[0].lo.z,
+                     up[0].hi.x, up[0].hi.y, up[0].hi.z}) assert(v >= 0 && v <= 1);
+  }
   // lever / wire / two-cell door
   W d;d.put(0,0,0,Block_Types::Lever_On);d.put(1,0,0,Block_Types::Copper_Wire,0);
   d.put(2,0,0,Block_Types::Copper_Wire,0);d.put(3,0,0,Block_Types::Door);

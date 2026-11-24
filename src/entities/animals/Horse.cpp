@@ -274,12 +274,22 @@ void Horse::update_perception(float dt, const Horse_Context& context) {
 // ---------------------------------------------------------------------------------------
 //  Движение без всадника
 // ---------------------------------------------------------------------------------------
-void Horse::update_free_motion(float dt, const Horse_Context& context) {
+void Horse::update_free_motion(float dt, const Horse_Context& context, const Chunk_Manager& world, Mob_Nav::System* nav) {
     const Horse_State state = m_ai.get_state();
     const glm::vec3 pos = m_mob.get_position();
 
     glm::vec3 desired(0.0f);
     float turn_rate = 2.5f;
+    m_nav_jump_requested = false;
+    auto route_to = [&](glm::vec3 target, int priority) -> glm::vec3 {
+        glm::vec3 direct=target-pos;
+        direct.y=0.0f;
+        if (!nav) return glm::length(direct)>0.001f ? glm::normalize(direct) : glm::vec3(0.0f);
+        const auto steering=m_navigation_agent.steer(*nav,world,dt,pos,target,
+                                                     Config::horse_width,Config::horse_height,Mob_Nav::Travel::Ground,priority);
+        m_nav_jump_requested=steering.jump;
+        return steering.direction;
+    };
 
     if (state != m_last_state) {
         m_has_wander_target = false;
@@ -295,21 +305,24 @@ void Horse::update_free_motion(float dt, const Horse_Context& context) {
     const bool seeking = m_seek_timer > 0.0f;
     // Пауки рядом — бежит к ним (кроме паники и страха).
     const bool hunting = context.prey_valid && state != Horse_State::Flee && state != Horse_State::Scared;
-    if (seeking) {
+    if (seeking && state != Horse_State::Flee && state != Horse_State::Scared) {
         const glm::vec3 to_mate(m_seek_target.x - pos.x, 0.0f, m_seek_target.z - pos.z);
         if (glm::length(to_mate) > 0.05f) {
-            turn_towards(std::atan2(to_mate.x, to_mate.z), 3.5f, dt);
+            const glm::vec3 heading=route_to(m_seek_target,2);
+            if (glm::length(heading)>0.01f) turn_towards(std::atan2(heading.x,heading.z),3.5f,dt);
             desired = forward_of(m_yaw) * Config::horse_walk_speed * 1.8f;
         }
     } else if (hunting) {
         const glm::vec3 prey_center = 0.5f * (context.prey_min + context.prey_max);
         const glm::vec3 to_prey(prey_center.x - pos.x, 0.0f, prey_center.z - pos.z);
         if (glm::length(to_prey) > 0.05f) {
-            turn_towards(std::atan2(to_prey.x, to_prey.z), 4.0f, dt);
+            const glm::vec3 heading=route_to(prey_center,0);
+            if (glm::length(heading)>0.01f) turn_towards(std::atan2(heading.x,heading.z),4.0f,dt);
             desired = forward_of(m_yaw) * Config::horse_walk_speed * 2.0f;
         }
     } else if (follow_owner) {
-        turn_towards(std::atan2(to_player.x, to_player.z), 3.0f, dt);
+        const glm::vec3 heading=route_to(context.player_position,1);
+        if (glm::length(heading)>0.01f) turn_towards(std::atan2(heading.x,heading.z),3.0f,dt);
         if (player_dist > 2.5f) desired = forward_of(m_yaw) * 2.2f;
     } else if (state == Horse_State::Wander) {
         if (!m_has_wander_target) {
@@ -320,7 +333,8 @@ void Horse::update_free_motion(float dt, const Horse_Context& context) {
         if (glm::length(to_target) < 0.7f) {
             m_has_wander_target = false; // дошла — в следующем кадре выберет новую точку
         } else {
-            turn_towards(std::atan2(to_target.x, to_target.z), turn_rate, dt);
+            const glm::vec3 heading=route_to(m_wander_target,4);
+            if (glm::length(heading)>0.01f) turn_towards(std::atan2(heading.x,heading.z),turn_rate,dt);
             desired = forward_of(m_yaw) * Config::horse_walk_speed;
         }
     } else if (state == Horse_State::Flee || state == Horse_State::Scared) {
@@ -328,7 +342,8 @@ void Horse::update_free_motion(float dt, const Horse_Context& context) {
         away.y = 0.0f;
         if (glm::length(away) < 0.01f) away = forward_of(m_yaw);
         away = glm::normalize(away);
-        turn_towards(std::atan2(away.x, away.z), state == Horse_State::Flee ? 5.0f : 3.0f, dt);
+        const glm::vec3 heading=route_to(pos+away*14.0f,0);
+        if (glm::length(heading)>0.01f) turn_towards(std::atan2(heading.x,heading.z),state == Horse_State::Flee ? 5.0f : 3.0f,dt);
         desired = forward_of(m_yaw) * (state == Horse_State::Flee ? Config::horse_flee_speed : 2.0f);
     } else if (state == Horse_State::Idle) {
         // Оглядывается, как в гайде: лёгкое покачивание курса.
@@ -506,7 +521,7 @@ void Horse::integrate(float dt, const Chunk_Manager& chunk_manager) {
     }
 
     // Упёрлась в уступ в один блок на ходу — перепрыгивает (раньше лошадь застревала у каждой ступеньки).
-    if (blocked && m_on_ground && glm::length(horizontal) > 0.8f && !m_dying) {
+    if ((blocked || m_nav_jump_requested) && m_on_ground && glm::length(horizontal) > 0.8f && !m_dying) {
         m_vertical_velocity = 7.0f;
         m_on_ground = false;
     }
@@ -528,7 +543,7 @@ void Horse::integrate(float dt, const Chunk_Manager& chunk_manager) {
 //  Главный апдейт
 // ---------------------------------------------------------------------------------------
 void Horse::update(float dt, const Chunk_Manager& chunk_manager,
-                   const Horse_Context& context, const Horse_Ride_Input& ride_input) {
+                   const Horse_Context& context, const Horse_Ride_Input& ride_input, Mob_Nav::System* nav) {
     const int regen_ticks = m_effects.update(dt);
     if (!m_dying && regen_ticks > 0) m_health = std::min(Config::horse_max_health, m_health + static_cast<float>(regen_ticks));
     if (m_dying) {
@@ -559,11 +574,13 @@ void Horse::update(float dt, const Chunk_Manager& chunk_manager,
 
     // 2. Желаемое движение.
     if (m_has_rider) {
+        m_nav_jump_requested=false;
+        m_navigation_agent.reset();
         if (m_ai.get_state() == Horse_State::Taming) update_taming_motion(dt);
         else update_riding_motion(dt, ride_input);
     } else {
         m_drifting = false;
-        update_free_motion(dt, context);
+        update_free_motion(dt, context, chunk_manager, nav);
     }
 
     // 2b. Удар по пауку, если он в досягаемости (без всадника, не в панике).
@@ -590,4 +607,12 @@ void Horse::update(float dt, const Chunk_Manager& chunk_manager,
 
 void Horse::render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const {
     m_mob.render(shader, view, projection, ambient_intensity);
+}
+
+void Horse::on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill) {
+    if (m_dying || m_has_rider) return;
+    m_seek_timer = 0.0f;
+    m_ai.add_fear(witnessed_kill ? 90.0f : 40.0f, attacker);
+    // A kill takes precedence over grazing, hunting and breeding.
+    m_ai.enter_state(witnessed_kill ? Horse_State::Flee : Horse_State::Scared);
 }

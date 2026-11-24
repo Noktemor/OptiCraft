@@ -199,7 +199,30 @@ void Player::update(float delta_time, const Chunk_Manager& chunk_manager) {
 
     target = m_position;
     target.y += m_velocity.y * delta_time;
-    if (collides_at(target, chunk_manager)) {
+    // Switching from Creative flight to Survival high above the terrain can
+    // cross vertical chunk boundaries faster than streaming finishes. Never
+    // treat an unloaded chunk as empty air for a falling Survival player.
+    // Hold vertical motion for a frame and let Chunk_Manager finish the load.
+    bool waiting_for_terrain = false;
+    if (m_fall_damage_enabled && m_velocity.y < 0.0f && target.y > Config::world_min_y) {
+        const float margin = m_size.x * 0.5f - 0.02f;
+        const int foot_y = static_cast<int>(std::floor(target.y - 0.05f));
+        for (float dx : {-margin, margin}) {
+            for (float dz : {-margin, margin}) {
+                const int bx = static_cast<int>(std::floor(m_position.x + dx));
+                const int bz = static_cast<int>(std::floor(m_position.z + dz));
+                const glm::ivec3 cp = chunk_manager.get_chunk_coords_for_world(bx, foot_y, bz);
+                if (!chunk_manager.is_chunk_loaded(cp.x, cp.y, cp.z)) {
+                    waiting_for_terrain = true;
+                    break;
+                }
+            }
+            if (waiting_for_terrain) break;
+        }
+    }
+    if (waiting_for_terrain) {
+        m_velocity.y = 0.0f;
+    } else if (collides_at(target, chunk_manager)) {
         if (m_velocity.y < 0.0f) {
             m_on_ground = true;
             // Приземлились этим кадром (были в воздухе) — считаем урон от падения.
@@ -325,6 +348,8 @@ bool Player::block_hits_box(int x, int y, int z, const glm::vec3& pmin, const gl
     }
     Shape_Box boxes[16];
     uint8_t shape_meta = chunk_manager.get_block_meta_world(x, y, z);
+    if (props.shape == Block_Shape::Button && chunk_manager.get_block_world(x, y, z) == Block_Types::Button_Pressed)
+        shape_meta |= Block_Meta::active_bit;
     if (props.shape == Block_Shape::Stairs) {
         static constexpr glm::ivec3 dirs[4] = {{0,0,-1},{1,0,0},{0,0,1},{-1,0,0}};
         const uint8_t facing = static_cast<uint8_t>(shape_meta & 3u);

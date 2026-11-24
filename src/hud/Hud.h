@@ -3,6 +3,10 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <functional>
+#include <span>
+#include <utility>
+#include "rendering/vulkan/VulkanUiBatch.h"
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,10 +33,12 @@ struct Hud_Debug_Stats {
     unsigned int seed;
     std::string generation_folder;
     size_t chunks_loaded;
+    float process_rss_mib = -1.0f; // Linux: process resident RAM, sampled once per second
     size_t chunks_rendered;
     size_t triangles_rendered;
     size_t sections_rendered;
     size_t sections_culled;
+    size_t sections_occluded;
     bool is_flying; // "призрак" (ghost/noclip-полёт) vs "странник" (ходит по земле)
     float day_night_normalized_time; // [0,1) — см. Day_Night_Cycle::get_normalized_time
     std::string biome_name; // текущий биом под игроком, см. World_Generator::get_biome_name
@@ -196,6 +202,10 @@ public:
     ~Hud();
 
     bool initialize();
+    using Ui_Vertex = OptiCraft::Vulkan::UiVertex;
+    using Ui_Sink = std::function<void(std::span<const Ui_Vertex>, bool)>;
+    void set_ui_sink(Ui_Sink sink) { m_ui_sink = std::move(sink); }
+
 
     // --- масштаб и вёрстка --------------------------------------------------
     // 0 = авто (по размеру окна), иначе фиксированный масштаб 1..4 из настроек.
@@ -246,6 +256,9 @@ public:
     // Сердца и куриные ножки над хотбаром (только Survival).
     // air/max_air — воздух под водой: ряд пузырьков рисуется, только если air < max_air.
     void draw_experience(int window_width,int window_height,int level,float fraction);
+    // Top-of-screen boss bars; multiple nearby bosses can stack by row.
+    void draw_boss_bar(int window_width, int window_height, const std::string& name,
+                       float health, float max_health, const std::string& state, int row);
     void draw_player_status(int window_width, int window_height,
                             int health, int max_health,
                             int food, int max_food,
@@ -283,7 +296,7 @@ private:
         glm::vec4 uv{0.0f};     // (u0, v0, u1, v1)
         glm::vec4 rect{0.0f};   // пиксельный (x, y, w, h) в PNG
     };
-    struct Ui_Vertex { float x, y, u, v, r, g, b, a; };
+    Ui_Sink m_ui_sink;
 
     // --- пакетный рендер квадов из UI-атласа ---
     void begin_ui(int window_width, int window_height);

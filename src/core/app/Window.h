@@ -12,6 +12,10 @@
 class Window {
 private:
     GLFWwindow* m_window_ptr;
+    GLFWwindow* m_gl_window = nullptr;
+    GLFWwindow* m_vk_window = nullptr;
+    int m_cursor_mode = GLFW_CURSOR_NORMAL;
+    void attach_callbacks(GLFWwindow* window);
     int m_width;
     int m_height;
     std::string m_title;
@@ -41,7 +45,10 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
 
-    bool initialize();
+    bool initialize(bool try_vulkan = false);
+    GLFWwindow* vulkan_candidate() const noexcept { return m_vk_window; }
+    bool is_vulkan() const noexcept { return m_vk_window && m_window_ptr == m_vk_window; }
+    void select_vulkan(bool enabled);
     bool should_close() const;
     void swap_buffers();
     void poll_events();

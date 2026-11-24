@@ -129,6 +129,8 @@ enum class Block_Types : Block_ID {
     Stone_Colossus_Spawn_Egg = 498,
     Shadow_Stalker_Spawn_Egg = 499,
     Knight_Spawn_Egg = 500,
+    Moon_Princess_Spawn_Egg = 610,
+    Sun_Princess_Spawn_Egg = 611,
 
     // Цветы для естественной генерации и красителей.
     Cornflower = 440, Orange_Tulip = 441, Pink_Tulip = 442, White_Tulip = 443,
@@ -260,6 +262,9 @@ enum class Block_Types : Block_ID {
     Nether_Portal = 521, End_Portal_Frame = 522, End_Portal = 523,
     Nether_Ember = 524,
     Flint_And_Steel = 525, Eye_Of_Ender = 526, End_Portal_Frame_Filled = 527,
+    Lighter = 528, Fire = 529,
+    Fletching_Table = 530, Hunter_Bench = 531, Smoker = 532,
+    Composter = 533, Smithing_Table = 534, Emerald = 535,
 
     Count = 257 // старый размер именованной части enum, НЕ предел реестра
 };
@@ -294,7 +299,7 @@ enum class Block_Shape : uint8_t {
     Slab = 1,
     Stairs = 2,
     Plate = 3,  // пластинка 1/16 толщиной на всю клетку (повторитель)
-    Button = 4, // кнопка 3x2x2 пикселя на грани опоры (meta = грань крепления, как в Logic_Manager)
+    Button = 4, // кнопка 6x4 пикселя, вынос 2px (нажата: 1px), крепление как в Logic_Manager
     Wire = 5,   // тонкий соединяемый провод: прямой стержень, узел на поворотах, крепление к стенам
     Fence = 6, Wall = 7, FenceGate = 8,
     Door = 9, Trapdoor = 10, PressurePlate = 11,

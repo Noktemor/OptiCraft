@@ -26,6 +26,7 @@ out float BlockLight;
 out float SkyLight;
 out float Appearance;
 flat out vec4 Rect;
+flat out uint LiquidIsLava;
 
 // Порядок вершин квада по коду угла c = fu + 2*fv. Обычный обход (0,1,3),(0,3,2) — наружу у граней
 // -X, -Y, +Z; у +X, +Y, -Z нужен перевёрнутый (0,3,1),(0,2,3) (проверено по векторному произведению).
@@ -132,5 +133,6 @@ void main() {
     SkyLight = float(packed_light >> 4u);
     BlockLight = float(packed_light & 15u);
     Rect = rect;
+    LiquidIsLava = (u_kind == 3) ? ((rec.y >> 15u) & 1u) : 0u;
     gl_Position = view_projection * vec4(p, 1.0);
 }

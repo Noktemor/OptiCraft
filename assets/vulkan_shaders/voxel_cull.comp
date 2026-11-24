@@ -1,0 +1,46 @@
+#version 450
+// Conservative per-chunk frustum culling, entirely GPU-driven.
+// Work list contains live stable slot IDs. Indirect commands remain in their
+// published per-slot buffer; only a frame-local dense draw array is modified.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+struct ChunkSlot {
+    uvec4 source;
+    ivec4 origin;
+    ivec4 neighborA;
+    ivec4 neighborB;
+};
+layout(std430, binding=0) readonly buffer Chunks { ChunkSlot slots[]; };
+layout(std430, binding=1) readonly buffer Published { uvec4 draws[]; };
+layout(std430, binding=2) readonly buffer LiveSlots { uint slotIndices[]; };
+layout(std430, binding=3) writeonly buffer Visible { uvec4 visibleDraws[]; };
+layout(push_constant) uniform CullParams {
+    vec4 planes[6];
+    uint firstJob;
+    uint totalJobs;
+    uint _pad0;
+    uint _pad1;
+} params;
+
+bool intersects(vec3 mn, vec3 mx) {
+    for (uint p = 0u; p < 6u; ++p) {
+        vec3 n = params.planes[p].xyz;
+        vec3 farthest = mix(mn, mx, greaterThanEqual(n, vec3(0.0)));
+        if (dot(n, farthest) + params.planes[p].w < 0.0) return false;
+    }
+    return true;
+}
+void main() {
+    uint batch = params.firstJob + gl_GlobalInvocationID.x;
+    if (batch >= params.totalJobs) return;
+    uint slot = slotIndices[batch];
+    if (slot >= uint(slots.length()) || slot >= uint(draws.length())) {
+        visibleDraws[batch] = uvec4(0u);
+        return;
+    }
+    ChunkSlot chunk = slots[slot];
+    vec3 mn = vec3(chunk.origin.xyz);
+    vec3 mx = mn + vec3(32.0);
+    uvec4 raw = draws[slot];
+    if (raw.y == 0u || !intersects(mn, mx)) raw.y = 0u;
+    visibleDraws[batch] = raw;
+}

@@ -22,6 +22,7 @@ void Pig::pick_new_walk_direction() {
     std::uniform_real_distribution<float> angle_dist(0.0f, 6.2831853f); // 2*pi
     const float angle = angle_dist(m_rng);
     m_walk_direction = glm::vec3(std::cos(angle), 0.0f, std::sin(angle));
+    m_wander_target = m_mob.get_position() + m_walk_direction * 7.0f;
     // Ориентация модели "лицом по курсу" — приблизительно: зависит от того,
     // в какую сторону смотрит модель в Blender (+Z/-Z), поэтому чисто
     // косметическая деталь, а не что-то, на что стоит полагаться геймплейно.
@@ -151,6 +152,7 @@ bool Pig::take_damage(float amount, const glm::vec3& attacker_position) {
 
     m_panic_timer = Config::pig_panic_seconds;
     m_walk_direction = away;
+    m_panic_target = m_mob.get_position() + away * 12.0f;
     m_mob.set_yaw_degrees(glm::degrees(std::atan2(away.x, away.z)));
     if (m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
     return false;
@@ -161,12 +163,13 @@ void Pig::seek_towards(const glm::vec3& target) {
     d.y = 0.0f;
     if (glm::length(d) < 0.05f) return;
     m_seek_dir = glm::normalize(d);
+    m_seek_target = target;
     if (m_seek_timer <= 0.0f && m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
     m_seek_timer = 0.3f;
     m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_seek_dir.x, m_seek_dir.z)));
 }
 
-void Pig::update(float delta_time, const Chunk_Manager& chunk_manager) {
+void Pig::update(float delta_time, const Chunk_Manager& chunk_manager, Mob_Nav::System* nav) {
     const int regen_ticks = m_effects.update(delta_time);
     if (!m_dying && regen_ticks > 0) m_health = std::min(Config::pig_max_health, m_health + static_cast<float>(regen_ticks));
     m_breeding.update(delta_time);
@@ -237,12 +240,27 @@ void Pig::update(float delta_time, const Chunk_Manager& chunk_manager) {
     const bool panicking = m_panic_timer > 0.0f;
     glm::vec3 horizontal_velocity = m_knockback;
     const bool seeking = m_seek_timer > 0.0f && !panicking;
-    if (panicking) {
-        horizontal_velocity += m_walk_direction * Config::pig_panic_speed;
-    } else if (seeking) {
-        horizontal_velocity += m_seek_dir * Config::pig_walk_speed * 1.8f;
-    } else if (state == Pig_State::Walking) {
-        horizontal_velocity += m_walk_direction * Config::pig_walk_speed;
+    bool nav_jump = false;
+    if (nav && (panicking || seeking || state == Pig_State::Walking)) {
+        glm::vec3 goal = panicking ? m_panic_target : (seeking ? m_seek_target : m_wander_target);
+        if (panicking && glm::length(glm::vec2(goal.x-position.x,goal.z-position.z))<2.5f) {
+            m_panic_target = position + m_walk_direction * 10.0f;
+            goal = m_panic_target;
+        }
+        const auto steer = m_navigation_agent.steer(*nav,chunk_manager,delta_time,position,goal,
+                                                     Config::pig_width,Config::pig_height,Mob_Nav::Travel::Ground,
+                                                     panicking ? 0 : (seeking ? 2 : 4));
+        nav_jump = steer.jump;
+        const float speed = panicking ? Config::pig_panic_speed :
+                            (seeking ? Config::pig_walk_speed*1.8f : Config::pig_walk_speed);
+        horizontal_velocity += steer.direction * speed;
+        if (glm::length(steer.direction)>0.05f)
+            m_mob.set_yaw_degrees(glm::degrees(std::atan2(steer.direction.x,steer.direction.z)));
+    } else {
+        m_navigation_agent.reset();
+        if (panicking) horizontal_velocity += m_walk_direction * Config::pig_panic_speed;
+        else if (seeking) horizontal_velocity += m_seek_dir * Config::pig_walk_speed * 1.8f;
+        else if (state == Pig_State::Walking) horizontal_velocity += m_walk_direction * Config::pig_walk_speed;
     }
     m_knockback *= std::exp(-6.0f * delta_time);
     if (glm::length(m_knockback) < 0.05f) m_knockback = glm::vec3(0.0f);
@@ -267,7 +285,7 @@ void Pig::update(float delta_time, const Chunk_Manager& chunk_manager) {
     }
 
     // Убегая, свинья перепрыгивает уступ в один блок, а не упирается в него.
-    if ((panicking || seeking) && blocked && m_on_ground) {
+    if ((panicking || seeking || state == Pig_State::Walking) && (blocked || nav_jump) && m_on_ground) {
         m_vertical_velocity = 7.0f;
         m_on_ground = false;
     }
@@ -290,4 +308,16 @@ void Pig::update(float delta_time, const Chunk_Manager& chunk_manager) {
 
 void Pig::render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const {
     m_mob.render(shader, view, projection, ambient_intensity);
+}
+
+void Pig::on_nearby_threat(const glm::vec3& attacker, bool witnessed_kill) {
+    if (m_dying) return;
+    const glm::vec3 to = glm::vec3(m_mob.get_position().x - attacker.x, 0.0f, m_mob.get_position().z - attacker.z);
+    if (glm::dot(to, to) < 0.001f) return;
+    m_walk_direction = glm::normalize(to);
+    m_panic_target = m_mob.get_position() + m_walk_direction * (witnessed_kill ? 16.0f : 10.0f);
+    m_panic_timer = std::max(m_panic_timer, witnessed_kill ? Config::pig_panic_seconds * 1.8f : 1.4f);
+    m_seek_timer = 0.0f;
+    m_mob.set_yaw_degrees(glm::degrees(std::atan2(m_walk_direction.x, m_walk_direction.z)));
+    if (m_mob.has_animation("Walk")) m_mob.play_animation("Walk");
 }

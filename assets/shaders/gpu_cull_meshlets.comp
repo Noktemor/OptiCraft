@@ -11,6 +11,9 @@ layout(std430, binding = 1) readonly buffer Bounds { MeshletBounds meshlets[]; }
 layout(std430, binding = 2) writeonly buffer Commands { uvec4 commands[]; };
 // Counts are indexed by GPU kind: [0] solid, [1] shaped, [3] liquid.
 layout(std430, binding = 3) buffer DrawCounts { uint draw_counts[4]; };
+// Counts the quads which survived per-meshlet frustum/Hi-Z rejection.
+// Section-level counts from gpu_cull_commands.comp must not add these a second time.
+layout(std430, binding = 4) buffer Stats { uint stats[]; };
 
 uniform uint u_stream_count;
 uniform uint u_stream_base; // permits batching beyond GL_MAX_COMPUTE_WORK_GROUP_COUNT.x
@@ -22,6 +25,7 @@ uniform vec4 u_frustum_planes[6];
 uniform mat4 u_view_projection;
 uniform vec2 u_viewport_size;
 uniform int u_use_hiz;
+uniform uint u_stats_offset; // 0 = frustum pass, 5 = post-Hi-Z pass
 uniform sampler2D u_hiz;
 
 bool aabb_in_frustum(vec3 box_min, vec3 box_max) {
@@ -136,6 +140,8 @@ void main() {
                 s_group_draw_base = atomicAdd(draw_counts[kind], s_group_visible_count);
             barrier();
         }
+
+        if (visible) atomicAdd(stats[u_stats_offset + 1u], quad_count * 2u);
 
         if (in_range) {
             if (!compact_stream) {

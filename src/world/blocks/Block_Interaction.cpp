@@ -457,7 +457,9 @@ void Block_Interaction::update(float delta_time,
         }
 
         // Предметы (мясо, уголь) — не блоки: в мир они не ставятся.
-        if (m_place_block == Block_Types::Air || get_block_props(m_place_block).is_item) {
+        if (m_place_block == Block_Types::Air || m_place_block == Block_Types::Nether_Portal ||
+            m_place_block == Block_Types::End_Portal || m_place_block == Block_Types::Fire ||
+            get_block_props(m_place_block).is_item) {
             return;
         }
 

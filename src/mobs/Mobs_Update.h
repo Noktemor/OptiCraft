@@ -48,6 +48,7 @@
 #include "entities/hostile/Hostile_Mob.h"
 #include "mobs/Boss.h"
 #include "mobs/Knight_Ai.h"
+#include "mobs/navigation/Navigation_System.h"
 #include "entities/items/Dropped_Item.h"
 #include "entities/effects/Status_Effects.h"
 #include "entities/player/Inventory.h"
@@ -157,6 +158,12 @@ public:
     static bool is_spawn_egg(Block_Types type);
     bool spawn_from_egg(Block_Types type, const glm::vec3& feet, Chunk_Manager& chunks);      // /summon spider
     bool summon_boss(Boss_Kind kind, const glm::vec3& around, Chunk_Manager& chunks); // /boss
+    struct Boss_Bar_Info {
+        std::string name, state;
+        float health = 0.0f, max_health = 1.0f;
+        float distance_squared = 0.0f;
+    };
+    std::vector<Boss_Bar_Info> boss_bars(const glm::vec3& player_position) const;
     // /breed: сразу «влюбляет» взрослых животных вида (pig|cow|sheep|horse). Возвращает число затронутых.
     int breed_all(const std::string& species);
 
@@ -164,6 +171,10 @@ public:
     // Возвращает число мобов, которые получили эффект.
     int splash_potion(const glm::vec3& center, float radius, const Potion_Info& potion);
     // Есть ли живой моб, чьё тело (центр на высоте пояса) ближе radius к point.
+    // Village golems inspect and attack existing hostile mobs without owning them.
+    std::vector<glm::vec3> hostile_positions() const;
+    bool damage_hostile_near(const glm::vec3& from,float radius,float damage);
+    Mob_Nav::System& navigation() {return m_navigation;}
     bool mob_near(const glm::vec3& point, float radius) const;
 
     // --- Отладка (F3+F4) ---------------------------------------------------------------------
@@ -200,6 +211,7 @@ private:
 
     Mob_Result mount(Horse& horse, const Mob_Player_View& player);
 
+    Mob_Nav::System m_navigation; // worker joined in destructor; cleared on dimension switch
     std::vector<std::unique_ptr<Pig>> m_pigs;
     std::vector<std::unique_ptr<Passive_Animal>> m_cows;
     std::vector<std::unique_ptr<Passive_Animal>> m_sheep;
@@ -218,6 +230,13 @@ private:
     std::array<float, 3> m_hostile_respawn_cooldown{0.0f, 0.0f, 0.0f};
     float m_horse_respawn_cooldown = 0.0f;
     float m_attack_cooldown = 0.0f;
+    float m_herd_update_timer = 0.0f;
+    float m_horse_herd_timer = 0.0f;
+    // A single radius query for all peaceful species; no hostility-dependent panic.
+    void notify_peaceful_mobs(const glm::vec3& event_position, const glm::vec3& attacker,
+                              bool killed);
+    void update_herds(float dt);
+    Mob_Hit_Zone m_target_hit_zone = Mob_Hit_Zone::Torso;
 
     // Езда. Указатель на лошадь стабилен, потому что лошади лежат в unique_ptr.
     Horse* m_ridden_horse = nullptr;
@@ -232,6 +251,7 @@ private:
     Horse* m_target_horse = nullptr;
     Hostile_Mob* m_target_hostile = nullptr;
     Boss* m_target_boss = nullptr;
+    int m_target_boss_part = -1;
     Knight_Ai* m_target_knight = nullptr;
 };
 

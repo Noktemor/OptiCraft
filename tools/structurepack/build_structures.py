@@ -57,6 +57,11 @@ def house(name, wood, log, door, width=9,depth=9):
     # Two-block game-native door (bit 3 denotes upper half).
     t.set(width//2,1,0,id(door),0,1)
     t.set(width//2,2,0,id(door),8,1)
+    # Every generated cottage is a usable home: bed, torch and an entrance.
+    t.set(2,1,3,id("White Bed"),0)
+    t.set(1,2,2,id("Torch"),0)
+    # Every profession has a physical job site. Additional jobs are craftable.
+    t.set(width-3,1,3,id("Lectern" if name=="Cottage_Birch" else "Fletching Table"))
     return t
 
 def farm():
@@ -73,6 +78,7 @@ def farm():
     for x in range(11):
         for z in (0,10): t.set(x,1,z,id('Oak Fence'))
     t.set(5,1,0,AIR)
+    t.set(0,1,5,id("Composter"))
     return t
 
 def well():

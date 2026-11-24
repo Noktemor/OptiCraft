@@ -72,6 +72,8 @@ Raycast_Hit Raycast::cast(const glm::vec3& origin,
             box_hit = false;
             Shape_Box boxes[16];
             uint8_t shape_meta = chunk_manager.get_block_meta_world(x, y, z);
+            if (props.shape == Block_Shape::Button && chunk_manager.get_block_world(x, y, z) == Block_Types::Button_Pressed)
+                shape_meta |= Block_Meta::active_bit;
             if (props.shape == Block_Shape::Stairs) {
                 static constexpr glm::ivec3 dirs[4] = {{0,0,-1},{1,0,0},{0,0,1},{-1,0,0}};
                 const uint8_t facing = static_cast<uint8_t>(shape_meta & 3u);

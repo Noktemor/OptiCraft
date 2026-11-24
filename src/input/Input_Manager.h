@@ -43,6 +43,7 @@ private:
 
 public:
     Input_Manager(GLFWwindow* window_ptr);
+    void rebind_window(GLFWwindow* window_ptr);
 
     void update(); // Вызывать каждый кадр
 

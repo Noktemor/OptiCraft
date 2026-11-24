@@ -24,6 +24,7 @@ layout(std430, binding = 6) buffer DrawMetadata {
 };
 
 uniform uint u_candidate_count;
+uniform uint u_stats_offset; // 0 = frustum, 5 = post-current-frame Hi-Z
 uniform int u_mesh_mode; // 0 DrawArraysIndirect, 1 EXT task, 2 NV task
 uniform vec4 u_frustum_planes[6];
 uniform mat4 u_view_projection;
@@ -171,8 +172,8 @@ void main() {
         if (liquid_reachable) liquid_frustum_visible_mask |= section_bit;
     }
 
-    if (culled_sections != 0u) atomicAdd(stats[3], culled_sections);
-    if (occluded_sections != 0u) atomicAdd(stats[4], occluded_sections);
+    if (culled_sections != 0u) atomicAdd(stats[u_stats_offset + 3u], culled_sections);
+    if (occluded_sections != 0u) atomicAdd(stats[u_stats_offset + 4u], occluded_sections);
 
     bool chunk_rendered = false;
     uint chunk_triangles = 0u;
@@ -191,7 +192,8 @@ void main() {
                     (hiz_occluded_mask & section_bit) == 0u &&
                     (section_kinds & (1u << kind)) != 0u && quad_count != 0u;
                 if (visible) {
-                    chunk_triangles += quad_count * 2u;
+                    // The fine-grained Meshlet pass owns the submitted-triangle count.
+                    // Counting the entire section here ignores meshlets removed by Hi-Z.
                     opaque_sections_mask |= section_bit;
                     chunk_rendered = true;
                 }
@@ -260,7 +262,10 @@ void main() {
             }
 
             if (visible) {
-                chunk_triangles += quad_count * 2u;
+                // Meshlet mode draws solid/shaped/liquid from its own indirect lists.
+                // Only flora (kind 2) is still drawn by the standard section lists.
+                if (u_meshlet_enabled == 0 || kind == 2u)
+                    chunk_triangles += quad_count * 2u;
                 if (kind <= KIND_SHAPED) {
                     opaque_sections_mask |= section_bit;
                     chunk_rendered = true;
@@ -269,10 +274,10 @@ void main() {
         }
     }
 
-    if (chunk_rendered) atomicAdd(stats[0], 1u);
-    if (chunk_triangles != 0u) atomicAdd(stats[1], chunk_triangles);
+    if (chunk_rendered) atomicAdd(stats[u_stats_offset + 0u], 1u);
+    if (chunk_triangles != 0u) atomicAdd(stats[u_stats_offset + 1u], chunk_triangles);
     uint opaque_sections = 0u;
     for (uint section = 0u; section < SECTION_COUNT; ++section)
         if ((opaque_sections_mask & (1u << section)) != 0u) ++opaque_sections;
-    if (opaque_sections != 0u) atomicAdd(stats[2], opaque_sections);
+    if (opaque_sections != 0u) atomicAdd(stats[u_stats_offset + 2u], opaque_sections);
 }

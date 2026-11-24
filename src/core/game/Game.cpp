@@ -43,8 +43,35 @@
 #include "world/storage/Region_File.h"
 #include "entities/effects/Status_Effects.h"
 #include <optional>
+#include <string_view>
 #include <iomanip>
 #include <limits>
+#include <chrono>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
+// F3 diagnostics: reading /proc every frame is unnecessary at high FPS.
+static float process_rss_mib() {
+#if defined(__linux__)
+    static auto last_sample = std::chrono::steady_clock::time_point{};
+    static float last_mib = -1.0f;
+    const auto now = std::chrono::steady_clock::now();
+    if (last_sample != std::chrono::steady_clock::time_point{} &&
+        now - last_sample < std::chrono::seconds(1)) return last_mib;
+    last_sample = now;
+    std::ifstream statm("/proc/self/statm");
+    unsigned long total_pages = 0, resident_pages = 0;
+    if (statm >> total_pages >> resident_pages) {
+        const long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size > 0) last_mib = static_cast<float>(
+            static_cast<double>(resident_pages) * static_cast<double>(page_size) / (1024.0 * 1024.0));
+    }
+    return last_mib;
+#else
+    return -1.0f;
+#endif
+}
 
 static Block_Types Game_Leaf_Sapling(Block_Types leaves);
 
@@ -86,7 +113,12 @@ bool Game::initialize() {
         Config::default_window_title
     );
 
-    if (!m_window_ptr->initialize()) {
+    bool try_vulkan = false;
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    const char* renderer = std::getenv("OPTICRAFT_RENDERER");
+    try_vulkan = !renderer || std::string_view(renderer) != "opengl";
+#endif
+    if (!m_window_ptr->initialize(try_vulkan)) {
         LOG_ERROR("Failed to initialize window");
         return false;
     }
@@ -128,6 +160,8 @@ bool Game::initialize() {
     // конструируется при первом обращении) — важно сделать это ПОСЛЕ атласов выше.
     Block_Registry::get_instance();
 
+
+
     // Preload the immutable tree template archive before any chunk workers begin.
     // Generation/plant growth read it without I/O or locking; missing/corrupt archive
     // automatically uses the existing procedural Tree_Generator implementation.
@@ -152,6 +186,25 @@ bool Game::initialize() {
     }
 
     load_options();
+    bool selected_vulkan = false;
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if (m_window_ptr->vulkan_candidate()) {
+        try {
+            m_vulkan_game_mirror = std::make_unique<OptiCraft::Vulkan::VulkanGameMirror>();
+            m_vulkan_game_mirror->initialize(m_window_ptr->vulkan_candidate(), Block_Registry::get_instance());
+            set_vulkan_chunk_sink(m_vulkan_game_mirror->uploadSink(),m_vulkan_game_mirror->evictSink());
+            m_hud_ptr->set_ui_sink([this](std::span<const Hud::Ui_Vertex> v,bool blocks){m_vulkan_game_mirror->submitUi(v,blocks);});
+            selected_vulkan = true;
+            LOG_INFO("Primary renderer: Vulkan");
+        } catch (const std::exception& e) {
+            LOG_WARN(std::string("Vulkan initialization failed, using OpenGL: ")+e.what());
+            m_hud_ptr->set_ui_sink({});set_vulkan_chunk_sink({},{});m_vulkan_game_mirror.reset();
+        }
+    }
+#endif
+    m_window_ptr->select_vulkan(selected_vulkan);
+    m_input_ptr->rebind_window(m_window_ptr->get_glfw_ptr());
+    if (!selected_vulkan) LOG_INFO("Primary renderer: OpenGL");
 
     // Мир не создаётся при старте: игрок сначала выбирает/создаёт его в меню.
     m_application_ptr = std::make_unique<Application>(*this);
@@ -220,7 +273,21 @@ void Game::run() {
         m_last_update_cpu_ms = static_cast<float>((glfwGetTime() - update_begin) * 1000.0);
 
         const double render_begin = glfwGetTime();
-        { OC_ZONE("Frame: render submission"); m_application_ptr->render(); }
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+        if (m_vulkan_game_mirror) m_vulkan_game_mirror->beginGameFrame();
+        try {
+#endif
+            { OC_ZONE("Frame: render submission"); m_application_ptr->render(); }
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+            if (m_vulkan_game_mirror) m_vulkan_game_mirror->present();
+        } catch (const std::exception& e) {
+            if (!m_vulkan_game_mirror) throw;
+            LOG_WARN(std::string("Vulkan frame failed, switching to OpenGL: ")+e.what());
+            switch_to_opengl();
+            // Rebuild the frame through the old renderer before showing the fallback frame.
+            m_application_ptr->render();
+        }
+#endif
         m_last_render_cpu_ms = static_cast<float>((glfwGetTime() - render_begin) * 1000.0);
         OC_PLOT("Frame CPU ms", raw_frame_ms);
         OC_PLOT("Update CPU ms", m_last_update_cpu_ms);
@@ -228,7 +295,7 @@ void Game::run() {
 
         // Отладочный хук для автоматических скриншотов: если задана OPTICRAFT_SHOT_REQUEST и
         // такой файл существует, в нём лежит путь, куда сохранить кадр (PPM).
-        if (const char* request = std::getenv("OPTICRAFT_SHOT_REQUEST")) {
+        if (const char* request = std::getenv("OPTICRAFT_SHOT_REQUEST"); request && !m_window_ptr->is_vulkan()) {
             std::ifstream in(request);
             std::string target;
             if (in && std::getline(in, target) && !target.empty()) {
@@ -417,6 +484,7 @@ Hud_Inventory_Slot make_hud_slot(const Item_Stack& stack, bool infinite_stack = 
             case Block_Shape::Door:
             case Block_Shape::Trapdoor:
             case Block_Shape::PressurePlate:
+            case Block_Shape::Button:
             case Block_Shape::Bed:
             case Block_Shape::TorchPost:
             case Block_Shape::LeverPost:
@@ -711,8 +779,9 @@ bool Game::create_world(const std::string& name, const std::string& seed_text, G
 }
 
 void Game::teardown_world() {
+    m_vulkan_chunk_feed.clear();
     if (m_mobs.is_riding()) apply_mob_result(m_mobs.dismount(false, mob_view(), Mob_Blocked_Fn()));
-    if (m_container_session.is_open()) close_container();
+    if (is_container_open()) close_container();
     m_chat_open = false;
     m_chat_input.clear();
     // Pending portals belong to the world being closed, never to the next save.
@@ -721,7 +790,13 @@ void Game::teardown_world() {
     m_dimension_landing = false;
     m_portal_contact_time = 0.f;
     m_portal_cooldown = 0.f;
+    m_portal_exit_lock = false;
+    m_destination_site_to_validate.reset();
+    m_pending_portal_delay = 0.f;
+    m_fire.clear();
+    m_portal_links.clear();
     m_mobs.clear();
+    m_villages.clear();
     m_crops_ptr.reset();
     m_saplings_ptr.reset();
     m_iso_capture_ptr.reset(); // до Chunk_Manager: снимок держит на него ссылку
@@ -729,6 +804,7 @@ void Game::teardown_world() {
         m_chunk_manager_ptr->clear(); // сохраняет изменённые чанки
         for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
             m_renderer_ptr->invalidate_chunk_cache(position);
+        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
         }
         m_chunk_manager_ptr.reset();
     }
@@ -739,7 +815,7 @@ void Game::teardown_world() {
     m_player_ptr.reset();
 }
 
-void Game::save_world() {
+void Game::save_world(bool flush_chunks) {
     if (!m_chunk_manager_ptr || !m_player_ptr) return;
     m_world_settings.generation_folder = m_generation_folder;
     m_world_settings.game_mode = m_game_mode == Game_Mode::Survival ? "survival" : (m_spectator ? "spectator" : "creative");
@@ -751,13 +827,23 @@ void Game::save_world() {
     m_world_settings.player_z = p.z;
     m_dimension_positions[m_world_settings.dimension] = p;
     save_dimension_positions();
+    {
+        std::ofstream portals(m_world_file.get_path().parent_path() / "portal_sites.txt", std::ios::trunc);
+        if (portals) m_portal_links.save(portals);
+        std::ofstream fires(dimension_data_file("fires"), std::ios::trunc);
+        if (fires) m_fire.save(fires);
+    }
     // Замороженное (Fixed) время не пишем: оно не принадлежит миру и не должно затирать сохранённое.
     if (!m_day_night_cycle.is_frozen()) {
         m_world_settings.day_time = m_day_night_cycle.get_normalized_time();
         m_world_settings.day_count = m_day_night_cycle.get_day_count();
     }
+    if (m_world_settings.dimension == "overworld") {
+        std::ofstream citizens(dimension_data_file("villagers"),std::ios::trunc);
+        if(citizens) citizens << m_villages.serialize();
+    }
     m_world_file.save(m_world_settings);
-    m_chunk_manager_ptr->save_all();
+    if (flush_chunks) m_chunk_manager_ptr->save_all();
     if (m_inventory_ptr) {
         m_inventory_ptr->drop_carried_into_inventory(); // курсор и сетка крафта возвращаются в сумку
         std::ofstream inv(m_world_file.get_path().parent_path() / "inventory.txt", std::ios::trunc);
@@ -836,6 +922,7 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
             m_crops_ptr->deserialize(text);
         }
     }
+    load_dimension_fire();
     m_saplings_ptr = std::make_unique<Sapling_Manager>();
     m_block_interaction_ptr->set_sapling_manager(m_saplings_ptr.get());
     {
@@ -870,6 +957,7 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
     m_enchant_seed = 0x5A19F37Bu;
     m_chat_log.clear();
     m_mobs.reset_timers();
+    load_villagers();
     m_tick.reset();
     // Цикл принадлежит измерению: там, где время не идёт (Fixed), оно заморожено на своей отметке,
     // иначе — идёт и восстанавливается из world.json.
@@ -947,6 +1035,12 @@ bool Game::is_caret_visible() const {
 }
 
 void Game::clear_menu_frame() {
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if (m_vulkan_game_mirror) {
+        m_vulkan_game_mirror->setMenuClear({Config::clear_color_r, Config::clear_color_g, Config::clear_color_b});
+        return;
+    }
+#endif
     m_renderer_ptr->clear_screen(Config::clear_color_r, Config::clear_color_g, Config::clear_color_b);
 }
 
@@ -1062,6 +1156,7 @@ void Game::draw_inventory_overlay() {
 
 // Модель игрока в окне инвентаря: своя камера, поворот покачивается. Рисуется поверх плоской рамки.
 void Game::draw_inventory_model_preview(const Hud_Panel_Layout& layout) {
+    if (m_window_ptr->is_vulkan()) return; // GL model preview not yet ported
     Shader* mob_shader = m_renderer_ptr->get_mob_shader();
     if (!mob_shader) return;
     const int w = m_window_ptr->get_width(), h = m_window_ptr->get_height();
@@ -1213,7 +1308,53 @@ Game::Panel_View Game::build_container_panel() const {
     return v;
 }
 
+void Game::load_villagers() {
+    m_villages.clear();
+    if(m_world_settings.dimension!="overworld") return;
+    std::ifstream in(dimension_data_file("villagers"));
+    if(!in)return;
+    const std::string saved{std::istreambuf_iterator<char>(in),std::istreambuf_iterator<char>()};
+    m_villages.deserialize(saved);
+}
+
+Game::Panel_View Game::build_trade_panel() const {
+    Panel_View v;
+    const Village_System::Resident* resident=m_villages.trader();
+    if(!resident)return v;
+    v.title=std::string("Trade - ")+Village::name(resident->profession);
+    v.layout.size={176.0f,200.0f};
+    v.layout.labels.push_back({"Offers",{8.0f,8.0f}});
+    const auto offers=Village::offers(resident->profession);
+    for(int n=0;n<3;++n) {
+        const auto offer=offers[static_cast<size_t>(n)];
+        if(offer.cost==0 || offer.result==0)continue;
+        const float y=22.0f+n*25.0f;
+        v.layout.slots.push_back({{22.0f,y},600+n,false});
+        v.slots.push_back(make_hud_slot(Item_Stack{static_cast<Block_Types>(offer.cost),offer.cost_count}));
+        v.layout.labels.push_back({"=>",{92.0f,y+4.0f}});
+        v.layout.slots.push_back({{128.0f,y},700+n,true});
+        v.slots.push_back(make_hud_slot(Item_Stack{static_cast<Block_Types>(offer.result),offer.result_count}));
+    }
+    v.layout.labels.push_back({"Inventory",{8.0f,102.0f}});
+    // Trade slots don't store player items. The inventory remains the same 36 slots.
+    Panel_Layouts::append_player_slots(v.layout,8.0f,114.0f,172.0f,true,1000,k_hotbar_start);
+    for(size_t index=0;index<Inventory::k_panel_slot_count;++index)
+        v.slots.push_back(make_hud_slot(m_inventory_ptr->get_panel_slot(index)));
+    return v;
+}
+
 void Game::draw_container_overlay() {
+    if(m_villages.trade_open()) {
+        const Panel_View v=build_trade_panel();
+        const glm::vec2 cursor=get_cursor_position();
+        const int w=m_window_ptr->get_width(),h=m_window_ptr->get_height();
+        const int hovered=Hud::get_panel_slot_at(w,h,v.layout,cursor.x,cursor.y);
+        const Item_Stack carried=m_inventory_ptr->get_carried_stack();
+        const Hud_Inventory_Slot carried_slot=make_hud_slot(carried);
+        m_hud_ptr->draw_panel_screen(w,h,m_renderer_ptr->get_texture_atlas(),v.layout,v.slots,hovered,
+            carried.is_empty()?nullptr:&carried_slot,cursor.x,cursor.y,v.title);
+        return;
+    }
     if (!m_container_session.is_open()) return;
     const Panel_View v = build_container_panel();
     const glm::vec2 cursor = get_cursor_position();
@@ -1227,6 +1368,27 @@ void Game::draw_container_overlay() {
 }
 
 void Game::container_click(bool right) {
+    if(m_villages.trade_open()) {
+        const Panel_View v=build_trade_panel();
+        const glm::vec2 cursor=get_cursor_position();
+        const int index=Hud::get_panel_slot_at(m_window_ptr->get_width(),m_window_ptr->get_height(),
+            v.layout,cursor.x,cursor.y);
+        if(index<0)return;
+        const int id=v.layout.slots[static_cast<size_t>(index)].id;
+        if(id>=700 && id<703) {
+            std::string feedback;
+            m_villages.trade(id-700,*m_inventory_ptr,feedback);
+            if(!feedback.empty())push_chat_message(feedback);
+        } else if(id>=1000 && id<1000+static_cast<int>(Inventory::k_panel_slot_count)) {
+            const size_t slot=static_cast<size_t>(id-1000);
+            const bool shift=!right && (m_input_ptr->is_key_held(GLFW_KEY_LEFT_SHIFT) ||
+                                        m_input_ptr->is_key_held(GLFW_KEY_RIGHT_SHIFT));
+            if(shift)m_inventory_ptr->quick_move_panel(slot);
+            else if(right)m_inventory_ptr->right_click_panel_slot(slot);
+            else m_inventory_ptr->click_panel_slot(slot);
+        }
+        return;
+    }
     if (!m_container_session.is_open()) return;
     const Panel_View v = build_container_panel();
     const glm::vec2 cursor = get_cursor_position();
@@ -1277,6 +1439,8 @@ void Game::container_click(bool right) {
 }
 
 void Game::close_container() {
+    m_villages.close_trade();
+    m_inventory_ptr->drop_carried_into_inventory();
     m_container_session.close(*m_inventory_ptr);
     m_open_container_paired = nullptr;
 }
@@ -1294,6 +1458,7 @@ bool Game::is_camera_underwater() const {
 }
 
 void Game::reload_world(const std::string& generation_folder) {
+    m_vulkan_chunk_feed.clear();
     // A reload destroys the chunk namespace. Do not let old pending edits survive it.
     m_pending_portal_type.clear();
     m_pending_command_portal_type.clear();
@@ -1301,11 +1466,20 @@ void Game::reload_world(const std::string& generation_folder) {
     int spawn_x = static_cast<int>(std::floor(player_pos.x));
     int spawn_z = static_cast<int>(std::floor(player_pos.z));
 
+    // Quiesce generation/meshing/disk-reader threads before releasing old
+    // dimension data. clear() cannot safely race with workers from the old world.
+    LOG_INFO("World reload: waiting for old streaming workers");
+    m_chunk_manager_ptr->prepare_for_reload();
+    LOG_INFO("World reload: old workers stopped; flushing changed chunks");
     m_chunk_manager_ptr->clear();
+    LOG_INFO("World reload: old chunks cleared; invalidating render caches");
     m_mobs.clear();
+    m_villages.clear();
+    load_villagers();
     m_mobs.reset_timers();
     m_logic = Logic_Manager{};
     m_logic_scan_timer = 0.0f;
+    load_dimension_fire();
     m_crops_ptr = std::make_unique<Crop_Manager>();
     m_saplings_ptr = std::make_unique<Sapling_Manager>();
     m_block_interaction_ptr->set_crop_manager(m_crops_ptr.get());
@@ -1326,6 +1500,7 @@ void Game::reload_world(const std::string& generation_folder) {
     if (m_dropped_items_ptr) m_dropped_items_ptr->clear();
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
         m_renderer_ptr->invalidate_chunk_cache(position);
+        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
     }
     m_chunk_manager_ptr.reset();
     m_world_generator = std::make_unique<World_Generator>(generation_folder, m_world_settings.seed,
@@ -1341,6 +1516,7 @@ void Game::reload_world(const std::string& generation_folder) {
     m_chunk_manager_ptr->set_world_generator(*m_world_generator);
     m_chunk_manager_ptr->set_texture_atlas(m_renderer_ptr->get_texture_atlas());
     m_chunk_manager_ptr->set_world_storage(m_world_file, m_world_generator->get_storage_key());
+    LOG_INFO("World reload: new generator and streaming workers created");
 
     // Игрок остаётся в своей колонке; в мире без земли find_spawn_surface сдвинет его к ближайшему острову.
     const int spawn_y = m_world_generator->find_spawn_surface(spawn_x, spawn_z) + 2;
@@ -1402,9 +1578,43 @@ void Game::register_tick_systems() {
         OC_ZONE("Tick::fluids");
         m_chunk_manager_ptr->update_fluids(dt);
     });
+    m_tick.add("fire", Phase::Simulate, 15, [this](float dt) {
+        OC_ZONE("Tick::fire");
+        m_fire.tick(dt, *m_chunk_manager_ptr);
+        m_fire_damage_timer -= dt;
+        if (m_fire_damage_timer > 0.f || m_dimension_landing) return;
+        m_fire_damage_timer = 1.f;
+        if (m_game_mode == Game_Mode::Survival && m_player_ptr->is_alive()) {
+            const glm::ivec3 feet(glm::floor(m_player_ptr->get_position()));
+            if (m_chunk_manager_ptr->get_block_world(feet.x, feet.y, feet.z) == Block_Types::Fire ||
+                m_chunk_manager_ptr->get_block_world(feet.x, feet.y + 1, feet.z) == Block_Types::Fire)
+                m_player_ptr->take_damage(1);
+        }
+        // Only nearby active flames need to affect live mobs. This is deliberately
+        // bounded: fire never performs a world-wide entity sweep every frame.
+        m_fire.for_each_near(m_player_ptr->get_position(), 16.f, 16,
+            [this](const glm::vec3& flame) {
+                m_mobs.damage_in_radius(flame, 1.15f, 2.f);
+            });
+    });
     m_tick.add("mobs", Phase::Simulate, 20, [this](float dt) {
         OC_ZONE("Tick::mobs");
         apply_mob_result(m_mobs.update_tick(dt, mob_view(), *m_chunk_manager_ptr));
+    });
+    m_tick.add("villages", Phase::Simulate, 24, [this](float dt) {
+        if (m_world_settings.dimension != "overworld" || m_dimension_landing) return;
+        const auto hostiles=m_mobs.hostile_positions();
+        const auto village_result=m_villages.tick(dt,m_player_ptr->get_position(),
+            m_day_night_cycle.get_normalized_time()>=Config::night_start_normalized,
+            *m_chunk_manager_ptr,m_mobs.navigation(),hostiles,
+            [this](const glm::vec3& from,float radius,float damage) {
+                return m_mobs.damage_hostile_near(from,radius,damage);
+            });
+        if(m_game_mode==Game_Mode::Survival && m_player_ptr->is_alive() && village_result.player_damage>0) {
+            Mob_Result damage;
+            damage.player_damage=village_result.player_damage;
+            apply_mob_result(damage);
+        }
     });
     m_tick.add("crops", Phase::Simulate, 30, [this](float dt) {
         OC_ZONE("Tick::crops");
@@ -1589,6 +1799,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
 
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
         m_renderer_ptr->invalidate_chunk_cache(position);
+        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
     }
 
     if (!player_actions) return;
@@ -1596,7 +1807,12 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
     const glm::vec3 eye = m_camera_ptr->get_position();
     m_block_interaction_ptr->set_place_block(m_inventory_ptr->get_selected_block());
     // Ближайшее животное на луче взгляда (логика — в Mobs_Update::aim).
-    const float entity_distance = m_mobs.aim(eye, m_camera_ptr->get_front());
+    const float mob_distance = m_mobs.aim(eye,m_camera_ptr->get_front());
+    const float villager_distance = m_world_settings.dimension == "overworld"
+        ? m_villages.aim(eye,m_camera_ptr->get_front(),Config::player_attack_reach) : -1.0f;
+    const bool village_target = villager_distance>=0 &&
+        (mob_distance<0 || villager_distance<=mob_distance);
+    const float entity_distance = village_target ? villager_distance : mob_distance;
 
     { OC_ZONE("Gameplay::block interaction"); m_block_interaction_ptr->update(
         delta_time,
@@ -1615,8 +1831,17 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
     // interfere with ordinary block placing or portal raycast physics.
     const Block_Types portal_item = m_inventory_ptr->get_selected_block();
     if (m_input_ptr->is_mouse_button_pressed(1) && m_player_ptr->is_alive()) {
-        if (portal_item == Block_Types::Flint_And_Steel) {
-            if (ignite_nether_portal() && m_game_mode == Game_Mode::Survival)
+        if (portal_item == Block_Types::Lighter || portal_item == Block_Types::Flint_And_Steel) {
+            const Raycast_Hit hit = Raycast::cast(eye, m_camera_ptr->get_front(), 6.0f,
+                                                 *m_chunk_manager_ptr);
+            const bool portal_lit = hit.hit && hit.block_type == Block_Types::Obsidian &&
+                                    ignite_nether_portal();
+            bool fire_lit = false;
+            if (!portal_lit && portal_item == Block_Types::Lighter && hit.hit) {
+                fire_lit = m_fire.ignite(glm::ivec3(hit.place_x, hit.place_y, hit.place_z),
+                                         *m_chunk_manager_ptr);
+            }
+            if ((portal_lit || fire_lit) && m_game_mode == Game_Mode::Survival)
                 m_inventory_ptr->damage_selected_tool(1);
         } else if (portal_item == Block_Types::Eye_Of_Ender) {
             const Raycast_Hit hit = Raycast::cast(eye, m_camera_ptr->get_front(), 6.0f,
@@ -1675,7 +1900,15 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
     mob_input.held_stack = m_inventory_ptr->get_selected_stack();
     mob_input.player = mob_view();
     mob_input.chat = [this](const std::string& text) { push_chat_message(text); };
-    apply_mob_result(m_mobs.interact(mob_input, *m_dropped_items_ptr));
+    if(village_target && mob_input.block_targets_entity) {
+        std::string feedback;
+        const bool used=m_villages.interact(mob_input.right_click,mob_input.left_click,
+            mob_input.player.position,mob_input.held_stack,mob_input.survival,feedback);
+        if(used) {
+            m_block_interaction_ptr->cancel_actions();
+            if(!feedback.empty())push_chat_message(feedback);
+        }
+    } else apply_mob_result(m_mobs.interact(mob_input,*m_dropped_items_ptr));
 
     // Сломанные блоки -> выпавшие предметы (содержимое контейнеров снято ещё до удаления блока).
     for (const Broken_Block_Event& event : m_block_interaction_ptr->take_broken_blocks()) {
@@ -1775,24 +2008,41 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     }
     // Если включено сглаживание или зерно, мир рисуется в промежуточный буфер; до хотбара (он — поверх
     // постобработки) буфер сворачивается в кадр.
-    const bool scene_is_post_processed = m_renderer_ptr->begin_scene(m_window_ptr->get_width(),
+    const bool vulkan = m_window_ptr->is_vulkan();
+    const bool scene_is_post_processed = !vulkan && m_renderer_ptr->begin_scene(m_window_ptr->get_width(),
                                                                      m_window_ptr->get_height());
 
     glm::vec3 sky_color = m_weather.apply_to_sky(m_day_night_cycle.get_sky_color());
     const std::string& active_dimension = m_world_settings.dimension;
     if (active_dimension == "nether") sky_color = glm::vec3(0.115f, 0.033f, 0.034f);
     else if (active_dimension == "end") sky_color = glm::vec3(0.044f, 0.033f, 0.082f);
-    m_renderer_ptr->clear_screen(sky_color.r, sky_color.g, sky_color.b);
+    if (!vulkan) m_renderer_ptr->clear_screen(sky_color.r, sky_color.g, sky_color.b);
 
     const float aspect_ratio = static_cast<float>(m_window_ptr->get_width()) /
                                static_cast<float>(m_window_ptr->get_height());
 
     const auto view = m_camera_ptr->get_view_matrix();
     const auto projection = m_camera_ptr->get_projection_matrix(aspect_ratio);
-    const Frustum frustum(projection * view);
     const glm::vec3 camera_position = m_camera_ptr->get_position();
-    const auto renderable = m_chunk_manager_ptr->get_renderable_chunks(
-        &frustum, &camera_position, m_renderer_ptr->get_flora_render_distance(), m_spectator);
+    std::vector<Renderable_Chunk> gl_renderable;
+    if (!vulkan) {
+        const Frustum frustum(projection * view);
+        gl_renderable = m_chunk_manager_ptr->get_renderable_chunks(
+            &frustum, &camera_position, m_renderer_ptr->get_flora_render_distance(), m_spectator);
+    }
+    const auto& renderable = vulkan ? m_chunk_manager_ptr->get_vulkan_resident_chunks() : gl_renderable;
+    // Real Game -> Vulkan chunk stream. No duplicate frustum query or CPU meshing.
+    if (m_vulkan_chunk_feed.active()) {
+        m_vulkan_chunk_feed.setPriorityCenter({
+            static_cast<int32_t>(std::floor(double(camera_position.x) / Config::chunk_size)),
+            static_cast<int32_t>(std::floor(double(camera_position.y) / Config::chunk_height)),
+            static_cast<int32_t>(std::floor(double(camera_position.z) / Config::chunk_size))});
+        m_vulkan_chunk_feed.acceptFrame(renderable, *m_chunk_manager_ptr);
+    }
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if (m_vulkan_game_mirror) m_vulkan_game_mirror->setWorld(projection * view,sky_color);
+#endif
+    if (!vulkan) {
 
     if (active_dimension != "nether" && active_dimension != "end") m_renderer_ptr->draw_sky(
         camera_position,
@@ -1812,6 +2062,8 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     const auto draw_mobs = [this, &view, &projection]() {
         if (Shader* mob_shader = m_renderer_ptr->get_mob_shader()) {
             m_mobs.render(*mob_shader, view, projection, scene_ambient());
+            if(m_world_settings.dimension=="overworld")
+                m_villages.render(*mob_shader,view,projection,scene_ambient());
             // Тело игрока: видно при взгляде вниз (голова скрыта, см. Player_Model).
             if (m_player_ptr->is_alive()) {
                 m_player_model.render_world(*mob_shader, view, projection, scene_ambient());
@@ -1828,6 +2080,8 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     m_dropped_items_ptr->build_mesh(m_dropped_items_mesh, *m_chunk_manager_ptr);
     m_renderer_ptr->render_dropped_items(m_dropped_items_mesh, view, projection,
                                          scene_ambient());
+
+    } // legacy GL world, entities and dropped-item passes
 
     // Подводный фильтр рисуется ДО виньетки, чтобы затемнение краёв ложилось
     // поверх синевы, а не наоборот.
@@ -1870,6 +2124,12 @@ void Game::render_gameplay(bool show_gameplay_hud) {
     }
 
     if (show_gameplay_hud) {
+        const auto boss_bars = m_mobs.boss_bars(m_player_ptr->get_position());
+        for (size_t i=0; i<boss_bars.size(); ++i) {
+            const auto& bar=boss_bars[i];
+            m_hud_ptr->draw_boss_bar(m_window_ptr->get_width(),m_window_ptr->get_height(),
+                                     bar.name,bar.health,bar.max_health,bar.state,static_cast<int>(i));
+        }
         m_hud_ptr->draw_crosshair(m_window_ptr->get_width(), m_window_ptr->get_height(),
                                   m_block_interaction_ptr->has_target());
         // Сердца и ножки — только в Survival (в Creative игрок неуязвим и не голодает).
@@ -1918,10 +2178,12 @@ void Game::render_gameplay(bool show_gameplay_hud) {
         stats.seed = m_world_settings.seed;
         stats.generation_folder = m_generation_folder;
         stats.chunks_loaded = m_chunk_manager_ptr->get_loaded_count();
+        stats.process_rss_mib = process_rss_mib();
         stats.chunks_rendered = m_renderer_ptr->get_last_rendered_chunk_count();
         stats.triangles_rendered = m_renderer_ptr->get_last_rendered_triangle_count();
         stats.sections_rendered = m_renderer_ptr->get_last_rendered_section_count();
         stats.sections_culled = m_renderer_ptr->get_last_culled_section_count();
+        stats.sections_occluded = m_renderer_ptr->get_last_occluded_section_count();
         stats.is_flying = m_player_ptr->is_flying();
         stats.day_night_normalized_time = m_day_night_cycle.get_normalized_time();
         stats.biome_name = m_world_generator->get_biome_name(
@@ -1966,6 +2228,7 @@ void Game::render_gameplay(bool show_gameplay_hud) {
 //  Изометрический снимок мира (F7)
 // ============================================================================
 bool Game::start_iso_capture() {
+    if (m_window_ptr && m_window_ptr->is_vulkan()) return false; // capture pipeline is GL-only
     if (!m_chunk_manager_ptr || !m_player_ptr || !m_renderer_ptr) return false;
     if (m_iso_capture_ptr) {
         // Предыдущий PNG ещё пишется в фоне — второй снимок параллельно не начинаем.
@@ -2050,6 +2313,17 @@ void Game::log_stats() {
     std::cout << "=============\n\n";
 }
 
+void Game::switch_to_opengl() {
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if (!m_vulkan_game_mirror) return;
+    if(m_hud_ptr)m_hud_ptr->set_ui_sink({});
+    set_vulkan_chunk_sink({},{});
+    m_vulkan_game_mirror.reset();
+    m_window_ptr->select_vulkan(false);
+    m_input_ptr->rebind_window(m_window_ptr->get_glfw_ptr());
+#endif
+}
+
 void Game::shutdown() {
     if (m_is_shutdown) {
         return;
@@ -2059,9 +2333,16 @@ void Game::shutdown() {
     LOG_INFO("Shutting down...");
     m_is_running = false;
     save_world();
-    save_options();
+    if (m_input_ptr) save_options();
 
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    // Detach callbacks BEFORE releasing GPU buffers or the window.
+    if (m_hud_ptr) m_hud_ptr->set_ui_sink({});
+    set_vulkan_chunk_sink({}, {});
+    m_vulkan_game_mirror.reset();
+#endif
     m_application_ptr.reset();
+        m_villages.clear();
         m_mobs.shutdown();  // мобы держат GL-ресурсы: очищаются до GL-контекста (см. Mobs_Update.h)
     m_hud_ptr.reset();
     m_block_interaction_ptr.reset();
@@ -2422,8 +2703,39 @@ std::filesystem::path Game::dimension_data_file(const char* basename) const {
     return m_world_file.get_path().parent_path() / (std::string(basename) + suffix + ".txt");
 }
 
+void Game::load_dimension_fire() {
+    m_fire.clear();
+    std::ifstream fires(dimension_data_file("fires"));
+    if (fires) m_fire.load(fires);
+    m_fire_damage_timer = 0.f;
+}
+
+void Game::remember_touched_nether_portal(const glm::ivec3& cell) {
+    if (!m_chunk_manager_ptr) return;
+    auto is_portal = [this](int x, int y, int z) {
+        return m_chunk_manager_ptr->get_block_world(x, y, z) == Block_Types::Nether_Portal;
+    };
+    int bottom_y = cell.y;
+    while (bottom_y > Config::world_min_y && is_portal(cell.x, bottom_y - 1, cell.z)) --bottom_y;
+    bool along_z = is_portal(cell.x, bottom_y, cell.z + 1) ||
+                   is_portal(cell.x, bottom_y, cell.z - 1);
+    int inner_x = cell.x, inner_z = cell.z;
+    if (along_z) {
+        if (is_portal(cell.x, bottom_y, cell.z - 1)) --inner_z;
+    } else if (is_portal(cell.x - 1, bottom_y, cell.z)) --inner_x;
+    m_portal_links.remember({m_world_settings.dimension,
+                             glm::ivec3(inner_x, bottom_y - 1, inner_z), along_z, false});
+}
+
 void Game::load_dimension_positions() {
     m_dimension_positions.clear();
+    m_portal_links.clear();
+    m_portal_exit_lock = false;
+    m_destination_site_to_validate.reset();
+    {
+        std::ifstream portals(m_world_file.get_path().parent_path() / "portal_sites.txt");
+        if (portals) m_portal_links.load(portals);
+    }
     std::ifstream file(m_world_file.get_path().parent_path() / "dimension_positions.txt");
     std::string name;
     glm::vec3 pos{};
@@ -2458,33 +2770,63 @@ bool Game::switch_dimension(const std::string& name, bool via_portal) {
     if (m_world_settings.dimension == name) return true;
     const glm::vec3 departure = m_player_ptr->get_position();
     const Dimension_Info& source = get_dimension_info(dimension_from_name(m_world_settings.dimension));
-    // Preserve legacy positions and chunk writes before changing the storage namespace.
-    save_world();
+    const bool end_exit = via_portal && source.terrain == Terrain_Mode::End &&
+                          destination->terrain != Terrain_Mode::End;
+    const glm::vec3 mapped(departure.x * source.coordinate_scale / destination->coordinate_scale,
+                           static_cast<float>(destination->spawn_height),
+                           departure.z * source.coordinate_scale / destination->coordinate_scale);
+    const Portal_Site* candidate = nullptr;
+    if (via_portal && !end_exit) {
+        const bool end_portal = destination->terrain == Terrain_Mode::End;
+        const float seek_x = end_portal ? 8.f : mapped.x;
+        const float seek_z = end_portal ? 8.f : mapped.z;
+        candidate = m_portal_links.nearest(name, seek_x, seek_z, end_portal,
+                                            destination->terrain == Terrain_Mode::Nether ? 32.f : 128.f);
+    }
+    const std::optional<Portal_Site> linked = candidate ? std::optional<Portal_Site>(*candidate) : std::nullopt;
     const auto saved = m_dimension_positions.find(name);
-    glm::vec3 arrival;
-    // /portal <name> is an administrative jump and restores that world's last position.
-    // Physical Nether portals always remap the X/Z coordinates, even on repeat visits.
-    // The End's exit returns to the saved Overworld position instead of mapping island coordinates.
-    const bool restore_saved = saved != m_dimension_positions.end() &&
-        (!via_portal || source.terrain == Terrain_Mode::End);
-    if (restore_saved) arrival = saved->second;
-    else if (destination->terrain == Terrain_Mode::End) arrival = {8.f, 70.f, 8.f};
-    else arrival = {departure.x * source.coordinate_scale / destination->coordinate_scale,
-                    static_cast<float>(destination->spawn_height),
-                    departure.z * source.coordinate_scale / destination->coordinate_scale};
+    const bool restore_saved = !via_portal && saved != m_dimension_positions.end();
+    const glm::vec3 intended = restore_saved ? saved->second :
+        linked ? Portal_Link_Registry::entry_position(*linked) :
+        destination->terrain == Terrain_Mode::End ? glm::vec3(8.f, 70.f, 8.f) : mapped;
+
+    LOG_INFO("Dimension switch " + m_world_settings.dimension + " -> " + name + ": saving source");
+    save_world();
     m_world_settings.dimension = name;
     m_pending_portal_type.clear();
     m_pending_command_portal_type.clear();
-    // Old manager and its workers are drained by reload_world before new jobs are issued.
-    m_player_ptr->set_position(arrival);
+    m_player_ptr->set_position(intended);
     reload_world(m_generation_folder);
-    // reload_world selects a safe generated surface for first visits. For revisits,
-    // restore the exact saved position. Always reset old-world velocity/fall state.
-    teleport_player(restore_saved ? arrival : m_player_ptr->get_position());
+    // reload_world chooses a safe generated floor for new portals. Existing
+    // anchors and admin jumps instead restore their exact recorded position.
+    const glm::vec3 landing = end_exit ? m_spawn_position :
+        (linked || restore_saved) ? intended : m_player_ptr->get_position();
+    teleport_player(landing);
     m_portal_contact_time = 0.f;
     m_portal_cooldown = 2.f;
+    m_portal_exit_lock = via_portal;
+    m_destination_site_to_validate = linked;
     m_dimension_landing = true;
-    save_world();
+
+    // Never place a second portal next to an already linked entrance.
+    // Nether -> Overworld, End -> Overworld and repeat visits all reuse it.
+    if (via_portal && !end_exit && !linked) {
+        m_pending_portal_type = destination->terrain == Terrain_Mode::End ? "end" : "nether";
+        glm::vec3 front = m_camera_ptr->get_front();
+        front.y = 0.f;
+        const float len = glm::length(front);
+        front = len > .001f ? front / len : glm::vec3(0.f, 0.f, -1.f);
+        const glm::vec3 anchor = landing + front * 6.f;
+        m_pending_portal_origin = glm::ivec3(static_cast<int>(std::floor(anchor.x)),
+            static_cast<int>(std::floor(landing.y)) - 1,
+            static_cast<int>(std::floor(anchor.z)));
+        m_pending_portal_along_z = m_pending_portal_type == "nether" &&
+                                   std::abs(front.x) > std::abs(front.z);
+        m_pending_portal_delay = 1.0f;
+    }
+    save_world(false);
+    LOG_INFO("Dimension switch: completed " + name +
+             (linked ? " (existing portal)" : end_exit ? " (world spawn)" : ""));
     return true;
 }
 
@@ -2508,9 +2850,12 @@ bool Game::construct_portal_at(const std::string& type, const glm::ivec3& origin
     });
     if (!ready) return false;
 
-    bool ok = true;
+    // Apply the entire frame as one batch. The old per-cell path performed a
+    // complete block-light BFS and queued disk writes for EACH of the 20/34
+    // blocks, potentially stalling the game on the first End arrival.
+    std::vector<std::pair<glm::ivec3, Block_Types>> writes;
+    writes.reserve(kind == Portal_Placement::Kind::Nether ? 20 : 34);
     Portal_Placement::for_each_cell(kind, pos, plane, [&](const Portal_Placement::Cell& cell) {
-        if (!ok) return;
         Block_Types block = Block_Types::Air;
         if (kind == Portal_Placement::Kind::Nether)
             block = cell.rim ? Block_Types::Obsidian : Block_Types::Nether_Portal;
@@ -2518,9 +2863,15 @@ bool Game::construct_portal_at(const std::string& type, const glm::ivec3& origin
             block = Block_Types::End_Stone;
         else
             block = cell.rim ? Block_Types::End_Portal_Frame_Filled : Block_Types::End_Portal;
-        ok = set_block_at(cell.pos.x, cell.pos.y, cell.pos.z, block);
+        writes.emplace_back(glm::ivec3(cell.pos.x, cell.pos.y, cell.pos.z), block);
     });
-    return ok;
+    std::vector<glm::ivec3> changed;
+    changed.reserve(writes.size());
+    m_chunk_manager_ptr->set_blocks_world_batch(writes, changed);
+    const bool built = changed.size() == writes.size();
+    if (built) m_portal_links.remember({m_world_settings.dimension, origin, along_z,
+                                       kind == Portal_Placement::Kind::End});
+    return built;
 }
 
 bool Game::build_portal(const std::string& type) {
@@ -2594,6 +2945,9 @@ bool Game::ignite_nether_portal() {
                 const glm::ivec3 c = cell(xx, yy);
                 activated = set_block_at(c.x, c.y, c.z, Block_Types::Nether_Portal) && activated;
             }
+            if (activated) {
+                m_portal_links.remember({m_world_settings.dimension, cell(1, 0), axis == 1, false});
+            }
             return activated;
         }
     }
@@ -2631,59 +2985,118 @@ bool Game::insert_ender_eye(const glm::ivec3& clicked) {
     return true;
 }
 
+// Legacy saves can have active portals created before portal_sites.txt existed.
+// Search ONLY loaded chunks near the arrival position before constructing a new frame.
+bool Game::reuse_loaded_portal() {
+    if (!m_chunk_manager_ptr || m_pending_portal_type.empty()) return false;
+    const glm::ivec3 landing(glm::floor(m_player_ptr->get_position()));
+    const Block_Types target = m_pending_portal_type == "end"
+        ? Block_Types::End_Portal : Block_Types::Nether_Portal;
+    constexpr int radius = 24;
+    for (int dy = -36; dy <= 36; ++dy) {
+        const int y = landing.y + dy;
+        if (y < Config::world_min_y || y > Config::world_max_y) continue;
+        for (int dz = -radius; dz <= radius; ++dz)
+            for (int dx = -radius; dx <= radius; ++dx) {
+                const glm::ivec3 cell = landing + glm::ivec3(dx, dy, dz);
+                if (!m_chunk_manager_ptr->get_chunk(
+                    Math_Helpers::floor_div(cell.x, Config::chunk_size),
+                    Math_Helpers::floor_div(cell.y, Config::chunk_height),
+                    Math_Helpers::floor_div(cell.z, Config::chunk_size))) continue;
+                if (m_chunk_manager_ptr->get_block_world(cell.x, cell.y, cell.z) != target) continue;
+                if (target == Block_Types::Nether_Portal) remember_touched_nether_portal(cell);
+                else m_portal_links.remember({m_world_settings.dimension, cell, false, true});
+                const Portal_Site* site = m_portal_links.nearest(m_world_settings.dimension,
+                    static_cast<float>(cell.x), static_cast<float>(cell.z),
+                    target == Block_Types::End_Portal, 4.f);
+                if (!site) return false;
+                const glm::vec3 entry = Portal_Link_Registry::entry_position(*site);
+                m_pending_portal_type.clear();
+                teleport_player(entry);
+                m_portal_exit_lock = true;
+                m_portal_cooldown = 2.f;
+                m_dimension_landing = true;
+                return true;
+            }
+    }
+    return false;
+}
+
 void Game::tick_portal_travel(float dt) {
     if (!m_player_ptr || !m_chunk_manager_ptr) return;
     m_portal_cooldown = std::max(0.f, m_portal_cooldown - dt);
-    // Complete queued /portal build requests after the whole geometry is loaded.
     if (!m_pending_command_portal_type.empty() &&
         construct_portal_at(m_pending_command_portal_type, m_pending_command_portal_origin,
                             m_pending_command_portal_along_z)) {
         push_chat_message("Portal built: " + m_pending_command_portal_type);
         m_pending_command_portal_type.clear();
     }
-    // Complete the return portal after the destination chunk actually exists.
-    if (!m_pending_portal_type.empty() &&
-        construct_portal_at(m_pending_portal_type, m_pending_portal_origin,
-                            m_pending_portal_along_z)) {
-        m_pending_portal_type.clear();
-    }
-    if (m_dimension_landing) {
-        m_portal_cooldown = 2.f;
-        return;
-    }
-    if (m_portal_cooldown > 0.f) return;
-    const glm::vec3 p = m_player_ptr->get_position();
-    const int x = static_cast<int>(std::floor(p.x));
-    const int y = static_cast<int>(std::floor(p.y));
-    const int z = static_cast<int>(std::floor(p.z));
-    Block_Types portal = Block_Types::Air;
-    for (int dy = -1; dy <= 1; ++dy) {
-        const Block_Types b = m_chunk_manager_ptr->get_block_world(x, y + dy, z);
-        if (b == Block_Types::Nether_Portal || b == Block_Types::End_Portal) {
-            portal = b; break;
+    if (m_dimension_landing) { m_portal_cooldown = 2.f; return; }
+    if (m_destination_site_to_validate) {
+        const Portal_Site site = *m_destination_site_to_validate;
+        const glm::ivec3 cell = site.origin + glm::ivec3(0, site.end_portal ? 0 : 1, 0);
+        if (!m_chunk_manager_ptr->get_chunk(
+                Math_Helpers::floor_div(cell.x, Config::chunk_size),
+                Math_Helpers::floor_div(cell.y, Config::chunk_height),
+                Math_Helpers::floor_div(cell.z, Config::chunk_size))) return;
+        m_destination_site_to_validate.reset();
+        const Block_Types expected = site.end_portal ? Block_Types::End_Portal : Block_Types::Nether_Portal;
+        if (m_chunk_manager_ptr->get_block_world(cell.x, cell.y, cell.z) != expected) {
+            // The original portal was broken. Forget the stale anchor and fall
+            // back to the local safe surface before scheduling a replacement.
+            m_portal_links.forget(site);
+            int x = site.origin.x, z = site.origin.z;
+            const int safe_y = m_world_generator->find_spawn_surface(x, z) + 2;
+            const glm::vec3 safe(static_cast<float>(x), static_cast<float>(safe_y), static_cast<float>(z));
+            teleport_player(safe);
+            m_pending_portal_type = site.end_portal ? "end" : "nether";
+            m_pending_portal_origin = glm::ivec3(x + 6, safe_y - 1, z);
+            m_pending_portal_along_z = false;
+            m_pending_portal_delay = 1.f;
+            m_dimension_landing = true;
+            return;
         }
     }
-    if (portal == Block_Types::Air) { m_portal_contact_time = 0.f; return; }
+    if (!m_pending_portal_type.empty()) {
+        m_pending_portal_delay -= dt;
+        if (m_pending_portal_delay <= 0.f) {
+            if (!reuse_loaded_portal() &&
+                construct_portal_at(m_pending_portal_type, m_pending_portal_origin,
+                                    m_pending_portal_along_z)) {
+                m_pending_portal_type.clear();
+            }
+            m_pending_portal_delay = 0.5f;
+        }
+    }
+
+    const glm::ivec3 p(glm::floor(m_player_ptr->get_position()));
+    Block_Types portal = Block_Types::Air;
+    glm::ivec3 portal_cell = p;
+    for (int dy = -1; dy <= 1; ++dy) {
+        const Block_Types b = m_chunk_manager_ptr->get_block_world(p.x, p.y + dy, p.z);
+        if (b == Block_Types::Nether_Portal || b == Block_Types::End_Portal) {
+            portal = b;
+            portal_cell.y += dy;
+            break;
+        }
+    }
+    if (portal == Block_Types::Air) {
+        m_portal_exit_lock = false;
+        m_portal_contact_time = 0.f;
+        return;
+    }
+    if (m_portal_exit_lock || m_portal_cooldown > 0.f) {
+        m_portal_contact_time = 0.f;
+        return;
+    }
     m_portal_contact_time += dt;
     if (m_portal_contact_time < 0.8f) return;
+    if (portal == Block_Types::Nether_Portal) remember_touched_nether_portal(portal_cell);
     const std::string source = m_world_settings.dimension;
     const std::string destination = portal == Block_Types::Nether_Portal
         ? (source == "nether" ? "overworld" : "nether")
         : (source == "end" ? "overworld" : "end");
-    if (switch_dimension(destination, true)) {
-        // Put a linked usable portal beside the arrival point, never on top of the player.
-        const glm::vec3 arrival = m_player_ptr->get_position();
-        m_pending_portal_type = portal == Block_Types::Nether_Portal ? "nether" : "end";
-        const glm::vec3 front = m_camera_ptr->get_front();
-        glm::vec3 horizontal(front.x, 0.f, front.z);
-        const float horizontal_length = glm::length(horizontal);
-        horizontal = horizontal_length > 0.001f ? horizontal / horizontal_length : glm::vec3(0.f, 0.f, -1.f);
-        const glm::vec3 return_portal = arrival + horizontal * 6.f;
-        m_pending_portal_origin = glm::ivec3(static_cast<int>(std::floor(return_portal.x)),
-            static_cast<int>(std::floor(arrival.y)) - 1, static_cast<int>(std::floor(return_portal.z)));
-        m_pending_portal_along_z = m_pending_portal_type == "nether" && std::abs(horizontal.x) > std::abs(horizontal.z);
-        push_chat_message("Dimension: " + destination);
-    }
+    if (switch_dimension(destination, true)) push_chat_message("Dimension: " + destination);
 }
 
 bool Game::set_block_at(int x, int y, int z, Block_Types type) {

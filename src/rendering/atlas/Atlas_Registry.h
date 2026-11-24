@@ -44,7 +44,7 @@ public:
     // текстуры блоков через уже загруженные атласы. Повторный вызов дозагружает новые
     // манифесты и перегружает уже известные (полезно для будущего hot-reload).
     // Возвращает число успешно загруженных атласов.
-    int load_all(const std::string& directory);
+    int load_all(const std::string& directory, bool upload_to_opengl = true);
 
     // nullptr, если атлас с таким именем не зарегистрирован (см. лог на LOG_ERROR).
     const Texture_Atlas* get_atlas(const std::string& name) const;
