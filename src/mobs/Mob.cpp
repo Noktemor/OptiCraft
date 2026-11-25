@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <string>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace {
     std::string to_lower_ascii(std::string text) {
@@ -180,6 +181,10 @@ void Mob::compute_bone_matrices(std::vector<glm::mat4>& out_skin_matrices, const
     }
 }
 
+namespace {thread_local const Mob::EntitySink* entitySink=nullptr;}
+Mob::ScopedEntitySink::ScopedEntitySink(const EntitySink& sink):previous_(entitySink){entitySink=&sink;}
+Mob::ScopedEntitySink::~ScopedEntitySink(){entitySink=previous_;}
+
 void Mob::render(const Shader& shader, const glm::mat4& view, const glm::mat4& projection, float ambient_intensity) const {
     if (!is_loaded()) return;
 
@@ -198,6 +203,16 @@ void Mob::render(const Shader& shader, const glm::mat4& view, const glm::mat4& p
     }
     model_matrix = glm::scale(model_matrix, glm::vec3(m_scale));
 
+    if(entitySink){
+        OptiCraft::Vulkan::EntityDraw draw;
+        draw.asset=m_model->vulkan_asset();
+        std::copy_n(glm::value_ptr(model_matrix),16,draw.pose.model.begin());
+        const auto count=has_skin?std::min(skin_matrices.size(),size_t(OptiCraft::Vulkan::EntityBones)):0;
+        for(size_t i=0;i<count;++i)std::copy_n(glm::value_ptr(skin_matrices[i]),16,draw.pose.bones[i].begin());
+        draw.pose.options={float(count),m_hurt_flash,ambient_intensity,0.f};
+        draw.hiddenMaterial=m_hidden_material_token;
+        (*entitySink)(std::move(draw));return;
+    }
     shader.use();
     shader.set_mat4("model", model_matrix);
     shader.set_mat4("view", view);

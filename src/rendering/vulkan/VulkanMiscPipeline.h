@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <span>
+#include "rendering/vulkan/WorldViewParams.h"
 
 namespace OptiCraft::Vulkan {
 
@@ -18,19 +19,19 @@ public:
     VulkanMiscPipeline& operator=(const VulkanMiscPipeline&) = delete;
 
     void initialize(VkDevice device, VkRenderPass renderPass,
-                    VkDescriptorSetLayout meshSetLayout,
+                    VkDescriptorSetLayout meshSetLayout,VkDescriptorSetLayout alphaLayout,
                     std::span<const uint32_t> vertexSpv,
                     std::span<const uint32_t> fragmentSpv,
                     bool depthAttachment = true);
     // Call after compute writes are made visible to DRAW_INDIRECT / VERTEX_SHADER.
-    // The draw commands use vertexCount=6; firstInstance indexes 32-byte quads.
-    // Opaque/cutout is a depth-writing pass; alpha is drawn back-to-front with
+    // vertexCount=6; firstInstance indexes quads or the frame permutation.
+    // firstVertex=6 selects permutation for mixed depth-writing draws.
+    // Opaque/cutout is a depth-writing pass; alpha is drawn in supplied order with
     // depth testing and blending, but without writing depth.
     void recordDraws(VkCommandBuffer cmd, VkDescriptorSet meshSet,
-                     VkDescriptorSet atlasSet, const float viewProjection[16],
+                     VkDescriptorSet atlasSet,VkDescriptorSet alphaSet, const WorldViewParams& view,
                      VkBuffer commands, VkDeviceSize byteOffset, uint32_t count,
-                     bool alpha, bool deviceMultiDrawIndirect,
-                     uint32_t maxIndirectCount) const;
+                     bool alpha, bool deviceMultiDrawIndirect, uint32_t maxIndirectCount) const;
     void shutdown(); // device must be idle with respect to this pipeline
     VkDescriptorSetLayout atlasSetLayout() const noexcept { return atlasLayout_; }
 private:

@@ -33,6 +33,7 @@
 #include <memory>
 #include "rendering/atlas/Texture.h"
 #include "mobs/Mob_Hit_Zone.h"
+#include "rendering/vulkan/EntityDraw.h"
 
 // Максимум костей на одного моба — ограничение размера uniform-массива в
 // шейдере (см. assets/shaders/mob_vertex.glsl, bones[MAX_MOB_BONES]).
@@ -143,6 +144,7 @@ public:
 
     // Вершины, оставленные в оперативной памяти после загрузки на GPU (у свиньи их немного) —
     // нужны для расчёта реальных габаритов модели, см. Mob::get_local_bounds().
+    std::shared_ptr<const OptiCraft::Vulkan::EntityAsset> vulkan_asset() const;
     const std::vector<Mob_Vertex>& get_cpu_vertices() const { return m_cpu_vertices; }
 
     struct Hit_Region {
@@ -187,6 +189,8 @@ private:
 
     std::vector<Primitive_Range> m_primitive_ranges;
     std::vector<Mob_Vertex> m_cpu_vertices;
+    std::vector<uint32_t> m_cpu_indices;
+    mutable std::shared_ptr<const OptiCraft::Vulkan::EntityAsset> m_vulkan_asset;
     mutable bool m_hit_regions_ready = false;
     mutable std::vector<Hit_Region> m_hit_regions;
     bool m_has_bounds = false;

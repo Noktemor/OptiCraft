@@ -2,14 +2,85 @@
 #extension GL_GOOGLE_include_directive : require
 layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
 #include "mesher_common.glsl"
+#define MESH_WRITE_RECTS
+#define MESH_COUNT_CACHE
 #include "voxel_row_runs.glsl"
 void main(){
+    // Count-only mode: 8 groups cover the 16^3 aligned cells, once per job.
+    if(dispatchParams.fastBasePlusOne==1u && useCoarseCache()){
+        uint job=dispatchParams.firstJob+gl_WorkGroupID.y;
+        uint slot=slotIndices[job];
+        if(slot==0xffffffffu)return;
+        ChunkSlot chunk=slots[slot];
+        if(!coarseChunk(chunk))return;
+        if(farCoarseChunk(chunk)){
+            // One lane owns an aligned 4^3 cell; all eight 2^3 entries are
+            // written exactly once. The existing 4096-word ABI is unchanged.
+            uint i=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+            ivec3 base=ivec3(int(i&7u),int((i>>3u)&7u),int(i>>6u))*4;
+            bool remove=sparseMacro4(chunk,base);
+            for(uint j=0u;j<8u;++j){
+                ivec3 p=base+ivec3(int(j&1u),int((j>>1u)&1u),int(j>>2u))*2;
+                uvec3 c=uvec3(p)>>1u;
+                cachedWords[coarseWord(job,c.x+c.y*16u+c.z*256u)]=remove?0u:macroCode(chunk,p);
+            }
+            return;
+        }
+        for(uint i=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;i<4096u;i+=512u){
+            ivec3 p=ivec3(int(i&15u),int((i>>4u)&15u),int(i>>8u))*2;
+            cachedWords[coarseWord(job,i)]=macroCode(chunk,p);
+        }
+        return;
+    }
+    if(usePlaneCompaction() && dispatchParams.fastBasePlusOne==2u){
+        uint job=dispatchParams.firstJob+gl_WorkGroupID.y;
+        uint slot=slotIndices[job],lane=gl_LocalInvocationID.x;
+        if(slot==0xffffffffu)return;
+        ChunkSlot chunk=slots[slot];
+        if(!coarseChunk(chunk))return;
+        // Scan four consecutive planes in one group. Only nonempty planes
+        // spill row masks to global memory; empty scratch remains untouched.
+        for(uint sub=0u;sub<4u;++sub){
+            uint task=gl_WorkGroupID.x*4u+sub;
+            if(task>=FACE_PLANE_TASKS || skipOpaquePlane(chunk,task/32u,task%32u))continue;
+            buildCoarseRows(chunk,task/32u,task%32u,job,lane);
+            if(lane==0u){
+                uint live=0u;
+                for(uint row=0u;row<32u;++row)live|=rowLive[row];
+                planeCount=live;
+                if(live!=0u){
+                    uint index=atomicAdd(cachedWords[planeArgsWord(job)],1u);
+                    cachedWords[planeListWord(job,index)]=task;
+                }
+            }
+            barrier();
+            if(planeCount!=0u && lane<32u)cachedWords[planeRowWord(job,task,lane)]=rowLive[lane];
+            // rowLive and planeCount are reused by the next plane.
+            barrier();
+        }
+        return;
+    }
     uint task=gl_WorkGroupID.x;
+    if(usePlaneCompaction())task=cachedWords[planeListWord(dispatchParams.firstJob,task)];
+    // Six groups are the outer planes of a palette-proven solid chunk.
+    if(!usePlaneCompaction() && gl_NumWorkGroups.x==6u)task=task*32u+((task&1u)!=0u?31u:0u);
     if(task>=FACE_PLANE_TASKS)return;
     uint batchIdx=dispatchParams.firstJob+gl_WorkGroupID.y;
     uint slotIndex=slotIndices[batchIdx];
     if(slotIndex==0xffffffffu)return;
     ChunkSlot chunk=slots[slotIndex];
-    buildPlane(chunk,slotIndex,task/32u,task%32u);
-    if(gl_LocalInvocationID.x==0u && planeCount!=0u) atomicAdd(counts[batchIdx],planeCount);
+    if(skipOpaquePlane(chunk,task/32u,task%32u))return;
+    buildPlane(chunk,slotIndex,task/32u,task%32u,batchIdx);
+    if(gl_LocalInvocationID.x==0u)planeBase=planeCount==0u?0u:atomicAdd(counts[batchIdx],planeCount);
+    if(dispatchParams.cacheCapacity==0u)return;
+    barrier();
+    // Overflow never writes outside this job's cache. Count is still exact.
+    for(uint i=gl_LocalInvocationID.x;i<planeCount;i+=64u){
+        uint index=planeBase+i;
+        if(index<dispatchParams.cacheCapacity){
+            uint w=cacheWord(batchIdx,index);
+            cachedWords[w]=planeRects[i].x;
+            cachedWords[w+1u]=planeRects[i].y;
+        }
+    }
 }

@@ -426,6 +426,8 @@ bool Mob_Model::load_from_file(const std::string& path) {
 
     upload_mesh(vertices, indices);
     m_cpu_vertices = vertices;
+    m_cpu_indices = indices;
+    m_vulkan_asset.reset();
 
     // ---- Текстуры ----
     // Per-material textures: the sheep body and fleece use distinct PNGs in its GLB.
@@ -538,4 +540,33 @@ const std::vector<Mob_Model::Hit_Region>& Mob_Model::get_hit_regions() const {
                                            glm::inverse(m_bones[i].inverse_bind_matrix)});
     }
     return m_hit_regions;
+}
+
+std::shared_ptr<const OptiCraft::Vulkan::EntityAsset> Mob_Model::vulkan_asset() const {
+    using namespace OptiCraft::Vulkan;
+    if(m_vulkan_asset)return m_vulkan_asset;
+    auto asset=std::make_shared<EntityAsset>();
+    asset->vertices.reserve(m_cpu_vertices.size());
+    for(const auto& v:m_cpu_vertices){
+        EntityVertex x{};
+        for(int i=0;i<3;++i){x.position[i]=v.position[i];x.normal[i]=v.normal[i];}
+        for(int i=0;i<2;++i)x.uv[i]=v.uv[i];
+        for(int i=0;i<4;++i){x.joints[i]=v.joint_indices[i];x.weights[i]=v.joint_weights[i];}
+        asset->vertices.push_back(x);
+    }
+    asset->indices=m_cpu_indices;
+    asset->textures.emplace_back(); // white fallback
+    std::unordered_map<const Texture*,uint32_t> textures;
+    auto textureIndex=[&](const std::string& role){
+        const Texture* tex=get_texture(role);if(!tex)tex=get_texture("albedo");
+        if(!tex || tex->model_rgba().empty())return 0u;
+        if(auto it=textures.find(tex);it!=textures.end())return it->second;
+        uint32_t id=uint32_t(asset->textures.size());
+        asset->textures.push_back({uint32_t(tex->get_width()),uint32_t(tex->get_height()),tex->model_rgba()});
+        textures.emplace(tex,id);return id;
+    };
+    for(const auto& range:m_primitive_ranges)
+        asset->primitives.push_back({uint32_t(range.first_index),uint32_t(range.index_count),textureIndex(range.texture_role),range.material_name});
+    if(asset->primitives.empty())asset->primitives.push_back({0,uint32_t(asset->indices.size()),textureIndex("albedo"),{}});
+    m_vulkan_asset=asset;return asset;
 }

@@ -59,6 +59,7 @@ bool Texture::load_from_file(const std::string& path, bool flip_vertically, bool
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+    if(!flip_vertically) m_model_rgba.assign(data,data+size_t(m_width)*m_height*4);
     stbi_image_free(data);
 
     m_is_loaded = true;
@@ -94,6 +95,7 @@ bool Texture::load_from_memory(const unsigned char* data, int data_size, const s
     if (!nearest) glGenerateMipmap(GL_TEXTURE_2D);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+    if(!flip_vertically) m_model_rgba.assign(pixels,pixels+size_t(m_width)*m_height*4);
     stbi_image_free(pixels);
 
     m_is_loaded = true;

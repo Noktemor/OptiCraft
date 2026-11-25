@@ -1,4 +1,5 @@
 #include "rendering/vulkan/VulkanGpuMesher.h"
+#include "rendering/vulkan/MeshDispatchRuns.h"
 
 #include <algorithm>
 #include <array>
@@ -53,7 +54,7 @@ void VulkanGpuMesher::initialize(VkPhysicalDevice physical, VkDevice device,
     if (buffers.byteSizes[0] % 4u || buffers.byteSizes[1] % sizeof(GpuChunkSlot) ||
         buffers.byteSizes[2] % 4u || buffers.byteSizes[3] % 8u ||
         buffers.byteSizes[4] % 4u || buffers.byteSizes[5] % 16u ||
-        buffers.byteSizes[6] % 4u || buffers.byteSizes[7] % 16u || buffers.byteSizes[8] % 4u || buffers.byteSizes[9] % 4u)
+        buffers.byteSizes[6] % 4u || buffers.byteSizes[7] % 16u || buffers.byteSizes[8] % 4u || buffers.byteSizes[9] % 4u || buffers.byteSizes[10] % 4u)
         throw std::invalid_argument("VulkanGpuMesher: misaligned SSBO sizes");
     if (buffers.byteSizes[5] / 16u < buffers.byteSizes[1] / sizeof(GpuChunkSlot))
         throw std::invalid_argument("VulkanGpuMesher: active draw buffer smaller than stable chunk table");
@@ -63,17 +64,28 @@ void VulkanGpuMesher::initialize(VkPhysicalDevice physical, VkDevice device,
         buffers.byteSizes[6] / 4u, buffers.byteSizes[7] / 16u});
     if (!maxJobs || maxJobs > UINT32_MAX)
         throw std::invalid_argument("VulkanGpuMesher: invalid batch capacity");
-    maxJobs_ = static_cast<uint32_t>(maxJobs);
+    // A descriptor can include alignment padding; cap usable jobs by actual cache storage.
+    if(buffers.planeCompaction && !buffers.coarseCache)
+        throw std::invalid_argument("Plane compaction requires coarse cache");
+    const uint64_t cacheJobBytes=4ull+8ull*buffers.cacheRectsPerJob+
+        (buffers.coarseCache?4ull*kCoarseWordsPerJob:0ull)+
+        (buffers.planeCompaction?4ull*kPlaneWordsPerJob:0ull);
+    const bool hasCache=buffers.cacheRectsPerJob||buffers.coarseCache;
+    const uint64_t usable=hasCache?std::min(maxJobs,buffers.byteSizes[10]/cacheJobBytes):maxJobs;
+    if(!usable || usable>=kPlaneCompactFlag || (hasCache && usable*cacheJobBytes/4>UINT32_MAX))
+        throw std::invalid_argument("VulkanGpuMesher: invalid rectangle cache size");
+    maxJobs_ = static_cast<uint32_t>(usable);
 
     device_ = device;
     buffers_ = buffers;
     try {
-        std::array<VkDescriptorSetLayoutBinding, 10> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 11> bindings{};
         for (uint32_t i = 0; i < bindings.size(); ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             bindings[i].descriptorCount = 1;
-            bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+            bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            if(i<10)bindings[i].stageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
         }
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         dl.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -82,9 +94,9 @@ void VulkanGpuMesher::initialize(VkPhysicalDevice physical, VkDevice device,
                 "vkCreateDescriptorSetLayout");
 
         VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                      static_cast<uint32_t>(bindings.size())};
+                                      static_cast<uint32_t>(bindings.size())*FrameVoxelDescriptors::kFrames};
         VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        dp.maxSets = 1;
+        dp.maxSets = FrameVoxelDescriptors::kFrames;
         dp.poolSizeCount = 1;
         dp.pPoolSizes = &poolSize;
         require(vkCreateDescriptorPool(device_, &dp, nullptr, &descriptorPool_),
@@ -92,13 +104,15 @@ void VulkanGpuMesher::initialize(VkPhysicalDevice physical, VkDevice device,
 
         VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         alloc.descriptorPool = descriptorPool_;
-        alloc.descriptorSetCount = 1;
-        alloc.pSetLayouts = &descriptorLayout_;
-        require(vkAllocateDescriptorSets(device_, &alloc, &descriptorSet_),
+        const std::array<VkDescriptorSetLayout,2> frameLayouts{descriptorLayout_,descriptorLayout_};
+        alloc.descriptorSetCount = FrameVoxelDescriptors::kFrames;
+        alloc.pSetLayouts = frameLayouts.data();
+        require(vkAllocateDescriptorSets(device_, &alloc, frameDescriptors_.sets.data()),
                 "vkAllocateDescriptorSets");
+        descriptorSet_=frameDescriptors_.sets[0];
 
-        std::array<VkDescriptorBufferInfo, 10> infos{};
-        std::array<VkWriteDescriptorSet, 10> writes{};
+        std::array<VkDescriptorBufferInfo, 11> infos{};
+        std::array<VkWriteDescriptorSet, 11> writes{};
         for (uint32_t i = 0; i < infos.size(); ++i) {
             infos[i].buffer = buffers.buffers[i];
             infos[i].offset = 0;
@@ -110,8 +124,10 @@ void VulkanGpuMesher::initialize(VkPhysicalDevice physical, VkDevice device,
             writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             writes[i].pBufferInfo = &infos[i];
         }
-        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+        for(auto set:frameDescriptors_.sets){
+            for(auto& w:writes)w.dstSet=set;
+            vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),writes.data(),0,nullptr);
+        }
 
         VkPushConstantRange push{};
         push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -155,7 +171,7 @@ void VulkanGpuMesher::shutdown() {
     pipelineLayout_ = VK_NULL_HANDLE;
     descriptorPool_ = VK_NULL_HANDLE;
     descriptorLayout_ = VK_NULL_HANDLE;
-    descriptorSet_ = VK_NULL_HANDLE;
+    descriptorSet_ = VK_NULL_HANDLE;frameDescriptors_.reset();
     maxJobs_ = 0;
     device_ = VK_NULL_HANDLE;
 }
@@ -179,37 +195,123 @@ void VulkanGpuMesher::resetCounts(VkCommandBuffer cmd, uint32_t jobs) const {
 }
 
 void VulkanGpuMesher::dispatchMeshes(VkCommandBuffer cmd, uint32_t jobs,
-                                     VkPipeline pipeline) const {
+                                     VkPipeline pipeline, std::span<const uint8_t> kinds) const {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_,
                             0, 1, &descriptorSet_, 0, nullptr);
-    for (uint32_t first = 0; first < jobs; ) {
-        const uint32_t count = std::min(dispatchYLimit_, jobs - first);
-        const Params params{first, jobs};
+    const bool coarse=buffers_.coarseCache && std::any_of(kinds.begin(),kinds.end(),
+        [](uint8_t k){return (k&kCoarseOpaqueMesh)!=0;});
+    const bool compact=buffers_.planeCompaction && std::any_of(kinds.begin(),kinds.end(),compactPlaneKind);
+    std::vector<uint8_t> directKinds;
+    if(compact){
+        if(kinds.size()!=jobs)throw std::invalid_argument("Invalid compact plane job mask");
+        directKinds.assign(kinds.begin(),kinds.end());
+        for(uint32_t job=0;job<jobs;++job)if(compactPlaneKind(kinds[job]))directKinds[job]=0;
+    }
+    for (const auto& run:meshDispatchRuns(jobs,compact?std::span<const uint8_t>(directKinds):kinds,false,dispatchYLimit_)) {
+        const Params params{run.first, jobs|(coarse?kCoarseCacheFlag:0u), buffers_.cacheRectsPerJob};
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(params), &params);
-        // 192 X workgroups: one 32x32 plane per direction and slice.
-        vkCmdDispatch(cmd, 192, count, 1);
-        first += count;
+        vkCmdDispatch(cmd, run.groupsX, run.count, 1);
+    }
+    if(compact)for(uint32_t job=0;job<jobs;++job)if(compactPlaneKind(kinds[job])){
+        const Params params{job,jobs|kCoarseCacheFlag|kPlaneCompactFlag,buffers_.cacheRectsPerJob};
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatchIndirect(cmd,buffers_.buffers[10],planeArgsOffset(jobs,buffers_.cacheRectsPerJob,job));
     }
 }
 
-void VulkanGpuMesher::recordCount(VkCommandBuffer cmd, uint32_t jobCount) const {
+void VulkanGpuMesher::recordCoarseCache(VkCommandBuffer cmd,uint32_t jobs,std::span<const uint8_t> kinds) const {
+    if(!buffers_.coarseCache || kinds.empty())return;
+    if(kinds.size()!=jobs)throw std::invalid_argument("Invalid coarse cache job mask");
+    if(std::none_of(kinds.begin(),kinds.end(),[](uint8_t k){return (k&kCoarseOpaqueMesh)!=0;}))return;
+    // Batch scratch may have been read by an earlier Emit. The batch fence
+    // guards lifetime; the dependency also orders GPU accesses to the cache.
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelines_[0]);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelineLayout_,0,1,&descriptorSet_,0,nullptr);
+    for(uint32_t first=0;first<jobs;){
+        if(!(kinds[first]&kCoarseOpaqueMesh)){++first;continue;}
+        uint32_t n=1;
+        while(n<dispatchYLimit_ && n<jobs-first && (kinds[first+n]&kCoarseOpaqueMesh))++n;
+        const Params params{first,jobs|kCoarseCacheFlag,buffers_.cacheRectsPerJob,1u};
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatch(cmd,8,n,1);first+=n;
+    }
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_READ_BIT);
+}
+
+void VulkanGpuMesher::recordPlaneCompaction(VkCommandBuffer cmd,uint32_t jobs,std::span<const uint8_t> kinds) const {
+    if(!buffers_.planeCompaction || !std::any_of(kinds.begin(),kinds.end(),compactPlaneKind))return;
+    if(kinds.size()!=jobs)throw std::invalid_argument("Invalid plane compaction job mask");
+    // Initialize {x=0,y=1,z=1}. Each active plane atomically appends once.
+    // The batch fence protects reuse; also order prior indirect/cache reads.
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+        VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
+    const std::array<uint32_t,3> initial{0,1,1};
+    for(uint32_t job=0;job<jobs;++job)if(compactPlaneKind(kinds[job]))
+        vkCmdUpdateBuffer(cmd,buffers_.buffers[10],planeArgsOffset(jobs,buffers_.cacheRectsPerJob,job),sizeof(initial),initial.data());
+    barrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelines_[0]);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelineLayout_,0,1,&descriptorSet_,0,nullptr);
+    for(uint32_t first=0;first<jobs;){
+        if(!compactPlaneKind(kinds[first])){++first;continue;}
+        uint32_t n=1;
+        while(n<dispatchYLimit_ && n<jobs-first && compactPlaneKind(kinds[first+n]))++n;
+        const Params params{first,jobs|kCoarseCacheFlag|kPlaneCompactFlag,buffers_.cacheRectsPerJob,2u};
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatch(cmd,kPlaneScanGroups,n,1);first+=n;
+    }
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+        VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
+}
+
+void VulkanGpuMesher::recordCount(VkCommandBuffer cmd, uint32_t jobCount, std::span<const uint8_t> kinds) const {
     if (!jobCount) return; // no command or GPU query when no work
     if (!device_) throw std::logic_error("VulkanGpuMesher not initialized");
     resetCounts(cmd, jobCount);
-    dispatchMeshes(cmd, jobCount, pipelines_[0]);
+    recordCoarseCache(cmd,jobCount,kinds);
+    recordPlaneCompaction(cmd,jobCount,kinds);
+    dispatchMeshes(cmd, jobCount, pipelines_[0], kinds);
     // Caller may now record vkCmdCopyBuffer(counter SSBO -> async readback buffer).
-    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 }
 
-void VulkanGpuMesher::recordEmit(VkCommandBuffer cmd, uint32_t jobCount) const {
+void VulkanGpuMesher::recordEmit(VkCommandBuffer cmd, uint32_t jobCount, std::span<const uint8_t> kinds) const {
     if (!jobCount) return;
     if (!device_) throw std::logic_error("VulkanGpuMesher not initialized");
+    if(jobCount>maxJobs_)throw std::out_of_range("VulkanGpuMesher: too many emit jobs");
+    if(buffers_.cacheRectsPerJob){
+        // The earlier Count submission wrote both rectangles and exact counts.
+        // Preserve counts on GPU before clearing the Emit counter array.
+        barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_SHADER_READ_BIT);
+        const VkBufferCopy copy{0,0,VkDeviceSize(jobCount)*4};
+        vkCmdCopyBuffer(cmd,buffers_.buffers[2],buffers_.buffers[10],1,&copy);
+        barrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
+    }
     resetCounts(cmd, jobCount);
-    dispatchMeshes(cmd, jobCount, pipelines_[1]);
-    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+    // Uncached Emit reuses the Count classification. Caller rejects stale
+    // generation/revision jobs and retains the same per-job batch indices.
+    if(buffers_.coarseCache && std::any_of(kinds.begin(),kinds.end(),[](uint8_t k){return (k&kCoarseOpaqueMesh) && !(k&kCachedOpaqueMesh);}))
+        barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
+    dispatchMeshes(cmd, jobCount, pipelines_[1], kinds);
+    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_[2]);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_,
@@ -217,7 +319,7 @@ void VulkanGpuMesher::recordEmit(VkCommandBuffer cmd, uint32_t jobCount) const {
     const uint64_t maxFinalJobs = uint64_t(finalizeXLimit_) * 64u;
     for (uint32_t first = 0; first < jobCount; ) {
         const uint32_t count = static_cast<uint32_t>(std::min(maxFinalJobs, uint64_t(jobCount - first)));
-        const Params params{first, jobCount};
+        const Params params{first, jobCount, buffers_.cacheRectsPerJob};
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(params), &params);
         vkCmdDispatch(cmd, (count + 63u) / 64u, 1, 1);
@@ -225,10 +327,33 @@ void VulkanGpuMesher::recordEmit(VkCommandBuffer cmd, uint32_t jobCount) const {
     }
     // Candidate commands and mesh are GPU-produced; neither is published yet.
     // The caller performs async readback of counters and checks success/version.
-    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+    barrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_SHADER_READ_BIT);
 
+}
+void VulkanGpuMesher::recordFastOpaque(VkCommandBuffer cmd,uint32_t jobs,BufferRange slab) const {
+    const uint64_t stride=(uint64_t(buffers_.cacheRectsPerJob)+1u)&~uint64_t(1);
+    if(!device_ || !jobs || jobs>maxJobs_ || !buffers_.cacheRectsPerJob ||
+       !slab || slab.offset%16 || slab.size!=stride*jobs*8 || slab.offset/8>=UINT32_MAX ||
+       slab.offset>buffers_.byteSizes[3] || slab.size>buffers_.byteSizes[3]-slab.offset)
+        throw std::invalid_argument("Invalid fast opaque slab");
+    // Count counters/cache stay on-device; copy does not reset either buffer.
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelines_[1]);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelineLayout_,0,1,&descriptorSet_,0,nullptr);
+    for(uint32_t first=0;first<jobs;){
+        const uint32_t n=std::min(dispatchYLimit_,jobs-first);
+        const Params params{first,jobs,buffers_.cacheRectsPerJob,uint32_t(slab.offset/8)+1u};
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatch(cmd,8,n,1);first+=n;
+    }
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_SHADER_READ_BIT);
 }
 void VulkanGpuMesher::recordPublish(VkCommandBuffer cmd, uint32_t jobs) const {
     if (!jobs) return;
@@ -239,7 +364,7 @@ void VulkanGpuMesher::recordPublish(VkCommandBuffer cmd, uint32_t jobs) const {
     const uint64_t maxBatch = uint64_t(finalizeXLimit_) * 64u;
     for (uint32_t first = 0; first < jobs;) {
         const uint32_t count = static_cast<uint32_t>(std::min(maxBatch, uint64_t(jobs - first)));
-        const Params params{first, jobs};
+        const Params params{first, jobs, buffers_.cacheRectsPerJob};
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(params), &params);
         vkCmdDispatch(cmd, (count + 63u) / 64u, 1, 1);

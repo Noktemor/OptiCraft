@@ -52,8 +52,15 @@ void VulkanBlockAtlas::initialize(VkPhysicalDevice physical,VkDevice device,
     stbi_set_flip_vertically_on_load(0); // static stb instance; shaders convert atlas V
     stbi_uc* image=stbi_load(pngPath.c_str(),&w,&h,&n,STBI_rgb_alpha);
     if(!image)throw std::runtime_error("Cannot decode blocks atlas PNG: "+pngPath);
+    try { if(w<=0||h<=0)throw std::runtime_error("Invalid image size");initializePixels(physical,device,uint32_t(w),uint32_t(h),image,tileSize); }
+    catch(...){stbi_image_free(image);throw;}
+    stbi_image_free(image);
+}
+void VulkanBlockAtlas::initializePixels(VkPhysicalDevice physical,VkDevice device,uint32_t w,uint32_t h,const uint8_t* image,uint32_t tileSize,bool repeat){
+    if(device_||!physical||!device||!image||!tileSize||(tileSize&(tileSize-1))||tileSize>1024)
+        throw std::invalid_argument("Invalid raw atlas input");
     try {
-        if(w<=0||h<=0||w%int(tileSize)||h%int(tileSize))
+        if(!w||!h||w%tileSize||h%tileSize)
             throw std::invalid_argument("Block atlas dimensions must align to 16px sprites");
         width_=uint32_t(w);height_=uint32_t(h);tileSize_=tileSize;
         mipLevels_=1;
@@ -97,8 +104,8 @@ void VulkanBlockAtlas::initialize(VkPhysicalDevice physical,VkDevice device,
         sampler.magFilter=VK_FILTER_NEAREST; // preserve pixel-art style
         sampler.minFilter=VK_FILTER_NEAREST;
         sampler.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        sampler.addressModeU=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeU=repeat?VK_SAMPLER_ADDRESS_MODE_REPEAT:VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeV=sampler.addressModeU;
         sampler.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         sampler.maxLod=float(mipLevels_-1);
         sampler.borderColor=VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -106,8 +113,7 @@ void VulkanBlockAtlas::initialize(VkPhysicalDevice physical,VkDevice device,
         staging_.create(physical_,device_,bytes,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         staging_.write(0,image,bytes);
-    }catch(...){stbi_image_free(image);shutdown();throw;}
-    stbi_image_free(image);
+    }catch(...){shutdown();throw;}
 }
 void VulkanBlockAtlas::recordUpload(VkCommandBuffer cmd){
     if(!device_||!cmd||!staging_||recorded_)
@@ -124,7 +130,7 @@ void VulkanBlockAtlas::recordUpload(VkCommandBuffer cmd){
     // full-atlas blits would mix adjacent materials at mip boundaries.
     const uint32_t tilesX=width_/tileSize_,tilesY=height_/tileSize_;
     std::vector<VkImageBlit> tiles;
-    tiles.reserve(size_t(tilesX)*tilesY);
+    if(mipLevels_>1)tiles.reserve(size_t(tilesX)*tilesY);
     for(uint32_t level=1;level<mipLevels_;++level){
         transition(cmd,image_,level-1,1,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_PIPELINE_STAGE_TRANSFER_BIT,

@@ -40,6 +40,7 @@
 class Texture_Atlas;
 class Frustum;
 class Gpu_Worldgen;
+namespace OptiCraft::Vulkan {class VulkanFrameRuntime;class VulkanMaterialWorldgen;}
 
 struct Renderable_Chunk {
     glm::ivec3 position; // (chunk_x, chunk_y, chunk_z)
@@ -301,6 +302,8 @@ private:
     uint64_t m_vulkan_resident_epoch = ~0ull;
     // Скан грязных чанков (rebuild_dirty_chunks) пропускается, пока с прошлого скана, не нашедшего
     // ни одного грязного чанка, никто не стал грязным и набор чанков не менялся.
+    bool m_vulkan_primary = false; // main-thread renderer selection
+    std::atomic<bool> m_vulkan_primary_worker{false};
     bool m_dirty_scan_clean = false;
     uint64_t m_dirty_scan_events = 0;
     uint64_t m_dirty_scan_set_epoch = 0;
@@ -352,6 +355,11 @@ private:
     std::deque<Gpu_Batch> m_gpu_pending;
     std::optional<Gpu_Batch> m_gpu_active;
     std::unique_ptr<Gpu_Worldgen> m_gpu_worldgen;
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    OptiCraft::Vulkan::VulkanFrameRuntime* m_vk_worldgen_runtime=nullptr;
+    std::unique_ptr<OptiCraft::Vulkan::VulkanMaterialWorldgen> m_vk_worldgen;
+#endif
+    std::atomic<bool> m_vk_worldgen_ready{false};
     std::atomic<size_t> m_gpu_inflight{0};
     std::atomic<bool> m_gpu_disabled{false};
     std::atomic<int> m_gpu_player_x{std::numeric_limits<int>::min()};
@@ -574,6 +582,11 @@ public:
         bool spectator = false
     );
     const std::vector<Renderable_Chunk>& get_vulkan_resident_chunks();
+    void set_vulkan_primary(bool enabled);
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    void set_vulkan_worldgen(OptiCraft::Vulkan::VulkanFrameRuntime* runtime);
+#endif
+    uint64_t vulkan_resident_epoch() const noexcept { return m_chunk_set_epoch; }
     std::vector<glm::ivec3> take_unloaded_chunk_positions();
 
     // Block_Entity блока-контейнера в этой позиции, если он там есть (nullptr иначе).

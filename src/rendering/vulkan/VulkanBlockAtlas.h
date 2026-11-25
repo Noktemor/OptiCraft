@@ -19,6 +19,7 @@ public:
     VulkanBlockAtlas& operator=(const VulkanBlockAtlas&) = delete;
     void initialize(VkPhysicalDevice physical,VkDevice device,
                     const std::string& pngPath,uint32_t tileSize=16);
+    void initializePixels(VkPhysicalDevice,VkDevice,uint32_t width,uint32_t height,const uint8_t* rgba,uint32_t tileSize=1,bool repeat=false);
     // Record once before first fragment sampling. Staging must remain alive
     // until the submission fence has signalled.
     void recordUpload(VkCommandBuffer primary);

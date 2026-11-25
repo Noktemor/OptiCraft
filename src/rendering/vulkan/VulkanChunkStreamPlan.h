@@ -2,13 +2,16 @@
 
 #include "rendering/vulkan/VulkanGameChunkFeed.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <functional>
 
 namespace OptiCraft::Vulkan {
 
@@ -21,6 +24,7 @@ struct StreamUpload {
     bool resetDraw = false; // new slot or new chunk instance: old geometry is invalid
     bool newResident = false; // only first residency changes the dense live-slot list
     LiveChunkPacket packet;
+    bool uploadVoxels = true; // false only for a matching source revision / LOD-only change
 };
 struct StreamRelease {
     ChunkKey key{};
@@ -43,6 +47,8 @@ struct StreamResident {
     uint64_t instance = 0;
     uint64_t blocksVersion = 0;
     uint64_t meshVersion = 0;
+    uint32_t meshKinds = 3;
+    uint64_t lodRevision=0;
 };
 
 class VulkanChunkStreamPlan {
@@ -57,22 +63,34 @@ public:
     void submit(std::vector<LiveChunkPacket>&& chunks);
     void evict(ChunkKey key);
     // One render/stream owner thread only. Other threads may call submit/evict.
-    StreamBatch take(uint32_t maxUploads);
+    // Optional resource admission runs before modifying the resident slot or consuming
+    // the packet. Rejected packets remain queued, including resident updates.
+    using Admission=std::function<bool(uint32_t,const LiveChunkPacket&,bool uploadVoxels)>;
+    // Release notification precedes admission (same owner thread, under lock).
+    // The callback must not re-enter the planner.
+    using ReleaseNotice=std::function<void(uint32_t)>;
+    StreamBatch take(uint32_t maxUploads,const Admission& admit={},const ReleaseNotice& onRelease={});
+    [[nodiscard]] std::vector<uint32_t> liveSlotsSnapshot() const;
     [[nodiscard]] std::optional<StreamResident> lookup(ChunkKey key) const;
     [[nodiscard]] std::optional<StreamResident> slotInfo(uint32_t slot) const;
     [[nodiscard]] uint32_t capacity() const noexcept { return maxResident_; }
+    [[nodiscard]] bool fullyOccluded(uint32_t slot) const;
     [[nodiscard]] size_t residentCount() const;
     [[nodiscard]] size_t pendingCount() const;
+    [[nodiscard]] size_t boundaryPayloadBytes() const;
 private:
     struct Slot {
         StreamResident data{};
         bool active = false;
         uint32_t generation = 0;
+        // Exact boundary snapshot; only heterogeneous borders allocate 24 KiB.
+        uint32_t uniformBoundary=0;
+        std::unique_ptr<std::array<uint32_t,6*32*32>> boundary;
     };
     static bool newer(const LiveChunkPacket& a, const LiveChunkPacket& b) noexcept;
     static bool newerThanResident(const LiveChunkPacket& a, const StreamResident& b) noexcept;
     static void validate(const LiveChunkPacket& packet);
-    void affected(ChunkKey key, std::unordered_set<uint32_t>& changed) const;
+    void affected(ChunkKey key, std::unordered_set<uint32_t>& changed, uint32_t sideMask=63u) const;
 
     const uint32_t maxResident_;
     const uint32_t maxQueued_;

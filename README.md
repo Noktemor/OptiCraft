@@ -16,7 +16,7 @@ cd build && ./OptiCraft
 
 ### Vulkan 0.13 (экспериментальный бэкенд)
 
-Основная цель `OptiCraft` в CLion автоматически пытается создать окно Vulkan (`GLFW_NO_API`), если сборка включает Vulkan SDK и SPIR-V shaders (`glslangValidator`). При успешной инициализации показывается только Vulkan-окно с миром и HUD; при ошибке используется OpenGL. Скрытый OpenGL-контекст пока необходим для старых ресурсов и резервного пути. Это экспериментальный гибрид: мобы/боссы и ряд эффектов в Vulkan ещё не рисуются. Для обычной полной игры принудительно используйте `OPTICRAFT_RENDERER=opengl`. Для проверки Intel iGPU: `OPTICRAFT_VULKAN_GPU=integrated`, для дискретной карты: `OPTICRAFT_VULKAN_GPU=discrete`; диагностика `OPTICRAFT_VULKAN_VALIDATION=1` (нужны validation layers). Отдельная цель `OptiCraft_Vulkan` остаётся тестом swapchain, не игрой. Техническое состояние: [документация Vulkan](documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md).
+Основная цель `OptiCraft` в CLion автоматически пытается создать окно Vulkan (`GLFW_NO_API`), если сборка включает Vulkan SDK и SPIR-V shaders (`glslangValidator`). При успешной инициализации показывается только Vulkan-окно с миром и HUD; при ошибке используется OpenGL. Скрытый OpenGL-контекст пока необходим для старых ресурсов и резервного пути. Это экспериментальный гибрид: нативные проходы мобов, боссов и предметов подключены, но аппаратно ещё не подтверждены; ряд эффектов не перенесён. При >=256 GPU-резидентах на поддерживаемом устройстве автоматически включается same-frame Hi-Z для дальних непрозрачных чанков; `OPTICRAFT_VULKAN_HIZ=0` отключает только этот проход. Для обычной полной игры принудительно используйте `OPTICRAFT_RENDERER=opengl`. Для проверки Intel iGPU: `OPTICRAFT_VULKAN_GPU=integrated`, для дискретной карты: `OPTICRAFT_VULKAN_GPU=discrete`; диагностика `OPTICRAFT_VULKAN_VALIDATION=1` (нужны validation layers). Отдельная цель `OptiCraft_Vulkan` остаётся тестом swapchain, не игрой. Техническое состояние: [документация Vulkan](documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md).
 
 Настройка сложности доступна внутри мира и влияет на лимит враждебных мобов ночью. Мирные и враждебные мобы появляются в обоих режимах; удалённые обычные мобы исчезают без добычи. Подробности — в [разделе о мобах](documentation/TECHNICAL_DOCUMENTATION.md#47-мобы).
 
@@ -30,7 +30,7 @@ https://github.com/Noktemor/OptiCraft_Installer
 
 ## Версия 0.13 — Vulkan render (в разработке)
 
-В разработке: основной Vulkan-путь для GPU-мешинга, GPU-culling, текстурированных граней и пакетного HUD. При ошибке Vulkan игра переходит на OpenGL. Переход не завершён: сохраняется скрытый GL-контекст, а дальний GPU-worldgen, LOD, сохранение GPU-only чанков, модели и некоторые графические проходы не перенесены. Аппаратная проверка Vulkan ещё требуется.
+В разработке: основной Vulkan-путь для GPU-мешинга, GPU-culling, текстурированных граней и пакетного HUD. При ошибке Vulkan игра переходит на OpenGL. Переход не завершён: сохраняется скрытый GL-контекст, а дальний GPU-worldgen, LOD, сохранение GPU-only чанков и некоторые графические проходы не перенесены. Аппаратная проверка Vulkan ещё требуется.
 
 Подробности: [история обновлений](documentation/history_version.md) и [технический статус Vulkan 0.13](documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md).
 
@@ -76,3 +76,6 @@ Nether теперь генерируется на высоте Y=0…512 с кр
 ### Vulkan render 0.13 — Stage 8 (development)
 
 The main `OptiCraft` target attempts a Vulkan window by default when built with the Vulkan backend and SPIR-V. It presents the world and batched HUD in one visible window; OpenGL is the fallback. A hidden GL context still owns legacy resources. Entity rendering, distant GPU generation, geometric LOD and GPU-only saves remain unfinished. Use `OPTICRAFT_RENDERER=opengl` for the complete legacy game. The standalone `OptiCraft_Vulkan` target is still a swapchain probe. See `documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md`.
+
+### Vulkan 0.13 — Stage 14
+Native FP64 material worldgen with CPU fallback, conservative misc Hi-Z, per-chunk alpha quad sorting, exact-surface LOD1, near misc AO and held-block light. Full terrain generation, coarse voxel LOD and dynamic shadows are not implemented. See `documentation/history_version.md` for validation limits.

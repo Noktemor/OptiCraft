@@ -85,11 +85,18 @@ def main():
     common=(root/'assets/vulkan_shaders/mesher_common.glsl').read_text()
     runs=(root/'assets/vulkan_shaders/voxel_row_runs.glsl').read_text()
     core=(root/'src/rendering/vulkan/VulkanGpuMesher.cpp').read_text()
-    assert 'vkCmdDispatch(cmd, 192, count, 1)' in core
+    assert 'vkCmdDispatch(cmd, run.groupsX, run.count, 1)' in core
+    dispatch=(root/'src/rendering/vulkan/MeshDispatchRuns.h').read_text()
+    assert '((k&4u)?6u:192u)' in dispatch
+    for stage in ['voxel_count.comp','voxel_emit.comp']:
+        shader=(root/'assets/vulkan_shaders'/stage).read_text()
+        assert 'if(gl_NumWorkGroups.x==6u)task=task*32u+((task&1u)!=0u?31u:0u);' in shader
+    # The six-group mode visits exactly the boundary slice of each direction.
+    assert [(g*32+(31 if g&1 else 0)) for g in range(6)]==[0,63,64,127,128,191]
     assert 'slot << 2u' in common and '(runLength - 1u) << 18u' in common
-    assert 'metaAt(slot,p)<<16u' in runs and 'faceLight(slot,chunk,p,face)<<24u' in runs
+    assert 'metaAt(chunk,slot,p)<<16u' in runs and 'faceLight(slot,chunk,p,face)<<24u' in runs
     assert '((runHeight - 1u) << 23u)' in common and 'planeRects[1024]' in runs
-    assert 'uint slot=(packed.y>>2u)&65535u' in vs
+    assert 'uint slot=(packedValue.y>>2u)&65535u' in vs
     for f,component in [(0,'uv.x'),(1,'uv.y'),(2,'uv.x'),(3,'uv.y'),(4,'uv.y'),(5,'uv.x')]:
         assert f'face=={f}u' in vs
     rng=random.Random(13013)

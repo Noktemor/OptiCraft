@@ -25,6 +25,23 @@ void packBlockIds(std::span<const uint16_t> voxels, std::span<uint32_t> words) {
         words[i] = uint32_t(voxels[i * 2]) | (uint32_t(voxels[i * 2 + 1]) << 16u);
 }
 
+std::vector<uint32_t> packSparseMetadata(std::span<const uint32_t> entries) {
+    if(entries.size()%2)throw std::invalid_argument("Malformed sparse chunk metadata");
+    if(entries.empty())return {0u};
+    std::vector<uint32_t> words(kChunkVoxels/4,0u);
+    for(size_t j=0;j<entries.size();j+=2){
+        if(entries[j+1]==0)continue;
+        const uint32_t i=entries[j]&0x0fffffu;
+        if(i>=kChunkVoxels)throw std::out_of_range("Chunk metadata index outside grid");
+        const uint32_t shift=(i&3u)*8u;
+        auto& word=words[i/4];
+        word=(word&~(255u<<shift))|((entries[j+1]&255u)<<shift);
+    }
+    if(std::all_of(words.begin()+1,words.end(),[&](uint32_t w){return w==words[0];}))
+        return {words[0]};
+    return words;
+}
+
 size_t ChunkKeyHash::operator()(const ChunkKey& k) const noexcept {
     uint64_t h = mix(uint32_t(k.dimension));
     h ^= mix(uint32_t(k.x) + 0x9e3779b97f4a7c15ULL);
@@ -63,6 +80,35 @@ std::optional<BufferRange> RangeArena::allocate(uint64_t bytes, uint64_t alignme
 bool RangeArena::owns(BufferRange range) const {
     const auto it = allocated_.find(range.offset);
     return range.size && it != allocated_.end() && it->second == range.size;
+}
+
+bool RangeArena::partition(BufferRange slab, std::span<const BufferRange> retained) {
+    if (!owns(slab)) return false;
+    const uint64_t end=slab.offset+slab.size;
+    uint64_t cursor=slab.offset;
+    for(const auto range:retained){
+        if(!range || range.offset<cursor || range.offset>end || range.size>end-range.offset)return false;
+        cursor=range.offset+range.size;
+    }
+    // Retained and gap allocations are disjoint pieces of one live allocation.
+    // Reuse the normal checked release/coalescing path for the unused pieces.
+    allocated_.erase(slab.offset);
+    cursor=slab.offset;
+    for(const auto range:retained){
+        if(cursor<range.offset){
+            const BufferRange gap{cursor,range.offset-cursor};
+            allocated_.emplace(gap.offset,gap.size);
+            if(!release(gap))throw std::logic_error("Invalid slab gap");
+        }
+        allocated_.emplace(range.offset,range.size);
+        cursor=range.offset+range.size;
+    }
+    if(cursor<end){
+        const BufferRange gap{cursor,end-cursor};
+        allocated_.emplace(gap.offset,gap.size);
+        if(!release(gap))throw std::logic_error("Invalid slab tail");
+    }
+    return true;
 }
 
 bool RangeArena::release(BufferRange range) {

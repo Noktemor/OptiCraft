@@ -24,7 +24,7 @@ VkShaderModule shader(VkDevice device, std::span<const uint32_t> spirv) {
 } // namespace
 VulkanMiscPipeline::~VulkanMiscPipeline() { shutdown(); }
 void VulkanMiscPipeline::initialize(VkDevice device, VkRenderPass renderPass,
-                                    VkDescriptorSetLayout meshSetLayout,
+                                    VkDescriptorSetLayout meshSetLayout,VkDescriptorSetLayout alphaLayout,
                                     std::span<const uint32_t> vertexSpv,
                                     std::span<const uint32_t> fragmentSpv,
                                     bool depthAttachment) {
@@ -42,8 +42,8 @@ void VulkanMiscPipeline::initialize(VkDevice device, VkRenderPass renderPass,
         atlasInfo.bindingCount = 1; atlasInfo.pBindings = &binding;
         check(vkCreateDescriptorSetLayout(device_, &atlasInfo, nullptr, &atlasLayout_),
               "vkCreateDescriptorSetLayout(atlas)");
-        std::array<VkDescriptorSetLayout, 2> sets{meshSetLayout, atlasLayout_};
-        VkPushConstantRange camera{VK_SHADER_STAGE_VERTEX_BIT, 0, 64};
+        std::array<VkDescriptorSetLayout, 3> sets{meshSetLayout, atlasLayout_,alphaLayout};
+        VkPushConstantRange camera{VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(WorldViewParams)};
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layoutInfo.setLayoutCount = uint32_t(sets.size()); layoutInfo.pSetLayouts = sets.data();
         layoutInfo.pushConstantRangeCount = 1; layoutInfo.pPushConstantRanges = &camera;
@@ -89,6 +89,7 @@ void VulkanMiscPipeline::initialize(VkDevice device, VkRenderPass renderPass,
         const VkSpecializationMapEntry alphaEntry{0,0,sizeof(uint32_t)};
         uint32_t alphaPass=0;
         VkSpecializationInfo alphaSpec{1,&alphaEntry,sizeof(alphaPass),&alphaPass};
+        stages[0].pSpecializationInfo=&alphaSpec;
         stages[1].pSpecializationInfo=&alphaSpec;
         check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &gp, nullptr, &cutout_),
               "vkCreateGraphicsPipelines(misc cutout)");
@@ -112,20 +113,20 @@ void VulkanMiscPipeline::initialize(VkDevice device, VkRenderPass renderPass,
     vkDestroyShaderModule(device_, fs, nullptr);
 }
 void VulkanMiscPipeline::recordDraws(VkCommandBuffer cmd, VkDescriptorSet meshSet,
-                                     VkDescriptorSet atlasSet, const float viewProjection[16],
+                                     VkDescriptorSet atlasSet,VkDescriptorSet alphaSet, const WorldViewParams& view,
                                      VkBuffer commands, VkDeviceSize offset, uint32_t count,
                                      bool alpha, bool multiDraw,
                                      uint32_t maxIndirectCount) const {
     if (!count) return;
-    if (!device_ || !cmd || !meshSet || !atlasSet || !commands || !viewProjection ||
+    if (!device_ || !cmd || !meshSet || !atlasSet || !commands ||
         offset % alignof(VkDrawIndirectCommand))
         throw std::invalid_argument("VulkanMiscPipeline: invalid indirect draw");
     if (count > (std::numeric_limits<VkDeviceSize>::max()-offset)/sizeof(VkDrawIndirectCommand))
         throw std::out_of_range("VulkanMiscPipeline: indirect offset overflow");
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, alpha ? alpha_ : cutout_);
-    const VkDescriptorSet sets[2]{meshSet, atlasSet};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 2, sets, 0, nullptr);
-    vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 64, viewProjection);
+    const VkDescriptorSet sets[3]{meshSet, atlasSet,alphaSet};
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 3, sets, 0, nullptr);
+    vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(view), &view);
     if (multiDraw) {
         const uint32_t limit=std::max(1u,maxIndirectCount);
         for(uint32_t first=0;first<count;){

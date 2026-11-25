@@ -9,5 +9,7 @@ void main(){
     if(job>=params.jobCount)return;
     uint slot=jobSlots[job];
     if(slot==0xffffffffu)return;
-    meshCell(job,slot,slots[slot],cell);
+    MiscSlot chunk=slots[slot];
+    if((uint(chunk.origin.w)&10u)==8u)return;
+    meshCell(job,slot,chunk,cell);
 }

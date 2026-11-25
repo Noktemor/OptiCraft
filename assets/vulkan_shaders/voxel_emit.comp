@@ -2,15 +2,61 @@
 #extension GL_GOOGLE_include_directive : require
 layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
 #include "mesher_common.glsl"
+#define MESH_WRITE_RECTS
 #include "voxel_row_runs.glsl"
+// For the opaque part of a bounded fast batch, Count and cache copy share one submission.
+// Each workgroup derives the same prefix from immutable exact counts. Overflow
+// jobs consume no space and are retried through the original complete mesher.
+shared uint fastOffset;
+shared uint fastCount;
+void copyFast(uint batchIdx){
+    if(gl_LocalInvocationID.x==0u){
+        uint offset=dispatchParams.fastBasePlusOne-1u;
+        for(uint j=0u;j<batchIdx;++j){
+            uint n=counts[j];
+            if(n<=dispatchParams.cacheCapacity)offset+=(n+1u)&~1u;
+        }
+        fastOffset=offset;
+        fastCount=counts[batchIdx];
+        bool valid=fastCount<=dispatchParams.cacheCapacity;
+        if(gl_WorkGroupID.x==0u)
+            candidateDraws[batchIdx]=valid?uvec4(6u,fastCount,0u,offset):uvec4(0u);
+    }
+    barrier();
+    if(fastCount>dispatchParams.cacheCapacity)return;
+    uint lane=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+    for(uint i=lane;i<fastCount;i+=512u){
+        uint w=cacheWord(batchIdx,i);
+        faces[fastOffset+i]=uvec2(cachedWords[w],cachedWords[w+1u]);
+    }
+}
 void main(){
+    if(dispatchParams.fastBasePlusOne!=0u){
+        copyFast(dispatchParams.firstJob+gl_WorkGroupID.y);return;
+    }
     uint task=gl_WorkGroupID.x;
+    if(usePlaneCompaction())task=cachedWords[planeListWord(dispatchParams.firstJob,task)];
+    // Six groups are the outer planes of a palette-proven solid chunk.
+    if(!usePlaneCompaction() && gl_NumWorkGroups.x==6u)task=task*32u+((task&1u)!=0u?31u:0u);
     if(task>=FACE_PLANE_TASKS)return;
     uint batchIdx=dispatchParams.firstJob+gl_WorkGroupID.y;
     uint slotIndex=slotIndices[batchIdx];
     if(slotIndex==0xffffffffu)return;
     ChunkSlot chunk=slots[slotIndex];
-    buildPlane(chunk,slotIndex,task/32u,task%32u);
+    // Eight groups are a cache-copy dispatch, never a partial plane dispatch.
+    if(!usePlaneCompaction() && gl_NumWorkGroups.x==8u){
+        uint n=cachedWords[batchIdx];
+        bool valid=dispatchParams.cacheCapacity!=0u && n<=dispatchParams.cacheCapacity && n==chunk.source.z;
+        uint lane=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+        if(lane==0u)counts[batchIdx]=valid?n:0xffffffffu;
+        if(valid)for(uint i=lane;i<n;i+=512u){
+            uint w=cacheWord(batchIdx,i);
+            faces[chunk.source.y+i]=uvec2(cachedWords[w],cachedWords[w+1u]);
+        }
+        return;
+    }
+    if(skipOpaquePlane(chunk,task/32u,task%32u))return;
+    buildPlane(chunk,slotIndex,task/32u,task%32u,batchIdx);
     if(gl_LocalInvocationID.x==0u)planeBase=planeCount==0u?0u:atomicAdd(counts[batchIdx],planeCount);
     barrier();
     for(uint i=gl_LocalInvocationID.x;i<planeCount;i+=64u){

@@ -32,6 +32,17 @@
 
 class Mob {
 public:
+    // Render-thread scoped interception: all boss subparts and ordinary mobs
+    // reuse their existing animation/visibility traversal without issuing GL draws.
+    using EntitySink=std::function<void(OptiCraft::Vulkan::EntityDraw&&)>;
+    class ScopedEntitySink {
+    public:
+        explicit ScopedEntitySink(const EntitySink& sink);
+        ~ScopedEntitySink();
+        ScopedEntitySink(const ScopedEntitySink&)=delete;
+        ScopedEntitySink& operator=(const ScopedEntitySink&)=delete;
+    private: const EntitySink* previous_=nullptr;
+    };
     Mob() = default;
 
     // Загружает (или берёт из общего кэша, если уже загружалась) модель

@@ -1,5 +1,8 @@
 #include "rendering/vulkan/VulkanOpaqueMaterialPipeline.h"
+#include "rendering/vulkan/WorldViewParams.h"
 #include <array>
+#include <cstdlib>
+#include <string_view>
 #include <stdexcept>
 #include <string>
 
@@ -26,32 +29,34 @@ void VulkanOpaqueMaterialPipeline::initialize(VkDevice device,VkRenderPass pass,
     device_=device;
     VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
     try{
-        std::array<VkDescriptorSetLayoutBinding,6> bindings{};
+        std::array<VkDescriptorSetLayoutBinding,7> bindings{};
         for(uint32_t i=0;i<bindings.size();++i){
             bindings[i].binding=i;bindings[i].descriptorCount=1;
             bindings[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            bindings[i].stageFlags=VK_SHADER_STAGE_VERTEX_BIT;
+            bindings[i].stageFlags=i==6?VK_SHADER_STAGE_FRAGMENT_BIT:VK_SHADER_STAGE_VERTEX_BIT;
+            if(i==0 || i>=2)bindings[i].stageFlags|=VK_SHADER_STAGE_FRAGMENT_BIT;
         }
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         dl.bindingCount=uint32_t(bindings.size());dl.pBindings=bindings.data();
         checked(vkCreateDescriptorSetLayout(device,&dl,nullptr,&meshLayout_),"opaque material layout");
-        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,uint32_t(bindings.size())};
+        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,uint32_t(bindings.size())*FrameVoxelDescriptors::kFrames};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        poolInfo.maxSets=1;poolInfo.poolSizeCount=1;poolInfo.pPoolSizes=&poolSize;
+        poolInfo.maxSets=FrameVoxelDescriptors::kFrames;poolInfo.poolSizeCount=1;poolInfo.pPoolSizes=&poolSize;
         checked(vkCreateDescriptorPool(device,&poolInfo,nullptr,&pool_),"opaque material pool");
         VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        alloc.descriptorPool=pool_;alloc.descriptorSetCount=1;alloc.pSetLayouts=&meshLayout_;
-        checked(vkAllocateDescriptorSets(device,&alloc,&descriptor_),"opaque material descriptor");
-        const std::array<VkBuffer,6> buffers{stream.opaqueSlots(),mesh.opaqueFaces(),
-            materials.blockDescriptors(),materials.faceUv(),stream.metadata(),stream.lights()};
-        const std::array<VkDeviceSize,6> sizes{
+        const std::array<VkDescriptorSetLayout,2> frameLayouts{meshLayout_,meshLayout_};
+        alloc.descriptorPool=pool_;alloc.descriptorSetCount=FrameVoxelDescriptors::kFrames;alloc.pSetLayouts=frameLayouts.data();
+        checked(vkAllocateDescriptorSets(device,&alloc,frameDescriptors_.sets.data()),"opaque material descriptor");
+        descriptor_=frameDescriptors_.sets[0];
+        const std::array<VkBuffer,7> buffers{stream.opaqueSlots(),mesh.opaqueFaces(),
+            materials.blockDescriptors(),materials.faceUv(),stream.metadata(),stream.lights(),stream.blocks()};
+        const std::array<VkDeviceSize,7> sizes{
             VkDeviceSize(stream.plan().capacity())*sizeof(GpuChunkSlot),
             VkDeviceSize(mesh.opaqueFaceBytes()),materials.blockDescriptorBytes(),
-            materials.faceUvBytes(),VkDeviceSize(stream.plan().capacity())*kChunkVoxels,
-            VkDeviceSize(stream.plan().capacity())*kChunkVoxels};
-        std::array<VkDescriptorBufferInfo,6> infos{};
-        std::array<VkWriteDescriptorSet,6> writes{};
-        for(uint32_t i=0;i<6;++i){
+            materials.faceUvBytes(),stream.voxelSizes()[1],stream.voxelSizes()[2],stream.voxelSizes()[0]};
+        std::array<VkDescriptorBufferInfo,7> infos{};
+        std::array<VkWriteDescriptorSet,7> writes{};
+        for(uint32_t i=0;i<writes.size();++i){
             infos[i]={buffers[i],0,sizes[i]};
             writes[i]={VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             writes[i].dstSet=descriptor_;writes[i].dstBinding=i;
@@ -59,9 +64,12 @@ void VulkanOpaqueMaterialPipeline::initialize(VkDevice device,VkRenderPass pass,
             writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             writes[i].pBufferInfo=&infos[i];
         }
-        vkUpdateDescriptorSets(device,6,writes.data(),0,nullptr);
+        for(auto set:frameDescriptors_.sets){
+            for(auto& w:writes)w.dstSet=set;
+            vkUpdateDescriptorSets(device,uint32_t(writes.size()),writes.data(),0,nullptr);
+        }
         const std::array<VkDescriptorSetLayout,2> layouts{meshLayout_,atlasLayout};
-        VkPushConstantRange camera{VK_SHADER_STAGE_VERTEX_BIT,0,64};
+        VkPushConstantRange camera{VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(WorldViewParams)};
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount=2;pl.pSetLayouts=layouts.data();
         pl.pushConstantRangeCount=1;pl.pPushConstantRanges=&camera;
@@ -80,7 +88,12 @@ void VulkanOpaqueMaterialPipeline::initialize(VkDevice device,VkRenderPass pass,
         VkPipelineDynamicStateCreateInfo dynamics{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
         dynamics.dynamicStateCount=2;dynamics.pDynamicStates=dynamicStates.data();
         VkPipelineRasterizationStateCreateInfo rast{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-        rast.polygonMode=VK_POLYGON_MODE_FILL;rast.cullMode=VK_CULL_MODE_NONE;
+        // All six packed face windings point outward. VulkanGameMirror flips
+        // projection Y and the live renderer uses a positive-height viewport.
+        const char* disableCull=std::getenv("OPTICRAFT_VULKAN_BACKFACE");
+        rast.polygonMode=VK_POLYGON_MODE_FILL;
+        rast.cullMode=disableCull && std::string_view(disableCull)=="0"?
+            VK_CULL_MODE_NONE:VK_CULL_MODE_BACK_BIT;
         rast.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rast.lineWidth=1.0f;
         VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
@@ -114,6 +127,6 @@ void VulkanOpaqueMaterialPipeline::shutdown()noexcept{
     if(pool_)vkDestroyDescriptorPool(device_,pool_,nullptr);
     if(meshLayout_)vkDestroyDescriptorSetLayout(device_,meshLayout_,nullptr);
     pipeline_=VK_NULL_HANDLE;layout_=VK_NULL_HANDLE;pool_=VK_NULL_HANDLE;
-    meshLayout_=VK_NULL_HANDLE;descriptor_=VK_NULL_HANDLE;device_=VK_NULL_HANDLE;
+    meshLayout_=VK_NULL_HANDLE;descriptor_=VK_NULL_HANDLE;frameDescriptors_.reset();device_=VK_NULL_HANDLE;
 }
 } // namespace OptiCraft::Vulkan

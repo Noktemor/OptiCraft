@@ -3,8 +3,15 @@
 #include <vulkan/vulkan.h>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
 namespace OptiCraft::Vulkan {
+class VulkanBufferError : public std::runtime_error {
+public:
+    VulkanBufferError(VkResult result,const char* action):std::runtime_error(std::string(action)+" failed, VkResult="+std::to_string(result)),result(result){}
+    VkResult result;
+};
 
 // VkDeviceMemory-owned persistent buffer. Creation is rare (startup/rebuild),
 // never performed for an individual chunk or draw. The caller owns GPU lifetime:
@@ -29,6 +36,7 @@ public:
     void read(VkDeviceSize offset, void* destination, VkDeviceSize bytes) const;
     [[nodiscard]] VkBuffer buffer() const noexcept { return buffer_; }
     [[nodiscard]] VkDeviceSize size() const noexcept { return size_; }
+    [[nodiscard]] VkDeviceSize allocationBytes() const noexcept {return allocationSize_;}
     [[nodiscard]] explicit operator bool() const noexcept { return buffer_ != VK_NULL_HANDLE; }
 private:
     VkDevice device_ = VK_NULL_HANDLE;

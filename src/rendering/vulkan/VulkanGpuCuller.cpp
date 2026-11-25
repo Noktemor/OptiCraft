@@ -30,19 +30,23 @@ void VulkanGpuCuller::initialize(VkPhysicalDevice physical, VkDevice device,
     }
     if ((b.chunkSlotStride!=64 && b.chunkSlotStride!=96) ||
         b.byteSizes[0] % b.chunkSlotStride || b.byteSizes[1] % 16 ||
-        b.byteSizes[2] % 4 || b.byteSizes[3] % 16)
+        b.byteSizes[2] % 4 || b.byteSizes[3] % 16 || b.byteSizes[4] != 4)
         throw std::invalid_argument("VulkanGpuCuller: invalid buffer element alignment");
     if (b.byteSizes[1] / 16u < b.byteSizes[0] / b.chunkSlotStride)
         throw std::invalid_argument("VulkanGpuCuller: published draw array smaller than chunk table");
     const uint64_t cap = std::min(b.byteSizes[2] / 4, b.byteSizes[3] / 16);
     if (!cap || cap > UINT32_MAX)
         throw std::invalid_argument("VulkanGpuCuller: invalid live slot capacity");
+    if (b.depthSort && (b.compact || props.limits.maxComputeSharedMemorySize < 16388u ||
+        (cap > 2048u && (b.byteSizes[3] / 16u < cap*2u ||
+                        (cap+63u)/64u > props.limits.maxComputeWorkGroupCount[0]))))
+        throw std::invalid_argument("VulkanGpuCuller: unsupported depth sort capacity/scratch");
     maxJobs_ = static_cast<uint32_t>(cap);
     maxGroupsX_ = props.limits.maxComputeWorkGroupCount[0];
     device_ = device;
     buffers_ = b;
     try {
-        std::array<VkDescriptorSetLayoutBinding,4> bindings{};
+        std::array<VkDescriptorSetLayoutBinding,5> bindings{};
         for (uint32_t i = 0; i < bindings.size(); ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorCount = 1;
@@ -53,7 +57,7 @@ void VulkanGpuCuller::initialize(VkPhysicalDevice physical, VkDevice device,
         l.bindingCount = static_cast<uint32_t>(bindings.size()); l.pBindings = bindings.data();
         checked(vkCreateDescriptorSetLayout(device_, &l, nullptr, &descriptorLayout_),
                 "vkCreateDescriptorSetLayout(culler)");
-        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,4};
+        VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,5};
         VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         pool.maxSets = 1; pool.poolSizeCount = 1; pool.pPoolSizes = &poolSize;
         checked(vkCreateDescriptorPool(device_, &pool, nullptr, &descriptorPool_),
@@ -63,8 +67,8 @@ void VulkanGpuCuller::initialize(VkPhysicalDevice physical, VkDevice device,
         alloc.pSetLayouts = &descriptorLayout_;
         checked(vkAllocateDescriptorSets(device_, &alloc, &descriptorSet_),
                 "vkAllocateDescriptorSets(culler)");
-        std::array<VkDescriptorBufferInfo,4> infos{};
-        std::array<VkWriteDescriptorSet,4> writes{};
+        std::array<VkDescriptorBufferInfo,5> infos{};
+        std::array<VkWriteDescriptorSet,5> writes{};
         for (uint32_t i = 0; i < writes.size(); ++i) {
             infos[i] = {b.buffers[i], 0, b.byteSizes[i]};
             writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -96,28 +100,60 @@ void VulkanGpuCuller::initialize(VkPhysicalDevice physical, VkDevice device,
     } catch (...) { shutdown(); throw; }
 }
 void VulkanGpuCuller::record(VkCommandBuffer cmd, uint32_t count,
-                              const GpuFrustum& frustum) const {
+                              const GpuFrustum& frustum, const std::array<float,4>& depth, uint32_t nearOnly) const {
     if (!count) return;
     if (!device_ || !cmd || count > maxJobs_)
         throw std::out_of_range("VulkanGpuCuller::record invalid draw count");
+    const bool bins = buffers_.opaqueDepthBins && !nearOnly && count<=512u;
+    if (buffers_.compact && !bins) {
+        vkCmdFillBuffer(cmd, buffers_.buffers[4], 0, 4, 0);
+        VkMemoryBarrier reset{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        reset.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+        reset.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&reset,0,nullptr,0,nullptr);
+    }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_,
                             0, 1, &descriptorSet_, 0, nullptr);
     const uint64_t maxInvocations = uint64_t(maxGroupsX_) * 64;
-    for (uint32_t first = 0; first < count;) {
-        const uint32_t batch = uint32_t(std::min(maxInvocations, uint64_t(count - first)));
+    if (buffers_.depthSort && count>2048u) {
         Params params{};
-        params.frustum = frustum; params.firstJob = first; params.totalJobs = count;
+        params.frustum=frustum;params.totalJobs=count;params.depth=depth;
+        params.firstJob=maxJobs_; // scratch begins beyond the published command prefix
+        params.pad1=1u;
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatch(cmd,(count+2047u)/2048u,1,1);
+        VkMemoryBarrier merge{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        merge.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+        merge.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&merge,0,nullptr,0,nullptr);
+        params.pad1=2u;
+        vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(params),&params);
+        vkCmdDispatch(cmd,(count+63u)/64u,1,1);
+    } else for (uint32_t first = 0; first < count;) {
+        const uint32_t batch = (buffers_.depthSort || bins) ? count : uint32_t(std::min(maxInvocations, uint64_t(count - first)));
+        Params params{};
+        params.frustum = frustum; params.firstJob = first; params.totalJobs = count; params.compact = buffers_.compact ? 1u : 0u; params.depth = depth; params.pad1 = bins ? 2u : nearOnly;
         vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(params), &params);
-        vkCmdDispatch(cmd, (batch + 63u) / 64u, 1, 1);
+        vkCmdDispatch(cmd, (buffers_.depthSort || bins) ? 1u : (batch + 63u) / 64u, 1, 1);
         first += batch;
+        if (buffers_.compact && first < count) {
+            VkMemoryBarrier next{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+            next.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+            next.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&next,0,nullptr,0,nullptr);
+        }
     }
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1, &barrier,0,nullptr,0,nullptr);
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT |
+        (buffers_.compact && !bins ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
+    barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+        (buffers_.depthSort ? VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT : 0u);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                         (buffers_.compact && !bins ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u),
+                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+                         (buffers_.depthSort ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : 0u), 0, 1, &barrier,0,nullptr,0,nullptr);
 }
 void VulkanGpuCuller::shutdown() {
     if (!device_) return;

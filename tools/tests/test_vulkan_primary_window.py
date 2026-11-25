@@ -10,7 +10,7 @@ assert 'OPTICRAFT_RENDERER' in g and 'select_vulkan(selected_vulkan)' in g
 assert 'switch_to_opengl();' in g and 'm_input_ptr->rebind_window' in g
 assert 'm_vulkan_game_mirror->present();' in g
 assert 'glfwCreateWindow' not in m and 'glfwDestroyWindow' not in m
-assert r.index('uiPipeline_.prepare')<r.index('runtime.beginColorPass')<r.index('uiPipeline_.draw')<r.index('runtime.endColorPass')
+assert r.index('uiPipeline_.prepare')<r.index('runtime.beginColorPass')<r.index('uiPipeline_.draw')<r.rindex('runtime.endColorPass')
 assert 'chunk->get_dirty_epoch()' in read('src/rendering/vulkan/VulkanGameChunkFeed.cpp')
 assert 'get_vulkan_resident_chunks()' in g
 print('Vulkan primary window and UI integration source contracts: PASS')

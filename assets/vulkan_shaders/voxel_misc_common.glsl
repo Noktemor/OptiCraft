@@ -1,3 +1,4 @@
+#include "voxel_address.glsl"
 // Full block geometry ABI. Unlike the minimal opaque-cube mesher, this path
 // handles alpha cubes, plants, fluid surfaces and all shaped block variants.
 // No CPU triangles/mesh are constructed. Count and emit use identical logic.
@@ -21,7 +22,7 @@ layout(std430,set=0,binding=5) readonly buffer ShapeBoxes {ShapeBox shapeBoxes[]
 layout(std430,set=0,binding=6) buffer Counts {uint counts[];};
 layout(std430,set=0,binding=7) buffer Geometry {uvec4 quads[];}; // TWO uvec4 per quad
 layout(std430,set=0,binding=8) readonly buffer JobSlots {uint jobSlots[];};
-layout(push_constant) uniform Params {uint firstJob; uint jobCount;} params;
+layout(push_constant) uniform Params {uint firstJob; uint jobCount; uint fastBase; uint fastCapacity;} params;
 const uint K_OPAQUE=1u, K_ALPHA=2u, K_FLORA=4u, K_LIQUID=8u, K_SHAPED=16u, K_OCCLUDES=32u;
 const ivec3 DIRS[6] = ivec3[6](ivec3(1,0,0),ivec3(-1,0,0),
  ivec3(0,1,0),ivec3(0,-1,0),ivec3(0,0,1),ivec3(0,0,-1));
@@ -47,9 +48,25 @@ int offsetOf(MiscSlot s,ivec3 p,bool meta) {
     return int(meta?s.source.y:s.source.x);
 }
 ivec3 local(ivec3 p){return (p+ivec3(32))%32;}
-uint blockAt(MiscSlot s,ivec3 p){return atBlock(offsetOf(s,p,false),local(p));}
-uint metaAt(MiscSlot s,ivec3 p){return atMeta(offsetOf(s,p,true),local(p));}
-uint coord(uint packed,uint axis){return (packed>>(7u*axis))&127u;}
+uint blockAt(MiscSlot s,ivec3 p){
+    if(!voxelIndirect(s.origin.w))return atBlock(offsetOf(s,p,false),local(p));
+    if(any(lessThan(p,ivec3(0)))||any(greaterThanEqual(p,ivec3(32)))){
+        int link=offsetOf(s,p,false);if(link<0)return 0u;s=slots[uint(link)];p=local(p);
+    }
+    uint idx=uint((p.y*32+p.z)*32+p.x);
+    uint w=VOXEL_WORD(blocks,s.source.x,idx>>1u,s.origin.w,VOXEL_UNIFORM_BLOCK);
+    return (w>>((idx&1u)*16u))&65535u;
+}
+uint metaAt(MiscSlot s,ivec3 p){
+    if(!voxelIndirect(s.origin.w))return atMeta(offsetOf(s,p,true),local(p));
+    if(any(lessThan(p,ivec3(0)))||any(greaterThanEqual(p,ivec3(32)))){
+        int link=offsetOf(s,p,false);if(link<0)return 0u;s=slots[uint(link)];p=local(p);
+    }
+    uint idx=uint((p.y*32+p.z)*32+p.x);
+    uint w=VOXEL_WORD(metaWords,s.source.y,idx>>2u,s.origin.w,VOXEL_UNIFORM_META);
+    return (w>>((idx&3u)*8u))&255u;
+}
+uint coord(uint packedValue,uint axis){return (packedValue>>(7u*axis))&127u;}
 bool internalFace(ShapeRange r,ShapeBox box,uint face) {
     uint axis=face>>1u; bool positive=(face&1u)==0u;
     uint plane=positive?coord(box.hi,axis):coord(box.lo,axis);
@@ -74,7 +91,8 @@ bool exposed(MiscSlot s,ivec3 p,uint self,uint face,uint kind) {
 uint boxHalfLo(uint face){return 0u;}
 // Each voxel produces its set of quads identically during count and emit.
 // For all passes the stream index is one per job; the caller allocates capacity
-// after asynchronous count readback, never from an unsafe fixed-size estimate.
+// after asynchronous count readback or reserves a disjoint bounded fast range.
+// Overflow is counted exactly and the incomplete candidate is never published.
 void add(uint job, MiscSlot s,uint slot,uint id,uint index,uint meta,uint kind,
          uint face,uint blo,uint bhi,uint h0,uint h1,uint h2,uint h3) {
     uint next=atomicAdd(counts[job],1u);

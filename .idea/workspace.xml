@@ -42,78 +42,76 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="beta 0.12">
+    <list default="true" id="86fc7975-7bbf-4ee9-ba8c-e9e24bdf05d8" name="Changes" comment="0.13- vulkan test">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/PORTAL_PATCH_ID.txt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/atlases/blocks_main.atlas.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/blocks.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/blocks.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/blocks.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/recipe.json" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/recipe.ocb" beforeDir="false" afterPath="$PROJECT_DIR$/assets/recipe.ocb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/gpu_cull_commands.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/gpu_cull_commands.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/gpu_cull_meshlets.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/gpu_cull_meshlets.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/mesh_misc.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_fragment.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_fragment.glsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_gpu_misc_vertex.glsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh.mesh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" beforeDir="false" afterPath="$PROJECT_DIR$/assets/shaders/terrain_misc_mesh_nv.mesh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/structures/structures.struct" beforeDir="false" afterPath="$PROJECT_DIR$/assets/structures/structures.struct" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/texture/texture_atlas.png" beforeDir="false" afterPath="$PROJECT_DIR$/assets/texture/texture_atlas.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/documentation/DIMENSIONS_AND_PORTALS.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/DIMENSIONS_AND_PORTALS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/mesher_common.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/mesher_common.glsl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_count.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_count.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_cull.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_cull.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_debug.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_debug.vert" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_emit.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_emit.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.frag" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.frag" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.vert" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_common.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_common.glsl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_count.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_count.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_cull.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_cull.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_emit.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_emit.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_row_runs.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_row_runs.glsl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.frag" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.frag" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.vert" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/history_version.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/history_version.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/commands/Command_System.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/Command_System.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/app/Window.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Window.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/app/Window.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/app/Window.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Horse.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Horse.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Horse.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Horse.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Passive_Animal.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Pig.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Pig.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/animals/Pig.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/animals/Pig.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/hostile/Hostile_Mob.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/entities/player/Player.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/entities/player/Player.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/hud/Hud.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/hud/Hud.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/hud/Hud.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/input/Input_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/input/Input_Manager.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/input/Input_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/input/Input_Manager.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Boss.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Boss.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Boss.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Boss.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Knight_Ai.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Knight_Ai.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Knight_Ai.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Knight_Ai.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/mobs/Mob.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/mobs/Mob.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mobs_Update.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mobs_Update.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mobs_Update.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mobs_Update.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/physics/Raycast.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/physics/Raycast.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/Renderer.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Atlas_Registry.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture_Atlas.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Interaction.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Shapes.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/blocks/Block_Types.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/structurepack/build_structures.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/structurepack/build_structures.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/stubs/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/stubs/world/blocks/Block_Types.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/test.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/copper_logic_smoke/test.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/fake_vulkan/vulkan/vulkan.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/fake_vulkan/vulkan/vulkan.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/run_vulkan_stage5_mock_checks.sh" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/run_vulkan_stage5_mock_checks.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_013_stage6_integration.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_013_stage6_integration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_stream.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_stream.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_gpu_rows.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_gpu_rows.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_mesh_transactions.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_mesh_transactions.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_primary_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_primary_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_stage5_mock.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_stage5_mock.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_world_core.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_world_core.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -156,23 +154,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0000000261248863" />
-      <entry key="MS500" value="1.0306424926179618" />
-      <entry key="S2" value="1.753911204160596" />
-      <entry key="S5" value="4.00287023909015" />
-      <entry key="S10" value="7.132948795494146" />
-      <entry key="S30" value="11.976437914309637" />
-      <entry key="S60" value="15.217709087971253" />
-      <entry key="M2" value="23.42195724397119" />
-      <entry key="M5" value="50.12515050117718" />
-      <entry key="M10" value="80.49852855109748" />
-      <entry key="M15" value="101.01892569217885" />
-      <entry key="M30" value="153.55441991173316" />
-      <entry key="H1" value="267.5362435711164" />
-      <entry key="H2" value="607.470993478454" />
-      <entry key="H4" value="1513.7990228768404" />
-      <entry key="D1" value="4714.207676054928" />
-      <entry key="W1" value="5921.9837685339235" />
+      <entry key="MS100" value="1.0000000000000002" />
+      <entry key="MS500" value="1.0008075274193202" />
+      <entry key="S2" value="1.248234581227756" />
+      <entry key="S5" value="2.6176914113824186" />
+      <entry key="S10" value="5.622818796975779" />
+      <entry key="S30" value="12.728925473009614" />
+      <entry key="S60" value="17.42600692960728" />
+      <entry key="M2" value="26.313660340624626" />
+      <entry key="M5" value="53.38571284732438" />
+      <entry key="M10" value="84.11963433260632" />
+      <entry key="M15" value="104.87039921255146" />
+      <entry key="M30" value="157.6875335436097" />
+      <entry key="H1" value="271.7860442462742" />
+      <entry key="H2" value="611.6238609932676" />
+      <entry key="H4" value="1517.7461751472097" />
+      <entry key="D1" value="4718.661778841523" />
+      <entry key="W1" value="5926.885810987835" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -181,36 +179,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="4.25007558263214E-209" />
-      <entry key="M2" value="6.5192603741773755E-105" />
-      <entry key="M5" value="2.116797581799218E-42" />
-      <entry key="M10" value="1.454928414308206E-21" />
-      <entry key="M15" value="1.284470298753549E-14" />
-      <entry key="M30" value="1.1703748290416567E-7" />
-      <entry key="H1" value="4.41581748997436E-4" />
-      <entry key="H2" value="0.03605917739105534" />
-      <entry key="H4" value="0.3658540474822554" />
-      <entry key="D1" value="2.6724122465460596" />
-      <entry key="W1" value="3.7756492423311205" />
+      <entry key="S60" value="3.5976508104865675E-209" />
+      <entry key="M2" value="5.998042022599034E-105" />
+      <entry key="M5" value="2.0474051984918457E-42" />
+      <entry key="M10" value="1.4308821338699808E-21" />
+      <entry key="M15" value="1.2702783317944353E-14" />
+      <entry key="M30" value="1.1638912005643228E-7" />
+      <entry key="H1" value="4.4035691566698135E-4" />
+      <entry key="H2" value="0.036009133258139384" />
+      <entry key="H4" value="0.3656000870937328" />
+      <entry key="D1" value="2.6721029778460554" />
+      <entry key="W1" value="3.7755868188968797" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9265880864352959" />
-      <entry key="MS500" value="1.0151285537255876" />
-      <entry key="S2" value="1.7472658574674527" />
-      <entry key="S5" value="3.9919239675524976" />
-      <entry key="S10" value="7.118571879209924" />
-      <entry key="S30" value="11.966351813526211" />
-      <entry key="S60" value="15.211312296676148" />
-      <entry key="M2" value="23.417689577390217" />
-      <entry key="M5" value="50.12223072046335" />
-      <entry key="M10" value="80.49643846996238" />
-      <entry key="M15" value="101.01725511031132" />
-      <entry key="M30" value="153.55317486352834" />
-      <entry key="H1" value="267.53559972191556" />
-      <entry key="H2" value="607.5059670622755" />
-      <entry key="H4" value="1514.1635880348629" />
-      <entry key="D1" value="4716.879318731457" />
-      <entry key="W1" value="5925.7592740780865" />
+      <entry key="MS100" value="0.9460576467255961" />
+      <entry key="MS500" value="0.9897542823022424" />
+      <entry key="S2" value="1.243762393272582" />
+      <entry key="S5" value="2.6120611709264363" />
+      <entry key="S10" value="5.614088436776978" />
+      <entry key="S30" value="12.719967450792838" />
+      <entry key="S60" value="17.419624317585548" />
+      <entry key="M2" value="26.309221511619086" />
+      <entry key="M5" value="53.38267659864666" />
+      <entry key="M10" value="84.11747146185334" />
+      <entry key="M15" value="104.8686752545969" />
+      <entry key="M30" value="157.68625933566457" />
+      <entry key="H1" value="271.7853841193042" />
+      <entry key="H2" value="611.6587769989637" />
+      <entry key="H4" value="1518.1104827170275" />
+      <entry key="D1" value="4721.333111584354" />
+      <entry key="W1" value="5930.66125400321" />
     </decayedShown>
   </component>
   <component name="ProjectApplicationVersion">
@@ -443,7 +441,8 @@
     <MESSAGE value="версия 0,11 стабильная" />
     <MESSAGE value="документация" />
     <MESSAGE value="beta 0.12" />
-    <option name="LAST_COMMIT_MESSAGE" value="beta 0.12" />
+    <MESSAGE value="0.13- vulkan test" />
+    <option name="LAST_COMMIT_MESSAGE" value="0.13- vulkan test" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

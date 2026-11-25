@@ -1,4 +1,5 @@
 #pragma once
+#include "rendering/vulkan/FrameVoxelDescriptors.h"
 #include "rendering/vulkan/VulkanChunkStreamGpu.h"
 #include "rendering/vulkan/VulkanChunkMeshing.h"
 #include "rendering/vulkan/VulkanMaterialTables.h"
@@ -21,6 +22,10 @@ public:
     VkPipeline pipeline()const noexcept{return pipeline_;}
     VkPipelineLayout layout()const noexcept{return layout_;}
     VkDescriptorSet descriptorSet()const noexcept{return descriptor_;}
+    void selectVoxelFrame(uint32_t frame,uint64_t epoch,const std::array<VkBuffer,3>& buffers,
+                          const std::array<VkDeviceSize,3>& sizes) {
+        descriptor_=frameDescriptors_.select(device_,frame,epoch,{6,4,5},buffers,sizes);
+    }
 private:
     VkDevice device_=VK_NULL_HANDLE;
     VkPipeline pipeline_=VK_NULL_HANDLE;
@@ -28,5 +33,6 @@ private:
     VkDescriptorSetLayout meshLayout_=VK_NULL_HANDLE;
     VkDescriptorPool pool_=VK_NULL_HANDLE;
     VkDescriptorSet descriptor_=VK_NULL_HANDLE;
+    FrameVoxelDescriptors frameDescriptors_;
 };
 } // namespace OptiCraft::Vulkan

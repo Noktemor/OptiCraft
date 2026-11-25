@@ -15,8 +15,8 @@ assert 'OPTICRAFT_VULKAN_GAME_MIRROR=1' in cmake
 assert 'OptiCraft_VulkanBackend' in cmake
 assert 'VulkanGameMirror.cpp' in cmake
 assert 'm_vulkan_game_mirror->initialize(m_window_ptr->vulkan_candidate(), Block_Registry::get_instance())' in game
-assert 'm_vulkan_chunk_feed.acceptFrame(renderable, *m_chunk_manager_ptr)' in game
-assert 'm_vulkan_game_mirror->setWorld(projection * view,sky_color)' in game
+assert 'm_vulkan_chunk_feed.acceptFrame(renderable, *m_chunk_manager_ptr,0,packets)' in game
+assert 'm_vulkan_game_mirror->setWorld(projection * view,sky_color,camera_position,scene_ambient()' in game
 assert 'set_vulkan_chunk_sink({}, {});' in game
 window = read('src/core/app/Window.cpp')
 assert 'glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)' in window

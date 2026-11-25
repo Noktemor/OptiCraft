@@ -231,6 +231,12 @@ void VulkanFrameRuntime::selectDevice(GpuPreference preference) {
         vkGetPhysicalDeviceFormatProperties(physical_, format, &available);
         if (available.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
             depthFormat_ = format;
+            VkImageFormatProperties sampledProps{};
+            depthSampled_ = format != VK_FORMAT_D24_UNORM_S8_UINT &&
+                (available.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) &&
+                vkGetPhysicalDeviceImageFormatProperties(physical_,format,VK_IMAGE_TYPE_2D,
+                    VK_IMAGE_TILING_OPTIMAL,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+                    0,&sampledProps)==VK_SUCCESS;
             break;
         }
     }
@@ -244,11 +250,21 @@ void VulkanFrameRuntime::selectDevice(GpuPreference preference) {
     VkPhysicalDeviceFeatures enabled{};
     enabled.drawIndirectFirstInstance = VK_TRUE;
     enabled.multiDrawIndirect = bestFeatures.multiDrawIndirect;
+    enabled.shaderFloat64 = bestFeatures.shaderFloat64;
+    shaderFloat64_ = enabled.shaderFloat64 == VK_TRUE;
+    VkPhysicalDeviceVulkan12Features supported12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    supported.pNext = &supported12;
+    vkGetPhysicalDeviceFeatures2(physical_, &supported);
+    VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    indirectCount_ = multiDrawIndirect_ && supported12.drawIndirectCount;
+    enabled12.drawIndirectCount = indirectCount_ ? VK_TRUE : VK_FALSE;
     const char* extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     VkDeviceCreateInfo create{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     create.queueCreateInfoCount = 1;
     create.pQueueCreateInfos = &queue;
     create.pEnabledFeatures = &enabled;
+    create.pNext = &enabled12;
     create.enabledExtensionCount = 1;
     create.ppEnabledExtensionNames = extensions;
     check(vkCreateDevice(physical_, &create, nullptr, &device_), "vkCreateDevice");
@@ -276,6 +292,7 @@ VulkanFrameRuntime::DepthImage VulkanFrameRuntime::createDepthImage() const {
         create.samples = VK_SAMPLE_COUNT_1_BIT;
         create.tiling = VK_IMAGE_TILING_OPTIMAL;
         create.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        if(depthSampled_) create.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
         create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         create.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         check(vkCreateImage(device_, &create, nullptr, &image.image), "vkCreateImage(depth)");
@@ -351,6 +368,7 @@ void VulkanFrameRuntime::createSwapchain() {
             if (std::find(modes.begin(),modes.end(),preferred)!=modes.end()) {create.presentMode=preferred;break;}
         }
     }
+    std::cout << "[Vulkan] Present mode: " << (create.presentMode==VK_PRESENT_MODE_IMMEDIATE_KHR?"IMMEDIATE":create.presentMode==VK_PRESENT_MODE_MAILBOX_KHR?"MAILBOX":"FIFO") << '\n';
     create.clipped = VK_TRUE;
     check(vkCreateSwapchainKHR(device_, &create, nullptr, &swapchain_), "vkCreateSwapchainKHR");
     format_ = selected.format;
@@ -388,12 +406,12 @@ void VulkanFrameRuntime::createSwapchain() {
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
     dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     VkRenderPassCreateInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     const std::array<VkAttachmentDescription, 2> attachments = {color, depth};
     rp.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -403,6 +421,23 @@ void VulkanFrameRuntime::createSwapchain() {
     rp.dependencyCount = 1;
     rp.pDependencies = &dependency;
     check(vkCreateRenderPass(device_, &rp, nullptr, &renderPass_), "vkCreateRenderPass");
+    // All three passes are compatible: only attachment load/store and layouts differ.
+    if (depthSampled_) {
+        auto splitAttachments = attachments;
+        splitAttachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        splitAttachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        rp.pAttachments = splitAttachments.data();
+        if (vkCreateRenderPass(device_, &rp, nullptr, &firstPass_) == VK_SUCCESS) {
+            splitAttachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            splitAttachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            splitAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            splitAttachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            splitAttachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            if(vkCreateRenderPass(device_, &rp, nullptr, &resumePass_) != VK_SUCCESS) {
+                vkDestroyRenderPass(device_, firstPass_, nullptr); firstPass_=VK_NULL_HANDLE; resumePass_=VK_NULL_HANDLE;
+            }
+        } else firstPass_=VK_NULL_HANDLE;
+    }
     views_.reserve(images_.size());
     depth_.reserve(images_.size());
     framebuffers_.reserve(images_.size());
@@ -493,11 +528,12 @@ bool VulkanFrameRuntime::beginFrame(Frame& frame) {
     frameOpen_ = true;
     colorPassOpen_ = false;
     colorPassRecorded_ = false;
+    splitPending_ = false;
     return true;
 }
 
 void VulkanFrameRuntime::beginColorPass(const Frame& frame, std::array<float, 4> clearColor,
-                                        bool recordSecondaryDraws) {
+                                        bool recordSecondaryDraws, bool split) {
     if (!frameOpen_ || colorPassOpen_ || colorPassRecorded_ ||
         frame.frameSlot != frameSlot_ || frame.imageIndex != acquiredImage_ ||
         frame.cmd != frames_[frameSlot_].commandBuffer)
@@ -507,7 +543,9 @@ void VulkanFrameRuntime::beginColorPass(const Frame& frame, std::array<float, 4>
     clears[1].depthStencil.depth = 1.0f;
     clears[1].depthStencil.stencil = 0;
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    begin.renderPass = frame.renderPass;
+    if(split && !supportsDepthPyramid()) throw std::logic_error("split pass unsupported");
+    splitPending_ = split;
+    begin.renderPass = split ? firstPass_ : frame.renderPass;
     begin.framebuffer = frame.framebuffer;
     begin.renderArea = {{0, 0}, frame.extent};
     begin.clearValueCount = static_cast<uint32_t>(clears.size());
@@ -516,6 +554,18 @@ void VulkanFrameRuntime::beginColorPass(const Frame& frame, std::array<float, 4>
     vkCmdBeginRenderPass(frame.cmd, &begin, recordSecondaryDraws
         ? VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS : VK_SUBPASS_CONTENTS_INLINE);
     colorPassOpen_ = true;
+}
+
+void VulkanFrameRuntime::resumeColorPass(const Frame& frame) {
+    if(!frameOpen_ || colorPassOpen_ || !colorPassRecorded_ || !splitPending_ ||
+       frame.frameSlot != frameSlot_ || frame.imageIndex != acquiredImage_ ||
+       frame.cmd != frames_[frameSlot_].commandBuffer)
+        throw std::logic_error("resumeColorPass invalid state");
+    VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    begin.renderPass=resumePass_; begin.framebuffer=frame.framebuffer;
+    begin.renderArea={{0,0},frame.extent};
+    vkCmdBeginRenderPass(frame.cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);
+    splitPending_=false; colorPassRecorded_=false; colorPassOpen_=true;
 }
 
 void VulkanFrameRuntime::endColorPass(const Frame& frame) {
@@ -527,7 +577,7 @@ void VulkanFrameRuntime::endColorPass(const Frame& frame) {
 }
 
 void VulkanFrameRuntime::endFrame(const Frame& frame) {
-    if (!frameOpen_ || colorPassOpen_ || !colorPassRecorded_ ||
+    if (!frameOpen_ || colorPassOpen_ || !colorPassRecorded_ || splitPending_ ||
         frame.frameSlot != frameSlot_ || frame.imageIndex != acquiredImage_ ||
         frame.cmd != frames_[frameSlot_].commandBuffer)
         throw std::logic_error("endFrame requires completed color/depth pass");
@@ -556,7 +606,7 @@ void VulkanFrameRuntime::endFrame(const Frame& frame) {
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
         recreateRequested_ = true;
     else check(result, "vkQueuePresentKHR");
-    ++framesPresented_;
+    if(result==VK_SUCCESS || result==VK_SUBOPTIMAL_KHR)++framesPresented_;
     frameOpen_ = false;
     colorPassRecorded_ = false;
     acquiredImage_ = UINT32_MAX;
@@ -575,6 +625,9 @@ void VulkanFrameRuntime::destroySwapchain() noexcept {
         if (depth.memory) vkFreeMemory(device_, depth.memory, nullptr);
     }
     depth_.clear();
+    if(firstPass_) vkDestroyRenderPass(device_,firstPass_,nullptr);
+    if(resumePass_) vkDestroyRenderPass(device_,resumePass_,nullptr);
+    firstPass_=resumePass_=VK_NULL_HANDLE;
     if (renderPass_) vkDestroyRenderPass(device_, renderPass_, nullptr);
     renderPass_ = VK_NULL_HANDLE;
     for (auto view : views_) if (view) vkDestroyImageView(device_, view, nullptr);
@@ -614,6 +667,7 @@ void VulkanFrameRuntime::shutdown() noexcept {
     instance_ = VK_NULL_HANDLE;
     physical_ = VK_NULL_HANDLE;
     depthFormat_ = VK_FORMAT_UNDEFINED;
+    depthSampled_=false; splitPending_=false;
     graphicsQueue_ = VK_NULL_HANDLE;
     graphicsFamily_ = UINT32_MAX;
     window_ = nullptr;

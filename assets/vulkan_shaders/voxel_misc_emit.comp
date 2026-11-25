@@ -10,5 +10,12 @@ void main(){
     if(job>=params.jobCount)return;
     uint slot=jobSlots[job];
     if(slot==0xffffffffu)return;
-    meshCell(job,slot,slots[slot],cell);
+    MiscSlot chunk=slots[slot];
+    if((uint(chunk.origin.w)&10u)==8u)return;
+    // Fast path writes to an unpublished reservation, not the live slot range.
+    if(params.fastCapacity!=0u){
+        chunk.source.z=params.fastBase+job*params.fastCapacity;
+        chunk.source.w=params.fastCapacity;
+    }
+    meshCell(job,slot,chunk,cell);
 }

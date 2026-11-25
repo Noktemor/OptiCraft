@@ -1,14 +1,18 @@
 #pragma once
+#include "rendering/vulkan/FrameVoxelDescriptors.h"
 #include <vulkan/vulkan.h>
 #include <array>
 #include <cstdint>
 #include <span>
+#include "rendering/vulkan/GpuWorldCore.h"
 
 namespace OptiCraft::Vulkan {
 
 // Shader storage block; the order/offsets match voxel_misc_common.glsl.
+// Indirect voxel ABI: source.x/y block/meta base or inline word;
+// neighborBlocksB.z light base/word; links are stable slot IDs.
 struct alignas(16) GpuMiscSlot {
-    std::array<uint32_t,4> source{}; // blocksBase, metadataBase, quadBase, quadCapacity
+    std::array<uint32_t,4> source{}; // blocksBase/word, metadataBase/word, quadBase, quadCapacity
     std::array<int32_t,4> origin{};
     std::array<int32_t,4> neighborBlocksA{{-1,-1,-1,-1}};
     std::array<int32_t,4> neighborBlocksB{{-1,-1,-1,-1}};
@@ -35,18 +39,25 @@ public:
     VulkanMiscMesher()=default;
     void initialize(VkPhysicalDevice physical,VkDevice device,const GpuMiscBuffers& buffers,
                     std::span<const uint32_t> countSpv,std::span<const uint32_t> emitSpv);
-    void recordCount(VkCommandBuffer command,uint32_t jobs) const;
-    void recordEmit(VkCommandBuffer command,uint32_t jobs) const;
+    void recordCount(VkCommandBuffer command,uint32_t jobs, std::span<const uint8_t> kinds={}) const;
+    void recordEmit(VkCommandBuffer command,uint32_t jobs, std::span<const uint8_t> kinds={}) const;
+    void recordFastEmit(VkCommandBuffer command,uint32_t jobs,std::span<const uint8_t> kinds,
+                        BufferRange slab,uint32_t capacity) const;
     void shutdown();
     VkDescriptorSetLayout descriptorSetLayout() const {return layout_;}
     VkDescriptorSet descriptorSet() const {return set_;}
     uint32_t maxJobs() const {return maxJobs_;}
+    void selectVoxelFrame(uint32_t frame,uint64_t epoch,const std::array<VkBuffer,3>& buffers,
+                          const std::array<VkDeviceSize,3>& sizes) {
+        set_=frameDescriptors_.select(device_,frame,epoch,{0,1,10},buffers,sizes);
+    }
 private:
-    void record(VkCommandBuffer command,uint32_t jobs,VkPipeline pipeline) const;
+    void record(VkCommandBuffer command,uint32_t jobs,VkPipeline pipeline,std::span<const uint8_t> kinds,uint32_t fastBase=0,uint32_t fastCapacity=0) const;
     VkDevice device_=VK_NULL_HANDLE;
     VkDescriptorSetLayout layout_=VK_NULL_HANDLE;
     VkDescriptorPool pool_=VK_NULL_HANDLE;
     VkDescriptorSet set_=VK_NULL_HANDLE;
+    FrameVoxelDescriptors frameDescriptors_;
     VkPipelineLayout pipelineLayout_=VK_NULL_HANDLE;
     std::array<VkPipeline,2> pipelines_{};
     uint32_t dispatchYLimit_=0, maxJobs_=0;

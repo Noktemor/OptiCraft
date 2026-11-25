@@ -1,4 +1,5 @@
 #include "rendering/vulkan/VulkanMiscMesher.h"
+#include "rendering/vulkan/MeshDispatchRuns.h"
 #include "rendering/vulkan/VulkanBlockCatalog.h"
 #include <algorithm>
 #include <stdexcept>
@@ -33,7 +34,7 @@ void VulkanMiscMesher::initialize(VkPhysicalDevice physical,VkDevice device,
     if(props.limits.maxComputeWorkGroupCount[0]<512 ||
        props.limits.maxComputeWorkGroupSize[0]<64 ||
        props.limits.maxComputeWorkGroupInvocations<64 ||
-       props.limits.maxPushConstantsSize<8)
+       props.limits.maxPushConstantsSize<16)
         throw std::runtime_error("GPU cannot dispatch 32^3 voxel cells");
     dispatchYLimit_=props.limits.maxComputeWorkGroupCount[1];
     const std::array<VkDeviceSize,11> alignment{
@@ -56,17 +57,20 @@ void VulkanMiscMesher::initialize(VkPhysicalDevice physical,VkDevice device,
             auto& dst=bindings[i];dst.binding=i;dst.descriptorCount=1;
             dst.descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             dst.stageFlags=VK_SHADER_STAGE_COMPUTE_BIT|VK_SHADER_STAGE_VERTEX_BIT;
+            if(i==0||i==2||i==3)dst.stageFlags|=VK_SHADER_STAGE_FRAGMENT_BIT;
         }
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         dl.bindingCount=uint32_t(bindings.size());dl.pBindings=bindings.data();
         check(vkCreateDescriptorSetLayout(device_,&dl,nullptr,&layout_),"descriptor set layout");
-        VkDescriptorPoolSize sz{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,11};
+        VkDescriptorPoolSize sz{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,11*FrameVoxelDescriptors::kFrames};
         VkDescriptorPoolCreateInfo pc{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        pc.poolSizeCount=1;pc.pPoolSizes=&sz;pc.maxSets=1;
+        pc.poolSizeCount=1;pc.pPoolSizes=&sz;pc.maxSets=FrameVoxelDescriptors::kFrames;
         check(vkCreateDescriptorPool(device_,&pc,nullptr,&pool_),"descriptor pool");
         VkDescriptorSetAllocateInfo da{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        da.descriptorPool=pool_;da.descriptorSetCount=1;da.pSetLayouts=&layout_;
-        check(vkAllocateDescriptorSets(device_,&da,&set_),"descriptor set");
+        const std::array<VkDescriptorSetLayout,2> frameLayouts{layout_,layout_};
+        da.descriptorPool=pool_;da.descriptorSetCount=FrameVoxelDescriptors::kFrames;da.pSetLayouts=frameLayouts.data();
+        check(vkAllocateDescriptorSets(device_,&da,frameDescriptors_.sets.data()),"descriptor set");
+        set_=frameDescriptors_.sets[0];
         std::array<VkDescriptorBufferInfo,11> infos{};
         std::array<VkWriteDescriptorSet,11> writes{};
         for(uint32_t i=0;i<11;++i){
@@ -75,8 +79,11 @@ void VulkanMiscMesher::initialize(VkPhysicalDevice physical,VkDevice device,
             w.dstSet=set_;w.dstBinding=i;w.descriptorCount=1;
             w.descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;w.pBufferInfo=&infos[i];
         }
-        vkUpdateDescriptorSets(device_,uint32_t(writes.size()),writes.data(),0,nullptr);
-        VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT,0,8};
+        for(auto set:frameDescriptors_.sets){
+            for(auto& w:writes)w.dstSet=set;
+            vkUpdateDescriptorSets(device_,uint32_t(writes.size()),writes.data(),0,nullptr);
+        }
+        VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT,0,16};
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount=1;pl.pSetLayouts=&layout_;pl.pushConstantRangeCount=1;
         pl.pPushConstantRanges=&push;
@@ -94,7 +101,7 @@ void VulkanMiscMesher::initialize(VkPhysicalDevice physical,VkDevice device,
         }
     }catch(...){shutdown();throw;}
 }
-void VulkanMiscMesher::record(VkCommandBuffer cmd,uint32_t jobs,VkPipeline pipeline)const{
+void VulkanMiscMesher::record(VkCommandBuffer cmd,uint32_t jobs,VkPipeline pipeline,std::span<const uint8_t> kinds,uint32_t fastBase,uint32_t fastCapacity)const{
     if(!jobs)return;
     if(!device_||!cmd||jobs>maxJobs_)throw std::out_of_range("invalid misc job batch");
     vkCmdFillBuffer(cmd,buffers_.buffers[6],0,VkDeviceSize(jobs)*4u,0u);
@@ -103,22 +110,29 @@ void VulkanMiscMesher::record(VkCommandBuffer cmd,uint32_t jobs,VkPipeline pipel
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline);
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipelineLayout_,
         0,1,&set_,0,nullptr);
-    for(uint32_t first=0;first<jobs;){
-        uint32_t n=std::min(dispatchYLimit_,jobs-first);
-        const uint32_t pc[]{first,jobs};
+    for(const auto& run:meshDispatchRuns(jobs,kinds,true,dispatchYLimit_)){
+        const uint32_t pc[]{run.first,jobs,fastBase,fastCapacity};
         vkCmdPushConstants(cmd,pipelineLayout_,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(pc),pc);
-        vkCmdDispatch(cmd,512,n,1);
-        first+=n;
+        vkCmdDispatch(cmd,run.groupsX,run.count,1);
     }
-    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT,
+    barrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT|VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
         VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_SHADER_READ_BIT);
 }
-void VulkanMiscMesher::recordCount(VkCommandBuffer cmd,uint32_t jobs)const{
-    record(cmd,jobs,pipelines_[0]);
+void VulkanMiscMesher::recordCount(VkCommandBuffer cmd,uint32_t jobs,std::span<const uint8_t> kinds)const{
+    record(cmd,jobs,pipelines_[0],kinds);
 }
-void VulkanMiscMesher::recordEmit(VkCommandBuffer cmd,uint32_t jobs)const{
-    record(cmd,jobs,pipelines_[1]);
+void VulkanMiscMesher::recordEmit(VkCommandBuffer cmd,uint32_t jobs,std::span<const uint8_t> kinds)const{
+    record(cmd,jobs,pipelines_[1],kinds);
+}
+void VulkanMiscMesher::recordFastEmit(VkCommandBuffer cmd,uint32_t jobs,std::span<const uint8_t> kinds,
+                                      BufferRange slab,uint32_t capacity)const{
+    if(!capacity || !jobs || !slab || slab.offset%32 ||
+       slab.offset>buffers_.byteSizes[7] || slab.size>buffers_.byteSizes[7]-slab.offset ||
+       slab.size!=uint64_t(capacity)*jobs*32 || slab.offset/32>UINT32_MAX)
+        throw std::invalid_argument("Invalid fast misc slab");
+    record(cmd,jobs,pipelines_[1],kinds,uint32_t(slab.offset/32),capacity);
 }
 void VulkanMiscMesher::shutdown(){
     if(!device_)return;
@@ -127,6 +141,6 @@ void VulkanMiscMesher::shutdown(){
     if(pool_)vkDestroyDescriptorPool(device_,pool_,nullptr);
     if(layout_)vkDestroyDescriptorSetLayout(device_,layout_,nullptr);
     pipelineLayout_=VK_NULL_HANDLE;pool_=VK_NULL_HANDLE;layout_=VK_NULL_HANDLE;
-    set_=VK_NULL_HANDLE;device_=VK_NULL_HANDLE;maxJobs_=0;
+    set_=VK_NULL_HANDLE;frameDescriptors_.reset();device_=VK_NULL_HANDLE;maxJobs_=0;
 }
 } // namespace OptiCraft::Vulkan

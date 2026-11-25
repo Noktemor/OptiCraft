@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <filesystem>
 #include <cstdlib>
+#include <algorithm>
 #include <string_view>
 #include "utils/configs/Config_Render.h"
 
@@ -31,8 +32,32 @@ void VulkanGameMirror::initialize(GLFWwindow* window,const Block_Registry& regis
         if (!std::filesystem::exists(shaders / "voxel_count.comp.spv"))
             shaders = OPTICRAFT_VULKAN_SHADER_DIR;
 #endif
+        VulkanLiveWorldRenderer::Config config;
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(runtime_.physicalDevice(),&props);
+        config.streaming.maxResident=4096;
+        if(const char* slots=std::getenv("OPTICRAFT_VULKAN_MAX_RESIDENT")){
+            char* end=nullptr;const auto value=std::strtoul(slots,&end,10);
+            if(end!=slots && *end=='\0' && value>=8u && value<=4096u)
+                config.streaming.maxResident=uint32_t(value);
+        }
+        config.streaming.uploadsPerFrame=8;
+        config.meshing.batchLimit=16;
+        if(const char* batches=std::getenv("OPTICRAFT_VULKAN_MESH_BATCHES"))
+            if(std::string_view(batches)=="1")config.meshing.activeBatches=1;
+        if(const char* cache=std::getenv("OPTICRAFT_VULKAN_MESH_CACHE"))
+            if(std::string_view(cache)=="0")config.meshing.opaqueCacheRects=0;
+        if(const char* coarse=std::getenv("OPTICRAFT_VULKAN_COARSE_CACHE"))
+            if(std::string_view(coarse)=="0")config.meshing.coarseCache=false;
+        if(const char* compact=std::getenv("OPTICRAFT_VULKAN_PLANE_COMPACTION"))
+            if(std::string_view(compact)=="0")config.meshing.planeCompaction=false;
+        if(const char* fast=std::getenv("OPTICRAFT_VULKAN_FAST_OPAQUE"))
+            if(std::string_view(fast)=="0")config.meshing.fastOpaque=false;
+        if(const char* mixed=std::getenv("OPTICRAFT_VULKAN_FAST_MIXED"))
+            if(std::string_view(mixed)=="0")config.meshing.fastMiscQuads=0;
+        config.meshing.workBudget=props.deviceType==VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU?16u:32u;
         scene_.initialize(runtime_, registry, shaders,
-                          "assets/texture/texture_atlas.png", {});
+                          "assets/texture/texture_atlas.png", config);
     } catch (...) {
         shutdown();
         throw;
@@ -40,10 +65,15 @@ void VulkanGameMirror::initialize(GLFWwindow* window,const Block_Registry& regis
 }
 
 void VulkanGameMirror::beginGameFrame(){
-    ui_.clear();drawWorld_=false;clear_={0.1f,0.1f,0.1f,1.f};
+    ui_.clear();items_.clear();entities_.clear();drawWorld_=false;clear_={0.1f,0.1f,0.1f,1.f};
 }
-void VulkanGameMirror::setWorld(const glm::mat4& gameOpenGlViewProjection,const glm::vec3& sky){
+void VulkanGameMirror::setWorld(const glm::mat4& gameOpenGlViewProjection,const glm::vec3& sky,const glm::vec3& eye,float ambient,float fogEnd,const glm::vec3& sunDirection,const std::array<float,4>& heldLight){
     viewProjection_=gameOpenGlViewProjection;drawWorld_=true;clear_={sky.r,sky.g,sky.b,1.f};
+    worldView_.eyeAmbient={eye.x,eye.y,eye.z,std::clamp(ambient,0.f,1.f)};
+    fogEnd=std::max(1.f,fogEnd);
+    worldView_.fogColorStart={sky.r,sky.g,sky.b,fogEnd*0.70f};
+    worldView_.fogEnd={fogEnd,sunDirection.x,sunDirection.y,sunDirection.z};
+    worldView_.heldLight=heldLight;
 }
 void VulkanGameMirror::setMenuClear(const glm::vec3& color){
     drawWorld_=false;ui_.clear();clear_={color.r,color.g,color.b,1.f};
@@ -59,7 +89,8 @@ void VulkanGameMirror::present() {
     const glm::mat4 vp = clip * viewProjection_;
     const float* data = glm::value_ptr(vp);
     const auto frustum = GpuFrustum::fromVulkanViewProjection(data);
-    scene_.recordFrame(runtime_, frame, data, frustum,drawWorld_,clear_,ui_);
+    std::copy_n(data,16,worldView_.vp.begin());
+    scene_.recordFrame(runtime_, frame, worldView_, frustum,drawWorld_,clear_,ui_,items_,entities_);
     runtime_.endFrame(frame);
 }
 

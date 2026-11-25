@@ -412,8 +412,12 @@ if(OPTICRAFT_VULKAN)
                 ${SRC_DIR}/rendering/vulkan/VulkanChunkMeshing.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanLiveWorldRenderer.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanHiZ.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanAlphaSort.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanGameMirror.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanUiPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanItemPipeline.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanEntityPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanDeviceBuffer.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanMaterialTables.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanBlockAtlas.cpp
@@ -441,12 +445,12 @@ if(OPTICRAFT_VULKAN)
             set(OC_VK_SPV_DIR "${CMAKE_CURRENT_BINARY_DIR}/assets/vulkan_shaders")
             set(OC_VK_SPVS)
             foreach(shader
-                    voxel_misc_count.comp voxel_misc_emit.comp
+                    worldgen_material.comp voxel_misc_count.comp voxel_misc_emit.comp
                     voxel_misc.vert voxel_misc.frag
                     voxel_textured.vert voxel_textured.frag
                     voxel_count.comp voxel_emit.comp voxel_finalize.comp
-                    voxel_publish.comp voxel_cull.comp voxel_misc_cull.comp
-                    voxel_debug.vert voxel_debug.frag ui.vert ui.frag)
+                    voxel_publish.comp voxel_cull.comp voxel_misc_cull.comp voxel_hiz.comp voxel_alpha_sort.comp
+                    voxel_debug.vert voxel_debug.frag ui.vert ui.frag item.vert item.frag entity.vert entity.frag)
                 set(input "${OC_VK_SHADER_DIR}/${shader}")
                 set(output "${OC_VK_SPV_DIR}/${shader}.spv")
                 add_custom_command(OUTPUT "${output}"
@@ -456,6 +460,8 @@ if(OPTICRAFT_VULKAN)
                         DEPENDS "${input}" "${OC_VK_SHADER_DIR}/voxel_row_runs.glsl"
                             "${OC_VK_SHADER_DIR}/mesher_common.glsl"
                             "${OC_VK_SHADER_DIR}/voxel_misc_common.glsl"
+                            "${OC_VK_SHADER_DIR}/dynamic_light.glsl"
+                            "${OC_VK_SHADER_DIR}/voxel_address.glsl"
                         VERBATIM)
                 list(APPEND OC_VK_SPVS "${output}")
             endforeach()
@@ -465,7 +471,8 @@ if(OPTICRAFT_VULKAN)
             # the full SDK and shader compiler are available. The existing
             # Primary Vulkan world/UI path; legacy GL resource context and fallback remain.
             target_link_libraries(${PROJECT_NAME} PRIVATE OptiCraft_VulkanBackend)
-            target_compile_definitions(${PROJECT_NAME} PRIVATE OPTICRAFT_VULKAN_GAME_MIRROR=1)
+            target_sources(${PROJECT_NAME} PRIVATE ${SRC_DIR}/rendering/vulkan/VulkanMaterialWorldgen.cpp)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE OPTICRAFT_VULKAN_GAME_MIRROR=1 OPTICRAFT_VULKAN_SHADER_DIR=\"${OC_VK_SPV_DIR}\")
             target_compile_definitions(OptiCraft_VulkanBackend PRIVATE OPTICRAFT_VULKAN_SHADER_DIR=\"${OC_VK_SPV_DIR}\")
             add_dependencies(${PROJECT_NAME} OptiCraft_Vulkan_Shaders)
             message(STATUS "Vulkan backend: core/compute library and shaders enabled")

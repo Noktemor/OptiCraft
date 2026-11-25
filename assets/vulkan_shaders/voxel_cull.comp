@@ -13,12 +13,14 @@ layout(std430, binding=0) readonly buffer Chunks { ChunkSlot slots[]; };
 layout(std430, binding=1) readonly buffer Published { uvec4 draws[]; };
 layout(std430, binding=2) readonly buffer LiveSlots { uint slotIndices[]; };
 layout(std430, binding=3) writeonly buffer Visible { uvec4 visibleDraws[]; };
+layout(std430,binding=4) buffer DrawCount {uint drawCount;};
 layout(push_constant) uniform CullParams {
     vec4 planes[6];
     uint firstJob;
     uint totalJobs;
-    uint _pad0;
-    uint _pad1;
+    uint compact;
+    uint nearOnly;
+    vec4 eye;
 } params;
 
 bool intersects(vec3 mn, vec3 mx) {
@@ -29,12 +31,61 @@ bool intersects(vec3 mn, vec3 mx) {
     }
     return true;
 }
+// A single bounded group bins visible chunk centers by view depth. No
+// extra buffer or dispatch, and compact mode writes the exact count itself.
+// Large lists and Hi-Z keep the original distributed culling path.
+const uint BIN_CAP=512u, BINS=32u, INVALID=0xffffffffu;
+shared uint binSlots[512];
+shared float binDepths[512];
+shared float laneMin[64],laneMax[64];
+shared uint histogram[32],cursor[32];
+shared float minDepth,maxDepth;
+shared uint validCount;
+uint depthBin(float d){
+    return min(BINS-1u,uint(clamp((d-minDepth)/max(maxDepth-minDepth,0.0001),0.0,1.0)*float(BINS)));
+}
+void orderedCull(){
+    uint lane=gl_LocalInvocationID.x;
+    float lo=3.402823e38,hi=-3.402823e38;
+    if(lane<BINS)histogram[lane]=0u;
+    for(uint i=lane;i<params.totalJobs;i+=64u){
+        uint slot=slotIndices[i];
+        binSlots[i]=INVALID;
+        if(slot>=uint(slots.length()) || slot>=uint(draws.length()) || draws[slot].y==0u)continue;
+        vec3 mn=vec3(slots[slot].origin.xyz);
+        if(!intersects(mn,mn+vec3(32.0)))continue;
+        float d=dot(params.eye.xyz,mn+vec3(16.0));
+        binSlots[i]=slot;binDepths[i]=d;lo=min(lo,d);hi=max(hi,d);
+    }
+    laneMin[lane]=lo;laneMax[lane]=hi;
+    barrier();
+    if(lane==0u){
+        minDepth=laneMin[0];maxDepth=laneMax[0];
+        for(uint i=1u;i<64u;++i){minDepth=min(minDepth,laneMin[i]);maxDepth=max(maxDepth,laneMax[i]);}
+    }
+    barrier();
+    for(uint i=lane;i<params.totalJobs;i+=64u)
+        if(binSlots[i]!=INVALID)atomicAdd(histogram[depthBin(binDepths[i])],1u);
+    barrier();
+    if(lane<BINS){
+        uint offset=0u;for(uint b=0u;b<lane;++b)offset+=histogram[b];
+        cursor[lane]=offset;
+        if(lane==BINS-1u){validCount=offset+histogram[lane];if(params.compact!=0u)drawCount=validCount;}
+    }
+    barrier();
+    for(uint i=lane;i<params.totalJobs;i+=64u){
+        uint slot=binSlots[i];
+        if(slot!=INVALID)visibleDraws[atomicAdd(cursor[depthBin(binDepths[i])],1u)]=draws[slot];
+        if(params.compact==0u && i>=validCount)visibleDraws[i]=uvec4(0u);
+    }
+}
 void main() {
+    if(params.nearOnly==2u && params.totalJobs<=BIN_CAP){orderedCull();return;}
     uint batch = params.firstJob + gl_GlobalInvocationID.x;
     if (batch >= params.totalJobs) return;
     uint slot = slotIndices[batch];
     if (slot >= uint(slots.length()) || slot >= uint(draws.length())) {
-        visibleDraws[batch] = uvec4(0u);
+        if(params.compact==0u) visibleDraws[batch] = uvec4(0u);
         return;
     }
     ChunkSlot chunk = slots[slot];
@@ -42,5 +93,7 @@ void main() {
     vec3 mx = mn + vec3(32.0);
     uvec4 raw = draws[slot];
     if (raw.y == 0u || !intersects(mn, mx)) raw.y = 0u;
-    visibleDraws[batch] = raw;
+    if(params.nearOnly!=0u && any(greaterThan(abs(mn+vec3(16.0)-params.eye.xyz),vec3(96.0))))raw.y=0u;
+    if(params.compact!=0u) {if(raw.y!=0u) visibleDraws[atomicAdd(drawCount,1u)]=raw;}
+    else visibleDraws[batch] = raw;
 }

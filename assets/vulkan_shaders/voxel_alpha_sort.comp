@@ -1,0 +1,99 @@
+#version 450
+// Per-visible-chunk alpha and depth-writing indirect commands in one buffer.
+// The first half is back-to-front alpha, the second is front-to-back cutout.
+// Both reuse a single arena-indexed permutation without copying geometry.
+// Exact center-depth order up to 1024 blended quads; 32 depth bins beyond.
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Commands {uvec4 draws[];};
+layout(std430,binding=1) readonly buffer Quads {uvec4 quads[];};
+struct Material {uint faceBase;uint metaStride;uint shape;uint flags;};
+layout(std430,binding=2) readonly buffer Materials {Material materials[];};
+layout(std430,binding=3) writeonly buffer PassCommands {uvec4 passDraws[];};
+layout(std430,binding=4) writeonly buffer Permutation {uint orderOut[];};
+// xyz: depth direction; w: enable cutout partition (0 = diagnostic legacy).
+layout(push_constant) uniform Params {vec4 direction;} pc;
+const uint CAP=1024u,BINS=32u,INVALID=0xffffffffu;
+shared uint count,cutoutCursor;
+shared float keys[1024];
+shared uint indices[1024];
+shared uint histogram[32],cursor[32];
+float coord(uint bits,uint axis){return float((bits>>(7u*axis))&127u)/64.0;}
+bool blended(uint i){return (materials[quads[i*2u].y].flags&128u)!=0u;}
+float key(uint i){
+    uvec4 a=quads[i*2u],b=quads[i*2u+1u];uint idx=a.z,face=a.w&15u;
+    vec3 low=vec3(coord(b.x,0u),coord(b.x,1u),coord(b.x,2u));
+    vec3 high=vec3(coord(b.y,0u),coord(b.y,1u),coord(b.y,2u));
+    vec3 center=(low+high)*0.5;
+    if(face<6u)center[face>>1u]=(face&1u)==0u?high[face>>1u]:low[face>>1u];
+    else center=vec3(0.5);
+    return dot(pc.direction.xyz,vec3(float(idx&31u),float(idx>>10u),float((idx>>5u)&31u))+center);
+}
+uint bin(float depth){
+    vec3 dir=pc.direction.xyz;
+    float lo=dot(min(dir,vec3(0)),vec3(34.0)),hi=dot(max(dir,vec3(0)),vec3(34.0));
+    return min(BINS-1u,uint(clamp((depth-lo)/max(hi-lo,0.0001),0.0,1.0)*float(BINS)));
+}
+bool before(float a,uint ia,float b,uint ib){return a>b||(a==b&&ia<ib);}
+void main(){
+    uint lane=gl_LocalInvocationID.x,job=gl_WorkGroupID.x;
+    uvec4 raw=draws[job];
+    bool split=pc.direction.w!=0.0;
+    // draws.length() is resident capacity, not the number of live jobs.
+    // Reverse only the live prefix; zero commands remain harmless holes.
+    uint depthJob=uint(draws.length())+(split?gl_NumWorkGroups.x-1u-job:job);
+    if(raw.y==0u){if(lane==0u){passDraws[job]=uvec4(0u);passDraws[depthJob]=uvec4(0u);}return;}
+    if(lane==0u){count=0u;cutoutCursor=0u;}
+    if(lane<BINS){histogram[lane]=0u;cursor[lane]=0u;}
+    barrier();
+    for(uint j=lane;j<raw.y;j+=64u){
+        uint idx=raw.w+j;
+        if(!blended(idx))continue;
+        float depth=key(idx);uint pos=atomicAdd(count,1u);
+        atomicAdd(histogram[bin(depth)],1u);
+        if(pos<CAP){keys[pos]=depth;indices[pos]=idx;}
+    }
+    barrier();
+    uint depthCount=raw.y-count;
+    bool mixed=split && count!=0u && depthCount!=0u;
+    if(lane==0u){
+        passDraws[job]=uvec4(raw.x,count,0u,raw.w);
+        // firstVertex=6 selects indexed depth geometry in voxel_misc.vert.
+        // Pure depth chunks keep the original contiguous draw, no permutation.
+        passDraws[depthJob]=!split || count==0u?raw:
+            (depthCount==0u?uvec4(0u):uvec4(raw.x,depthCount,6u,raw.w+count));
+    }
+    if(count==0u)return;
+    if(count<=CAP){
+        uint padded=1u;while(padded<count)padded<<=1u;
+        for(uint i=count+lane;i<padded;i+=64u){keys[i]=-3.402823e38;indices[i]=INVALID;}
+        barrier();
+        for(uint width=2u;width<=padded;width<<=1u)for(uint stride=width>>1u;stride>0u;stride>>=1u){
+            for(uint i=lane;i<padded;i+=64u){
+                uint j=i^stride;if(j<=i)continue;
+                bool desc=(i&width)==0u;
+                if((desc&&before(keys[j],indices[j],keys[i],indices[i]))||(!desc&&before(keys[i],indices[i],keys[j],indices[j]))){
+                    float k=keys[i];uint idx=indices[i];keys[i]=keys[j];indices[i]=indices[j];keys[j]=k;indices[j]=idx;
+                }
+            }
+            barrier();
+        }
+        for(uint i=lane;i<count;i+=64u)orderOut[raw.w+i]=indices[i];
+    }else{
+        if(lane<BINS){uint offset=0u;for(uint k=lane+1u;k<BINS;++k)offset+=histogram[k];cursor[lane]=offset;}
+        barrier();
+    }
+    // For large alpha meshes reuse the bin scatter traversal to partition depth
+    // geometry. The two output intervals are disjoint within the same raw span.
+    // Small pure depth/alpha chunks need no second material traversal.
+    if(mixed || count>CAP){
+        for(uint j=lane;j<raw.y;j+=64u){
+            uint idx=raw.w+j;
+            if(count==raw.y || blended(idx)){
+                if(count>CAP){uint pos=atomicAdd(cursor[bin(key(idx))],1u);orderOut[raw.w+pos]=idx;}
+            }else if(mixed){
+                uint pos=atomicAdd(cutoutCursor,1u);
+                orderOut[raw.w+count+pos]=idx;
+            }
+        }
+    }
+}

@@ -23,6 +23,8 @@ inline constexpr uint32_t kMaxPackedFaceSlot = (1u << 16) - 1u;
 
 // CPU-authoritative blocks only: export original block IDs, never geometry.
 void packBlockIds(std::span<const uint16_t> voxels, std::span<uint32_t> words);
+// Sparse metadata pairs; zero records are ignored.
+std::vector<uint32_t> packSparseMetadata(std::span<const uint32_t> entries);
 
 struct ChunkKey {
     int32_t dimension = 0;
@@ -52,6 +54,8 @@ class RangeArena {
 public:
     explicit RangeArena(uint64_t capacity = 0);
     std::optional<BufferRange> allocate(uint64_t bytes, uint64_t alignment = 16);
+    // Replace a live slab with sorted, disjoint exact subranges; release all gaps.
+    bool partition(BufferRange slab, std::span<const BufferRange> retained);
     bool release(BufferRange range); // only a complete live allocation may be released
     bool owns(BufferRange range) const;
     uint64_t capacity() const { return capacity_; }

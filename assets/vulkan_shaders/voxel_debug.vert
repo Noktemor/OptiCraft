@@ -15,13 +15,13 @@ layout(location=1) flat out uint vMaterial;
 const vec2 corners[6] = vec2[6](vec2(0,0),vec2(1,0),vec2(1,1),
                                   vec2(0,0),vec2(1,1),vec2(0,1));
 void main() {
-    uvec2 packed = faces[gl_InstanceIndex];
-    uint face = (packed.x >> 15u) & 7u;
-    uint material = ((packed.x >> 18u) & 16383u) | ((packed.y & 3u) << 14u);
-    uint slot = (packed.y >> 2u) & 65535u;
-    float w=float(((packed.y>>18u)&31u)+1u), h=float(((packed.y>>23u)&31u)+1u);
-    ivec3 p = ivec3(int(packed.x & 31u), int((packed.x >> 5u) & 31u),
-                    int((packed.x >> 10u) & 31u));
+    uvec2 packedValue = faces[gl_InstanceIndex];
+    uint face = (packedValue.x >> 15u) & 7u;
+    uint material = ((packedValue.x >> 18u) & 16383u) | ((packedValue.y & 3u) << 14u);
+    uint slot = (packedValue.y >> 2u) & 65535u;
+    float w=float(((packedValue.y>>18u)&31u)+1u), h=float(((packedValue.y>>23u)&31u)+1u);
+    ivec3 p = ivec3(int(packedValue.x & 31u), int((packedValue.x >> 5u) & 31u),
+                    int((packedValue.x >> 10u) & 31u));
     vec2 uv = corners[gl_VertexIndex];
     if(face==0u || face==2u || face==5u)uv*=vec2(w,h);else uv*=vec2(h,w);
     vec3 offset;

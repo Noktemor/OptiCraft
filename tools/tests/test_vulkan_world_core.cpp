@@ -1,6 +1,7 @@
 #include "rendering/vulkan/GpuWorldCore.h"
 #include "rendering/vulkan/GpuFrustum.h"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <iostream>
 #include <random>
@@ -18,6 +19,25 @@ int main() {
         const auto word = packed[i >> 1];
         const auto id = (i & 1) ? (word >> 16) : (word & 65535u);
         assert(id == blockIds[i]);
+    }
+    // Sparse metadata packing uses the same last-nonzero rule as unpack_meta.
+    assert(packSparseMetadata({})==std::vector<uint32_t>{0});
+    const std::array<uint32_t,4> zeros{3,0,32767,0};
+    assert(packSparseMetadata(zeros)==std::vector<uint32_t>{0});
+    std::mt19937 rng(33);
+    for(int trial=0;trial<100;++trial){
+        std::vector<uint32_t> entries;
+        std::vector<uint8_t> expected(kChunkVoxels);
+        for(int j=0;j<500;++j){
+            const uint32_t i=rng()%kChunkVoxels,v=rng()%256;
+            entries.push_back(i);entries.push_back(v);
+            if(v)expected[i]=uint8_t(v);
+        }
+        entries.insert(entries.end(),{0,255,0,0,0,128,32767,77});
+        expected[0]=128;expected[32767]=77;
+        const auto words=packSparseMetadata(entries);
+        for(uint32_t i=0;i<kChunkVoxels;++i)
+            assert(((words[words.size()==1?0:i/4]>>((i&3)*8))&255u)==expected[i]);
     }
     // Alignment, best-fit, merge and double-free/overlap guards.
     RangeArena arena(2048);

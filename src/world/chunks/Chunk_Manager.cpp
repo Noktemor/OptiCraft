@@ -9,6 +9,10 @@
 #include "world/chunks/Chunk_Manager.h"
 #include "world/chunks/Chunk_Stream_Window.h"
 #include "world/generation/Gpu_Worldgen.h"
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+#include "rendering/vulkan/VulkanMaterialWorldgen.h"
+#include "rendering/vulkan/VulkanFrameRuntime.h"
+#endif
 #include "world/crafting/Smelting.h"
 #include "utils/logging/Logger.h"
 #include "math/Math_Helpers.h"
@@ -684,7 +688,8 @@ void Chunk_Manager::wake_workers() {
 }
 
 bool Chunk_Manager::try_submit_gpu_column(Gpu_Batch&& batch) {
-    if (m_gpu_disabled.load(std::memory_order_relaxed) ||
+    if ((m_vulkan_primary_worker.load(std::memory_order_relaxed) && !m_vk_worldgen_ready.load(std::memory_order_relaxed)) ||
+        m_gpu_disabled.load(std::memory_order_relaxed) ||
         !batch.prepared || batch.builds.empty()) return false;
     const int px = m_gpu_player_x.load(std::memory_order_relaxed);
     const int pz = m_gpu_player_z.load(std::memory_order_relaxed);
@@ -695,7 +700,7 @@ bool Chunk_Manager::try_submit_gpu_column(Gpu_Batch&& batch) {
     // Too few surviving Y levels generally means the dispatch/readback is not worth it.
     if (batch.builds.size() < 2) return false;
     std::lock_guard<std::mutex> lock(m_gpu_queue_mutex);
-    if (m_gpu_disabled.load() || m_gpu_inflight.load() >= 2) return false;
+    if ((m_vulkan_primary_worker.load() && !m_vk_worldgen_ready.load()) || m_gpu_disabled.load() || m_gpu_inflight.load() >= 2) return false;
     m_gpu_pending.emplace_back(std::move(batch));
     m_gpu_inflight.fetch_add(1);
     return true;
@@ -720,6 +725,9 @@ void Chunk_Manager::clear_gpu_worldgen() {
     }
     m_gpu_active.reset();
     m_gpu_worldgen.reset();
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    m_vk_worldgen.reset();
+#endif
     m_gpu_inflight.store(0);
     m_gpu_slow_batches = 0;
     m_gpu_completed_batches = 0;
@@ -731,14 +739,23 @@ void Chunk_Manager::pump_gpu_worldgen() {
     if (m_gpu_active) {
         std::vector<uint32_t> materials;
         double gpu_ms = 0.0;
-        const bool complete = m_gpu_worldgen && m_gpu_worldgen->poll(materials, gpu_ms);
+        bool complete=false, failed=false;
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+        if(m_vk_worldgen){complete=m_vk_worldgen->poll(materials,gpu_ms);failed=!m_vk_worldgen->enabled();}
+        else
+#endif
+        {complete=m_gpu_worldgen && m_gpu_worldgen->poll(materials,gpu_ms);failed=m_gpu_worldgen && !m_gpu_worldgen->enabled();}
         const bool timed_out = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - m_gpu_active->started).count() > 0.5;
-        if (complete || timed_out || (m_gpu_worldgen && !m_gpu_worldgen->enabled())) {
+        if (complete || timed_out || failed) {
+            if(failed)m_gpu_disabled.store(true);
             if (timed_out && !complete) {
                 LOG_WARN("GPU worldgen: stalled over 500 ms, CPU fallback");
                 m_gpu_disabled.store(true);
-                m_gpu_worldgen->abandon();
+                if(m_gpu_worldgen)m_gpu_worldgen->abandon();
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+                if(m_vk_worldgen)m_vk_worldgen->abandon();
+#endif
             }
             if (complete && !materials.empty() &&
                 m_gpu_active->generation_id == m_generation_id) {
@@ -790,7 +807,7 @@ void Chunk_Manager::pump_gpu_worldgen() {
         batch = std::move(m_gpu_pending.front());
         m_gpu_pending.pop_front();
     }
-    if (batch.generation_id != m_generation_id || m_gpu_disabled.load()) {
+    if (batch.generation_id != m_generation_id || m_gpu_disabled.load() || (m_vulkan_primary && !m_vk_worldgen_ready.load())) {
         publish_gpu_batch(std::move(batch));
         m_gpu_inflight.fetch_sub(1);
         return;
@@ -800,10 +817,24 @@ void Chunk_Manager::pump_gpu_worldgen() {
     int cx = 0, cz = 0;
     const bool valid = m_world_generator->extract_gpu_material_columns(batch.prepared,
                                                     columns, ys, batch.gpu_indices, cx, cz);
-    if (!m_gpu_worldgen) m_gpu_worldgen = std::make_unique<Gpu_Worldgen>();
-    if (!valid || !m_gpu_worldgen->start(*m_world_generator, cx, cz, columns, ys)) {
-        LOG_WARN("GPU worldgen: unavailable, returning column to CPU workers");
-        m_gpu_disabled.store(true);
+    bool started=false;
+    if(valid){
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+        if(m_vulkan_primary && m_vk_worldgen_runtime){
+            if(!m_vk_worldgen)m_vk_worldgen=std::make_unique<OptiCraft::Vulkan::VulkanMaterialWorldgen>(*m_vk_worldgen_runtime);
+            started=m_vk_worldgen->start(*m_world_generator,cx,cz,columns,ys);
+        }else
+#endif
+        if(!m_vulkan_primary){
+            if(!m_gpu_worldgen)m_gpu_worldgen=std::make_unique<Gpu_Worldgen>();
+            started=m_gpu_worldgen->start(*m_world_generator,cx,cz,columns,ys);
+        }
+    }
+    if (!started) {
+        if (valid) {
+            LOG_WARN("GPU worldgen: unavailable, returning column to CPU workers");
+            m_gpu_disabled.store(true);
+        }
         publish_gpu_batch(std::move(batch));
         m_gpu_inflight.fetch_sub(1);
         return;
@@ -1696,6 +1727,7 @@ void Chunk_Manager::reprioritize_completed_meshes() {
 
 void Chunk_Manager::request_urgent_mesh_rebuild(int cx, int cy, int cz) {
     OC_ZONE("ChunkMgr::request_urgent_mesh_rebuild");
+    if (m_vulkan_primary && !capture_active()) return;
     if (!get_chunk(cx, cy, cz)) return;
     if (m_urgent_mesh_set.contains(cx, cy, cz)) return;
     m_urgent_mesh_set.insert(cx, cy, cz);
@@ -1744,6 +1776,7 @@ int Chunk_Manager::first_incomplete_ring() {
 
 void Chunk_Manager::enqueue_mesh_rebuild(int cx, int cy, int cz, bool urgent, int lod_stride) {
     OC_ZONE("ChunkMgr::enqueue_mesh_rebuild");
+    if (m_vulkan_primary && !capture_active()) return; // Vulkan consumes raw voxel revisions
     const glm::ivec3 position{cx, cy, cz};
     Chunk* target = get_chunk(cx, cy, cz);
     if (!target) {
@@ -2365,7 +2398,7 @@ void Chunk_Manager::collect_finished_chunks() {
         // that neighbour had visible geometry along the contact. In particular, a first
         // mesh built while the neighbour was absent could keep incorrect border faces.
         // Check both sides of each shared face/edge/corner, skipping genuinely empty pairs.
-    { OC_ZONE("apply: mark affected neighbours dirty");
+    if (!m_vulkan_primary || capture_active()) { OC_ZONE("apply: mark affected neighbours dirty");
         const Chunk_Block_Grid& new_blocks = new_chunk->get_blocks();
         const bool new_is_air = new_blocks.is_uniform() &&
                                 new_blocks.uniform_block() == Block_Types::Air;
@@ -2411,7 +2444,7 @@ void Chunk_Manager::collect_finished_chunks() {
         // Небесный свет приходит вместе с чанком (init_chunk_sky_light), поэтому recompute_sky_lighting его уже не
         // меняет и не помечает соседей: меши соседей брали у общей грани нулевой свет, пока этого чанка не было.
         // Помечаем здесь: каждый загруженный сосед, на чью грань падает свет нового чанка, пересоберёт свет.
-        {
+        if (!m_vulkan_primary || capture_active()) {
             static constexpr glm::ivec3 kFaceOffset[6] = {
                 {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}
             };
@@ -2607,6 +2640,7 @@ void Chunk_Manager::collect_finished_mesh_jobs() {
 
 void Chunk_Manager::rebuild_dirty_chunks() {
     OC_ZONE("ChunkMgr::rebuild_dirty_chunks");
+    if (m_vulkan_primary && !capture_active()) return;
     const float speed = glm::length(m_player_velocity);
     const size_t enqueue_cap = capture_active()
         ? capture_max_mesh_jobs_enqueued_per_frame
@@ -4203,6 +4237,30 @@ bool is_reached(const Reach_Scratch& s, const glm::ivec3& key, int section) {
     return s.reached_gen[sec] == s.gen;
 }
 } // namespace
+
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+void Chunk_Manager::set_vulkan_worldgen(OptiCraft::Vulkan::VulkanFrameRuntime* runtime){
+    if(runtime==m_vk_worldgen_runtime)return;
+    m_vk_worldgen_ready.store(false);
+    if(m_vk_worldgen){
+        m_vk_worldgen.reset(); // finish only this submission before borrowed device is destroyed
+        if(m_gpu_active){publish_gpu_batch(std::move(*m_gpu_active));m_gpu_active.reset();m_gpu_inflight.fetch_sub(1);}
+    }
+    m_vk_worldgen_runtime=runtime;
+    m_vk_worldgen_ready.store(runtime && runtime->supportsShaderFloat64());
+}
+#endif
+void Chunk_Manager::set_vulkan_primary(bool enabled) {
+    if (m_vulkan_primary == enabled) return;
+    m_vulkan_primary = enabled;
+    m_vulkan_primary_worker.store(enabled, std::memory_order_relaxed);
+    if (!enabled) {
+        // GL meshes were deliberately not created while Vulkan was primary.
+        // Mark every loaded chunk for the normal bounded GL rebuild scheduler.
+        m_chunks.for_each([](const glm::ivec3&, const Chunk_Ptr& c){ c->mark_mesh_dirty(); });
+        m_dirty_scan_clean = false;
+    }
+}
 
 const std::vector<Renderable_Chunk>& Chunk_Manager::get_vulkan_resident_chunks() {
     // Raw resident list: do not depend on OpenGL meshing or camera frustum.

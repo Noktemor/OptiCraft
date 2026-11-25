@@ -9,7 +9,7 @@
 namespace OptiCraft::Vulkan {
 namespace {
 void check(VkResult r, const char* action) {
-    if (r != VK_SUCCESS) throw std::runtime_error(std::string(action)+" failed, VkResult="+std::to_string(r));
+    if (r != VK_SUCCESS) throw VulkanBufferError(r,action);
 }
 }
 VulkanDeviceBuffer::VulkanDeviceBuffer(VulkanDeviceBuffer&& other) noexcept { *this=std::move(other); }

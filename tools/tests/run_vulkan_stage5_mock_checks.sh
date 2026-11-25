@@ -9,6 +9,12 @@ trap 'rm -f "$testbin"' EXIT
   "$repo/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" \
   "$repo/src/rendering/vulkan/VulkanDeviceBuffer.cpp" \
   "$repo/src/rendering/vulkan/VulkanChunkStreamGpu.cpp" \
+  "$repo/src/rendering/vulkan/GpuMeshTransactions.cpp" \
+  "$repo/src/rendering/vulkan/VulkanChunkMeshing.cpp" \
+  "$repo/src/rendering/vulkan/VulkanGpuCuller.cpp" \
+  "$repo/src/rendering/vulkan/VulkanGpuMesher.cpp" \
+  "$repo/src/rendering/vulkan/VulkanMiscMesher.cpp" \
+  "$repo/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp" \
   "$repo/src/rendering/vulkan/VulkanMaterialTables.cpp" \
   "$repo/src/rendering/vulkan/VulkanBlockAtlas.cpp" \
   "$repo/tools/tests/test_vulkan_stage5_mock.cpp" -o "$testbin"

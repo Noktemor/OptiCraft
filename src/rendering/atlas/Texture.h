@@ -7,6 +7,8 @@
 
 #include <glad/gl.h>
 #include <string>
+#include <vector>
+#include <cstdint>
 
 class Texture {
 private:
@@ -15,6 +17,7 @@ private:
     int m_height;
     int m_channels;
     bool m_is_loaded;
+    std::vector<uint8_t> m_model_rgba; // unflipped glTF texture retained for Vulkan
 
 public:
     Texture();
@@ -46,6 +49,7 @@ public:
     unsigned int get_id() const { return m_texture_id; }
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
+    const auto& model_rgba() const {return m_model_rgba;}
     bool is_loaded() const { return m_is_loaded; }
 
     // Настройки

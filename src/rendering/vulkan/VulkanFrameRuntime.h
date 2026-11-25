@@ -39,7 +39,11 @@ public:
     // false when minimized or when the swapchain was recreated. No submission.
     bool beginFrame(Frame& frame);
     void beginColorPass(const Frame& frame, std::array<float, 4> clearColor,
-                        bool recordSecondaryDraws = false);
+                        bool recordSecondaryDraws = false, bool split = false);
+    void resumeColorPass(const Frame& frame);
+    bool supportsDepthPyramid() const noexcept { return firstPass_ && resumePass_; }
+    VkImage depthImage(const Frame& frame) const { return depth_.at(frame.imageIndex).image; }
+    VkImageView depthView(const Frame& frame) const { return depth_.at(frame.imageIndex).view; }
     void endColorPass(const Frame& frame);
     // Ends recording, submits once, presents once, then advances the frame slot.
     void endFrame(const Frame& frame);
@@ -55,6 +59,8 @@ public:
     VkFormat colorFormat() const noexcept { return format_; }
     VkFormat depthFormat() const noexcept { return depthFormat_; }
     bool supportsMultiDrawIndirect() const noexcept { return multiDrawIndirect_; }
+    bool supportsShaderFloat64() const noexcept { return shaderFloat64_; }
+    bool supportsIndirectCount() const noexcept { return indirectCount_; }
     const std::string& gpuName() const noexcept { return gpuName_; }
     uint64_t framesPresented() const noexcept { return framesPresented_; }
     uint64_t swapchainGeneration() const noexcept { return swapchainGeneration_; }
@@ -96,6 +102,8 @@ private:
     VkPhysicalDeviceMemoryProperties memoryProperties_{};
     VkExtent2D extent_{};
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
+    VkRenderPass firstPass_ = VK_NULL_HANDLE, resumePass_ = VK_NULL_HANDLE;
+    bool depthSampled_ = false, splitPending_ = false;
     std::vector<VkImage> images_;
     std::vector<VkImageView> views_;
     std::vector<DepthImage> depth_;
@@ -114,6 +122,8 @@ private:
     bool colorPassRecorded_ = false;
     bool recreateRequested_ = false;
     bool multiDrawIndirect_ = false;
+    bool indirectCount_ = false;
+    bool shaderFloat64_ = false;
     int windowFbWidth_ = 0, windowFbHeight_ = 0;
     std::string gpuName_;
 };
