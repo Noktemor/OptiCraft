@@ -1,3 +1,4 @@
+#include "rendering/vulkan/VulkanAllocationLedger.h"
 #include "rendering/vulkan/VulkanBlockAtlas.h"
 
 // Static stb symbols avoid ODR conflicts with the OpenGL Texture.cpp loader.
@@ -92,7 +93,7 @@ void VulkanBlockAtlas::initializePixels(VkPhysicalDevice physical,VkDevice devic
         VkMemoryAllocateInfo mem{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mem.allocationSize=need.size;
         mem.memoryTypeIndex=localMemory(physical_,need.memoryTypeBits);
-        check(vkAllocateMemory(device_,&mem,nullptr,&memory_),"vkAllocateMemory(atlas)");
+        check(allocateTrackedMemory(physical_,device_,mem,memory_),"vkAllocateMemory(atlas)");
         check(vkBindImageMemory(device_,image_,memory_,0),"vkBindImageMemory(atlas)");
         VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         view.image=image_;view.viewType=VK_IMAGE_VIEW_TYPE_2D;
@@ -200,7 +201,7 @@ void VulkanBlockAtlas::shutdown() noexcept {
         if(sampler_)vkDestroySampler(device_,sampler_,nullptr);
         if(view_)vkDestroyImageView(device_,view_,nullptr);
         if(image_)vkDestroyImage(device_,image_,nullptr);
-        if(memory_)vkFreeMemory(device_,memory_,nullptr);
+        if(memory_)freeTrackedMemory(device_,memory_);
     }
     pool_=VK_NULL_HANDLE;sampler_=VK_NULL_HANDLE;view_=VK_NULL_HANDLE;
     image_=VK_NULL_HANDLE;memory_=VK_NULL_HANDLE;device_=VK_NULL_HANDLE;

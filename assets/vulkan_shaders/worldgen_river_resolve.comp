@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x=64) in;
+layout(push_constant) uniform Params { int sea; };
+struct Cell { int area,lake,lake_level; };
+// x = river flag (not lake), y = water level; one per full window cell.
+layout(std430,binding=1) readonly buffer Height { int height[]; };
+layout(std430,binding=4) readonly buffer Graph { Cell graph[]; };
+layout(std430,binding=5) writeonly buffer River { ivec2 river[]; };
+void main(){
+ uint i=gl_GlobalInvocationID.x; if(i>=589824u)return;
+ if(graph[i].lake!=0){river[i]=ivec2(0,graph[i].lake_level);return;}
+ if(height[i]<=sea){river[i]=ivec2(0);return;}
+ bool is_river=graph[i].area>=400;
+ int x=int(i%768u),z=int(i/768u);
+ // Gather rather than racing scatter writes. A wide source must itself be above sea and not a lake.
+ for(int dz=-1;dz<=1&&!is_river;++dz)for(int dx=-1;dx<=1&&!is_river;++dx){
+   int nx=x+dx,nz=z+dz;if(nx<0||nz<0||nx>=768||nz>=768)continue;
+   int j=nz*768+nx;is_river=height[j]>sea&&graph[j].lake==0&&graph[j].area>=1600;
+ }
+ river[i]=is_river?ivec2(1,max(height[i]-1,sea)):ivec2(0);
+}

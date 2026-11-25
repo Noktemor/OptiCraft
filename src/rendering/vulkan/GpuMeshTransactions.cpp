@@ -26,13 +26,13 @@ void GpuMeshTransactions::enqueue(uint32_t slot){
     auto& s=slots_[slot];
     if(s.pending)return;
     s.pendingToken=++nextPendingToken_;
-    pending_.push_back({slot,s.generation,s.pendingToken});
+    (s.interactive?interactivePending_:pending_).push_back({slot,s.generation,s.pendingToken});
     s.pending=true;++pendingCount_;
 }
 void GpuMeshTransactions::cancelPending(Resident& s) noexcept{
     if(s.pending){s.pending=false;--pendingCount_;}
 }
-void GpuMeshTransactions::dirty(uint32_t slot, uint32_t generation, uint32_t workCost) {
+void GpuMeshTransactions::dirty(uint32_t slot, uint32_t generation, uint32_t workCost,bool interactive) {
     if (slot >= slots_.size() || !generation) throw std::out_of_range("dirty GPU slot");
     auto& s = slots_[slot];
     if (!s.active || s.generation != generation) {
@@ -41,8 +41,9 @@ void GpuMeshTransactions::dirty(uint32_t slot, uint32_t generation, uint32_t wor
         s.active = true;
         if(s.generation!=generation)s.revision=0;
         s.generation = generation;
-        cancelPending(s);
+        cancelPending(s);s.interactive=false;
     }
+    if(interactive && !s.interactive){cancelPending(s);s.interactive=true;}
     s.workCost=std::max(1u,workCost);
     if (++s.revision == 0) ++s.revision;
     s.retryOnRelease=false;
@@ -53,7 +54,7 @@ void GpuMeshTransactions::clearEmpty(uint32_t slot, uint32_t generation) {
     if(slot>=slots_.size() || !generation)throw std::out_of_range("empty GPU slot");
     auto& s=slots_[slot];
     defer(s.opaque,s.misc);
-    s.opaque={};s.misc={};s.active=false;cancelPending(s);s.retryOnRelease=false;s.generation=generation;
+    s.opaque={};s.misc={};s.active=false;cancelPending(s);s.interactive=false;s.retryOnRelease=false;s.generation=generation;
     if(++s.revision==0)++s.revision;
 }
 void GpuMeshTransactions::evict(uint32_t slot, uint32_t generation) {
@@ -61,7 +62,7 @@ void GpuMeshTransactions::evict(uint32_t slot, uint32_t generation) {
     auto& s = slots_[slot];
     if (!s.active || s.generation != generation) return; // stale unload
     defer(s.opaque, s.misc);
-    s.opaque = {}; s.misc = {}; s.active = false; cancelPending(s); s.retryOnRelease=false;
+    s.opaque = {}; s.misc = {}; s.active = false; cancelPending(s); s.interactive=false; s.retryOnRelease=false;
     if (++s.revision == 0) ++s.revision;
 }
 bool GpuMeshTransactions::current(const Entry& j) const {
@@ -80,26 +81,40 @@ void GpuMeshTransactions::discard(Entry& j) {
         throw std::logic_error("Candidate misc range double release");
     j.opaqueCandidate={};j.miscCandidate={};
 }
+bool GpuMeshTransactions::hasReadyInteractive() const noexcept {
+    for(const auto& p:interactivePending_){
+        const auto& s=slots_[p.slot];
+        if(s.active && s.pending && !s.inFlight && s.generation==p.generation && s.pendingToken==p.token)return true;
+    }
+    return false;
+}
+bool GpuMeshTransactions::batchInteractive(uint32_t index) const noexcept {
+    return index<batches_.size() && std::any_of(batches_[index].jobs.begin(),batches_[index].jobs.end(),
+        [](const Entry& j){return j.interactive;});
+}
 bool GpuMeshTransactions::startCount() {
     if (batch().phase!=Phase::Idle) return false;
     batch().jobs.clear();
     uint64_t work=0;
-    size_t scan=pending_.size();
-    while (scan-- && !pending_.empty() && batch().jobs.size() < maxBatch_) {
-        const auto pending=pending_.front();
-        const uint32_t slot=pending.slot;
-        auto& s=slots_[slot];
-        if (!s.active || !s.pending || s.generation!=pending.generation || s.pendingToken!=pending.token) {pending_.pop_front();continue;}
-        if(s.inFlight){pending_.pop_front();pending_.push_back(pending);continue;}
-        if(!batch().jobs.empty() && work+s.workCost>workBudget_)break;
-        pending_.pop_front();
-        work+=s.workCost;
-        cancelPending(s);
-        s.inFlight=true;
-        batch().jobs.push_back({slot,s.generation,s.revision});
-        batch().jobs.back().workCost=s.workCost;
-        batch().jobs.back().forceLegacy=s.forceLegacy;
-    }
+    auto drain=[&](std::deque<Pending>& queue){
+        size_t scan=queue.size();
+        while(scan-- && !queue.empty() && batch().jobs.size()<maxBatch_){
+            const auto pending=queue.front();
+            auto& s=slots_[pending.slot];
+            if(!s.active || !s.pending || s.generation!=pending.generation || s.pendingToken!=pending.token){queue.pop_front();continue;}
+            if(s.inFlight){queue.pop_front();queue.push_back(pending);continue;}
+            if(!batch().jobs.empty() && work+s.workCost>workBudget_)break;
+            queue.pop_front();work+=s.workCost;cancelPending(s);s.inFlight=true;
+            batch().jobs.push_back({pending.slot,s.generation,s.revision});
+            batch().jobs.back().workCost=s.workCost;
+            batch().jobs.back().forceLegacy=s.forceLegacy;
+            batch().jobs.back().interactive=s.interactive;
+            if(s.interactive)++stats_.interactiveStarted;
+        }
+    };
+    drain(interactivePending_);
+    // Keep interactive batches short rather than mixing them with distant work.
+    if(batch().jobs.empty())drain(pending_);
     if (batch().jobs.empty()) return false;
     batch().phase=Phase::Counting;
     return true;
@@ -258,8 +273,10 @@ void GpuMeshTransactions::acceptPublish(std::span<const DrawChange> changes) {
             Resident& s=slots_[j.slot];
             defer(s.opaque,s.misc);
             s.opaque=j.opaqueCandidate;s.misc=j.miscCandidate;
+            s.interactive=false;
             j.opaqueCandidate={};j.miscCandidate={};
             ++stats_.published;
+            if(j.interactive)++stats_.interactivePublished;
         }
         discard(j);
     }

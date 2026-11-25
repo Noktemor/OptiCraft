@@ -10,6 +10,9 @@
 #include "world/generation/River_Network.h"
 #include "world/generation/Structure_Placement.h"
 #include "world/generation/Gpu_Worldgen_Data.h"
+#include "world/generation/Gpu_Climate_Data.h"
+#include "world/generation/Gpu_Layer_Data.h"
+#include "world/generation/Gpu_Material_Result.h"
 
 #include <array>
 #include <memory>
@@ -22,6 +25,10 @@
 
 class Chunk;
 class Chunk_Block_Grid;
+class Generation_Overlay;
+class Gpu_Owned_Worldgen_Input;
+namespace Gpu_Template_Overlay { class Packet; }
+struct Gpu_Owned_Worldgen_Identity;
 
 // Биомы теперь идентифицируются числом, а не строкой. Раньше find_biome/get_surface_block
 // сравнивали std::string(b.name) == "Forest" — это конструировало временную строку на каждый
@@ -134,9 +141,9 @@ public:
     // попадают в чанк (с нахлёстом), не доходит до его высот: цикл по ним можно пропустить целиком.
     bool may_decorate_chunk(int chunk_x, int chunk_y, int chunk_z) const;
     // Existing finalization stage: apply immutable settlement plans clipped to this chunk.
-    void place_villages_in_chunk(Chunk& chunk) const;
+    void place_villages_in_chunk(Generation_Overlay& chunk) const;
     Block_Types get_block(int world_x, int world_y, int world_z) const;
-    void decorate_column(Chunk& chunk, int world_x, int world_z) const;
+    void decorate_column(Generation_Overlay& chunk, int world_x, int world_z) const;
     bool is_solid(int world_x, int world_y, int world_z) const;
 
     // Пакетная генерация целого чанка. Главный источник ускорения: все 2D-поля
@@ -155,6 +162,7 @@ public:
     // Immutable 32x32 height field already computed for this column. The pointer stays valid
     // while the caller holds the Prepared_Column shared_ptr. nullptr for non-ground/noise worlds.
     // Reuse it for the first skylight pass instead of recalculating OpenSimplex2S for every Y chunk.
+    const uint32_t* resolved_gpu_base(const std::shared_ptr<Prepared_Column>& prepared, size_t index) const;
     const int* prepared_terrain_heights(const std::shared_ptr<Prepared_Column>& prepared) const;
     void generate_prepared_chunk(const std::shared_ptr<Prepared_Column>& prepared,
                                  size_t index, Chunk_Block_Grid& output) const;
@@ -163,16 +171,47 @@ public:
     void generate_prepared_chunk(const std::shared_ptr<Prepared_Column>& prepared,
                                  size_t index, Chunk& chunk) const;
 
-    // GPU-assisted generation of underground material IDs. Only the main/GL thread
-    // calls extract_gpu_* and adopt_gpu_materials, before publishing build tasks.
-    // The CPU remains authoritative for caves, rivers, biome surfaces, structures and saves.
+    // GPU-assisted underground materials (legacy GL/Vulkan) or prepared base voxels (Vulkan).
+    // Main thread extracts inputs and validates results before publishing build tasks.
+    // CPU owns region generation, surface/mantle choices, sky islands, structures, light and saves.
     bool extract_gpu_material_columns(const std::shared_ptr<Prepared_Column>& prepared,
         std::array<Gpu_Material_Column, Config::chunk_size * Config::chunk_size>& out,
         std::vector<int>& chunk_ys, std::vector<size_t>& original_indices,
         int& chunk_x, int& chunk_z) const;
+    bool extract_gpu_base_region(const std::shared_ptr<Prepared_Column>& prepared,
+        const std::vector<size_t>& indices, std::array<Gpu_Material_Column,1024>& columns,
+        Gpu_Base_Region& region) const;
+    bool adopt_gpu_base(const std::shared_ptr<Prepared_Column>& prepared,
+        const std::vector<size_t>& indices, std::vector<uint32_t>&& materials) const;
+    // Exact one-level regional and structure preparation for certified GPU generation.
+    // Does not build a CPU Chunk or read back base IDs; light is a separate input.
+    // On refusal, output is unchanged. May perform expensive CPU region generation.
+    bool prepare_owned_gpu_input(int chunk_x,int chunk_y,int chunk_z,
+                                 Gpu_Owned_Worldgen_Input& output) const;
+    // Share regional terrain preparation across up to nine distinct Y levels.
+    // All-or-nothing output, in request order; each result is a standalone certified input.
+    bool prepare_owned_gpu_column(int chunk_x,int chunk_z,const std::vector<int>& ys,
+                                  std::vector<Gpu_Owned_Worldgen_Input>& output) const;
+    bool owned_gpu_identity_current(const Gpu_Owned_Worldgen_Identity& identity) const;
+    // Worker-only village pass: no terrain/base readback. Plan order matches the CPU overlay.
+    bool export_gpu_village_overlay(int cx,int cy,int cz,Gpu_Template_Overlay::Packet& out) const;
     bool export_gpu_noise_tables(Gpu_Noise_Tables& out) const;
+    bool export_gpu_river_packet(int rx,int rz,Gpu_River_Dispatch::Packet& out) const;
+    std::shared_ptr<const Gpu_River_Dispatch::CompactPacket> gpu_compact_river_region(int rx,int rz,bool ready_only=false) const;
+    bool export_gpu_cave_batch(std::span<const Gpu_Cave_Dispatch::Coord> coords,Gpu_Cave_Dispatch::Batch& out) const;
+    bool export_gpu_cave_packet(int chunk_x,int chunk_z,Gpu_Cave_Dispatch::Packet& out) const;
+    bool export_gpu_climate_tables(Gpu_Climate_Tables& out) const;
+    // Diagnostic CPU reference, not an authoritative publication certificate.
+    bool export_gpu_climate_reference(int chunk_x,int chunk_z,
+        std::array<Gpu_Climate_Dispatch::Terrain,Gpu_Climate_Dispatch::columns>& out) const;
+    // Diagnostic surface/upper mantle reference, independent of river/cave/overlay.
+    bool export_gpu_layer_push(int chunk_x,int chunk_z,Gpu_Layer_Dispatch::Push& out) const;
+    bool export_gpu_layer_reference(int chunk_x,int chunk_z,
+        std::array<Gpu_Layer_Dispatch::Layer,Gpu_Layer_Dispatch::columns>& out) const;
     bool adopt_gpu_materials(const std::shared_ptr<Prepared_Column>& prepared,
-                             std::vector<uint32_t>&& materials) const;
+                             const std::vector<size_t>& original_indices,
+                             std::vector<uint32_t>&& materials,
+                             Gpu_Material_Result::Encoding encoding) const;
 
 
     // Быстрая проверка "может ли в этом чанке вообще что-то быть": если весь

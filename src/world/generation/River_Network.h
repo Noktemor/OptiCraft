@@ -17,6 +17,7 @@
 // kMargin от региона не учитываются, поэтому у границ регионов изредка появляются короткие ручьи без стока.
 
 #include "world/generation/Region_Cache.h"
+#include "world/generation/Gpu_River_Data.h"
 
 #include <cstdint>
 #include <functional>
@@ -59,11 +60,19 @@ public:
     bool region_ready_at(int world_x, int world_z) const;
     void prewarm_region_at(int world_x, int world_z) const;
 
+    // Diagnostic worker-only export; does not modify the live region cache.
+    bool export_gpu_river_packet(int rx,int rz,Gpu_River_Dispatch::Packet& out) const;
+
+    // Worker-only cold fetch, or nonblocking ready-only fetch. Both retain the
+    // same immutable cached region (and its GPU packet) without copying arrays.
+    std::shared_ptr<const Gpu_River_Dispatch::CompactPacket> gpu_compact_region(int rx,int rz) const;
+    std::shared_ptr<const Gpu_River_Dispatch::CompactPacket> try_gpu_compact_region(int rx,int rz) const;
+
     struct Region;
 
 private:
     std::shared_ptr<const Region> fetch_region(int rx, int rz) const;
-    std::shared_ptr<Region> build_region(int rx, int rz) const;
+    std::shared_ptr<Region> build_region(int rx, int rz, Gpu_River_Dispatch::Packet* capture = nullptr) const;
 
     uint32_t m_seed;
     int m_sea_level;

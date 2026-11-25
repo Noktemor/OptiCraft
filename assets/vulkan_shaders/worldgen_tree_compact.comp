@@ -1,0 +1,18 @@
+#version 450
+// One work item, stable traversal. Fail closed on overflow; caller must fall back.
+layout(local_size_x=1) in;
+struct Candidate {int x,y,z;uint biome,eligible,gentle,palm_roll,reserved;};
+struct Instance {ivec3 origin;uint rotation;uvec4 range;ivec4 lo;ivec4 hi;};
+layout(std430,binding=0) readonly buffer Input {Candidate candidates[];};
+layout(std430,binding=1) readonly buffer Handles {uint handles[];};
+layout(std430,binding=2) readonly buffer Catalog {Instance catalog[];};
+layout(std430,binding=3) writeonly buffer Instances {Instance instances[];};
+layout(std430,binding=4) writeonly buffer Result {uint resultCount,overflow;};
+layout(push_constant) uniform Params {uint count;int origin_x,origin_y,origin_z;};
+void fail(){instances[0]=Instance(ivec3(0),0u,uvec4(0),ivec4(0),ivec4(0));overflow=1u;}
+void main(){if(gl_GlobalInvocationID.x!=0u)return;resultCount=0u;overflow=0u;if(count>4096u){fail();return;}uint n=0u;
+ for(uint i=0u;i<count;++i){uint h=handles[i];if(h==0xffffffffu)continue;if(h>=576u){fail();return;}Instance a=catalog[h];Candidate c=candidates[i];a.origin=ivec3(c.x-origin_x,c.y-origin_y,c.z-origin_z);
+ if(any(lessThan(a.origin+a.hi.xyz,ivec3(0)))||any(greaterThan(a.origin+a.lo.xyz,ivec3(31))))continue;
+ if(n>=128u){fail();return;}instances[n++]=a;
+ }if(n<128u)instances[n]=Instance(ivec3(0),0u,uvec4(0),ivec4(0),ivec4(0));resultCount=n;
+}

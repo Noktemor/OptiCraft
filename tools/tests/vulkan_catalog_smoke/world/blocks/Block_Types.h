@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 using Block_ID=uint16_t;
+enum class Block_Types:uint16_t { Water=7 };
 inline constexpr size_t k_max_block_types=65536;
 namespace glm {
 struct vec3 {

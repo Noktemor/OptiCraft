@@ -241,7 +241,8 @@ uint32_t VulkanChunkMeshing::record(VkCommandBuffer cmd,uint32_t frameSlot,
             }
         }else{
             const uint32_t cost=(kinds&4u)?1u:((kinds&1u)?((kinds&kFarGeometryLodFlag)?24u:((kinds&kGeometryLodFlag)?16u:8u)):0u)+((kinds&2u)?4u:0u);
-            jobs_->dirty(slot,current->generation,cost);
+            jobs_->dirty(slot,current->generation,cost,
+                std::binary_search(changed.interactiveRemeshSlots.begin(),changed.interactiveRemeshSlots.end(),slot));
         }
     }
     if(!changed.remeshSlots.empty())barrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -271,11 +272,21 @@ uint32_t VulkanChunkMeshing::record(VkCommandBuffer cmd,uint32_t frameSlot,
         jobs_->acceptPublish(changes);
         batch.waiting=Wait::None;
     }
-    // Emit first, then Count. Both use a common adaptive per-frame budget.
+    // Complete interactive Emit first. If an idle scratch lane exists, let
+    // a new edit overtake background Emit once, then drain that Emit to avoid
+    // starving allocations on continuous edits. Never overwrite active scratch.
+    bool readyInteractiveEmit=false,readyBackgroundEmit=false,idleLane=false;
+    for(uint32_t i=0;i<activeBatches_;++i){
+        const auto& b=batches_[i];
+        if(b.emitReady){if(jobs_->batchInteractive(i))readyInteractiveEmit=true;else readyBackgroundEmit=true;}
+        else if(b.waiting==Wait::None)idleLane=true;
+    }
+    const bool bypassBackgroundEmit=!readyInteractiveEmit && readyBackgroundEmit && idleLane &&
+        !deferredBackgroundEmit_ && jobs_->hasReadyInteractive();
     for(uint32_t offset=0;offset<activeBatches_;++offset){
         const uint32_t i=(nextBatch_+offset)%activeBatches_;
         auto& batch=batches_[i];
-        if(!batch.emitReady)continue;
+        if(!batch.emitReady || (readyInteractiveEmit && !jobs_->batchInteractive(i)) || bypassBackgroundEmit)continue;
         jobs_->selectBatch(i);
         const auto indices=batchIndices(true);
         uploadJobs(batch,cmd,indices);
@@ -290,15 +301,17 @@ uint32_t VulkanChunkMeshing::record(VkCommandBuffer cmd,uint32_t frameSlot,
         batch.misc.recordEmit(cmd,uint32_t(indices.size()),kinds);
         recordReadback(batch,cmd);
         batch.emitReady=false;batch.waiting=Wait::Emit;batch.waitingSlot=frameSlot;
+        if(!jobs_->batchInteractive(i))deferredBackgroundEmit_=false;
         nextBatch_=(i+1)%activeBatches_;
         return jobs_->batchWork(true);
     }
     for(uint32_t offset=0;offset<activeBatches_;++offset){
         const uint32_t i=(nextBatch_+offset)%activeBatches_;
         auto& batch=batches_[i];
-        if(batch.waiting!=Wait::None)continue;
+        if(batch.waiting!=Wait::None || batch.emitReady)continue;
         jobs_->selectBatch(i);
         if(!jobs_->startCount())continue;
+        if(bypassBackgroundEmit)deferredBackgroundEmit_=true;
         const auto indices=batchIndices(false);
         uploadJobs(batch,cmd,indices);
         const auto kinds=batchKinds(indices);
@@ -348,7 +361,7 @@ void VulkanChunkMeshing::shutdown()noexcept{
     }
     miscDraws_.destroy();miscQuads_.destroy();opaqueFaces_.destroy();
     jobs_.reset();device_=VK_NULL_HANDLE;physical_=VK_NULL_HANDLE;stream_=nullptr;
-    lastDispatchWasCount_=false;
+    lastDispatchWasCount_=false;deferredBackgroundEmit_=false;
     batchLimit_=0;nextBatch_=0;activeBatches_=0;opaqueCacheRects_=0;fastMiscQuads_=0;
 }
 } // namespace OptiCraft::Vulkan

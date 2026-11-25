@@ -33,6 +33,8 @@ source = r'''
 #include <limits>
 #include <optional>
 #include <vector>
+#include "world/generation/Generation_Sky.h"
+#define LOG_WARN(x) ((void)0)
 #define OC_ZONE(name) ((void)0)
 
 namespace Config {
@@ -96,6 +98,10 @@ public:
     int get_column_top_opaque(int x, int z) const {return top_opaque[z*Config::chunk_size+x];}
     void set_all_sky_light(uint8_t l,std::array<bool,6>& faces){faces.fill(false);std::fill(light.begin(),light.end(),l);}
     void set_sky_light(int x,int y,int z,uint8_t l){light[(y*Config::chunk_size+z)*Config::chunk_size+x]=l;}
+    void set_initial_direct_sky(std::span<const uint32_t> cutoffs,int base_y){
+        for(int y=0;y<32;++y)if(base_y+y>=Config::world_min_y&&base_y+y<=Config::world_max_y)
+            for(int z=0;z<32;++z)for(int x=0;x<32;++x)if(uint32_t(y)>=cutoffs[z*32+x])set_sky_light(x,y,z,15);
+    }
     void compact_light() {}
 };
 
@@ -202,6 +208,6 @@ with tempfile.TemporaryDirectory(prefix='opti_worldgen_') as temp:
     cpp = Path(temp) / 'test_worldgen.cpp'
     exe = Path(temp) / 'test_worldgen'
     cpp.write_text(source)
-    cmd = ['g++','-std=c++20','-O2','-Wall','-Wextra','-Werror','-o',str(exe),str(cpp)]
+    cmd = ['g++','-std=c++20','-O2','-Wall','-Wextra','-Werror','-I',str(ROOT/'src'),'-o',str(exe),str(cpp)]
     subprocess.run(cmd, check=True)
     subprocess.run([str(exe)], check=True)

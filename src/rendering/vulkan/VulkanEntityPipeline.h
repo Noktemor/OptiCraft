@@ -1,5 +1,5 @@
 #pragma once
-#include "rendering/vulkan/EntityDraw.h"
+#include "rendering/vulkan/EntityBatchPlan.h"
 #include "rendering/vulkan/VulkanFrameRuntime.h"
 #include "rendering/vulkan/VulkanDeviceBuffer.h"
 #include "rendering/vulkan/VulkanBlockAtlas.h"
@@ -11,10 +11,13 @@ class VulkanEntityPipeline {
 public:
     ~VulkanEntityPipeline(){shutdown();}
     void initialize(VulkanFrameRuntime&,VkDescriptorSetLayout atlasLayout,std::span<const uint32_t>,std::span<const uint32_t>);
+    void initialize(VkPhysicalDevice,VkDevice,VkRenderPass,VkDescriptorSetLayout,std::span<const uint32_t>,std::span<const uint32_t>);
     void recreate(VkRenderPass,std::span<const uint32_t>,std::span<const uint32_t>);
-    void prepare(const VulkanFrameRuntime::Frame&,std::span<const EntityDraw>);
-    void draw(const VulkanFrameRuntime::Frame&,std::span<const EntityDraw>,const WorldViewParams&)const;
+    void prepare(const VulkanFrameRuntime::Frame&,std::span<const EntityDraw>,const GpuFrustum&);
+    void draw(const VulkanFrameRuntime::Frame&,const WorldViewParams&)const;
     void shutdown()noexcept;
+    struct Stats {size_t submitted=0,visible=0,culled=0,drawCalls=0,unbatchedDrawCalls=0;};
+    const Stats& stats()const noexcept{return stats_;}
 private:
     struct AssetGpu {
         std::shared_ptr<const EntityAsset> owner;
@@ -23,7 +26,8 @@ private:
         std::vector<VkDescriptorSet> sets;
         uint32_t uploadSlot=UINT32_MAX;
     };
-    struct PoseFrame {VulkanDeviceBuffer buffer;VkDescriptorSet set=VK_NULL_HANDLE;};
+    struct PoseFrame {VulkanDeviceBuffer buffer;VkDescriptorSet set=VK_NULL_HANDLE;EntityBatchPlan batch;};
+    Stats stats_{};
     VkDevice device_=VK_NULL_HANDLE;
     VkPhysicalDevice physical_=VK_NULL_HANDLE;
     VkDescriptorSetLayout poseLayout_=VK_NULL_HANDLE,atlasLayout_=VK_NULL_HANDLE;
@@ -33,6 +37,6 @@ private:
     VkDeviceSize maxPoseBytes_=0;
     std::array<PoseFrame,VulkanFrameRuntime::kFramesInFlight> frames_{};
     std::unordered_map<const EntityAsset*,AssetGpu> assets_;
-    std::vector<EntityPose> poses_;
+    std::unordered_map<const EntityAsset*,std::pair<std::shared_ptr<const EntityAsset>,EntityWorldBounds>> bounds_;
 };
 }

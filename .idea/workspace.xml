@@ -23,7 +23,10 @@
       <config projectName="OptiCraft" targetName="treepack" />
       <config projectName="OptiCraft" targetName="OptiCraft_Vulkan" />
       <config projectName="OptiCraft" targetName="embed" folderName="ExternalProjectTargets/embed" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Column_Batch_Tests" />
       <config projectName="OptiCraft" targetName="OptiCraft_VulkanBackend" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_World_Policies_Tests" />
+      <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Entity_Batch_Tests" />
       <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Core_Tests" />
       <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Stream_Tests" />
       <config projectName="OptiCraft" targetName="OptiCraft_Vulkan_Mesh_Transactions_Tests" />
@@ -46,35 +49,21 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/mesher_common.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/mesher_common.glsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_count.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_count.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_cull.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_cull.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_debug.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_debug.vert" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_emit.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_emit.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/VERSION" beforeDir="false" afterPath="$PROJECT_DIR$/VERSION" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.frag" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.frag" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc.vert" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_common.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_common.glsl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_count.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_count.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_cull.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_cull.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_emit.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_misc_emit.comp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_row_runs.glsl" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_row_runs.glsl" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.frag" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.frag" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.vert" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/voxel_textured.vert" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/vulkan_shaders/worldgen_material.comp" beforeDir="false" afterPath="$PROJECT_DIR$/assets/vulkan_shaders/worldgen_material.comp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/GPU_WORLDGEN_HYBRID.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/documentation/history_version.md" beforeDir="false" afterPath="$PROJECT_DIR$/documentation/history_version.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/game/Game.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mob.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mob.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/mobs/Mob_Model.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/mobs/Mob_Model.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/atlas/Texture.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/game/Game.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/game/Game.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuMeshTransactions.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/GpuWorldCore.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockAtlas.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockCatalog.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockCatalog.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockCatalog.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanBlockCatalog.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkMeshing.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamGpu.cpp" afterDir="false" />
@@ -82,36 +71,51 @@
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanChunkStreamPlan.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanDeviceBuffer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanEntityPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanEntityPipeline.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanEntityPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanEntityPipeline.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanFrameRuntime.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameChunkFeed.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGameMirror.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuCuller.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanGpuMesher.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanItemPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanItemPipeline.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanItemPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanItemPipeline.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanLiveWorldRenderer.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscMesher.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMiscPipeline.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanOpaqueMaterialPipeline.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMaterialWorldgen.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMaterialWorldgen.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMaterialWorldgen.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanMaterialWorldgen.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/rendering/vulkan/VulkanProbe.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/rendering/vulkan/VulkanProbe.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/chunks/Chunk_Manager.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Cave_Network.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Cave_Network.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Cave_Network.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Cave_Network.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Gpu_Worldgen_Data.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Gpu_Worldgen_Data.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/River_Network.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/River_Network.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/River_Network.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/River_Network.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Pack.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Pack.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/Tree_Pack.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/Tree_Pack.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/generation/World_Generator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/generation/World_Generator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/storage/Chunk_IO.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/storage/Chunk_IO.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/storage/Chunk_IO.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/storage/Chunk_IO.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/storage/Region_File.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/storage/Region_File.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/world/storage/Region_File.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/world/storage/Region_File.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/fake_vulkan/vulkan/vulkan.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/fake_vulkan/vulkan/vulkan.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/run_vulkan_chunk_feed_checks.sh" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/run_vulkan_chunk_feed_checks.sh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/run_vulkan_stage5_mock_checks.sh" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/run_vulkan_stage5_mock_checks.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_013_stage6_integration.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_013_stage6_integration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_gpu_worldgen_parity.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_gpu_worldgen_parity.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_block_catalog.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_block_catalog.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_feed.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_feed.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_stream.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_chunk_stream.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_gpu_rows.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_gpu_rows.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_mesh_transactions.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_mesh_transactions.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_primary_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_primary_window.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_stage5_mock.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_stage5_mock.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/tests/test_vulkan_world_core.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_vulkan_world_core.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/test_worldgen_fastpaths.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/vulkan_catalog_smoke/world/blocks/Block_Types.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/vulkan_catalog_smoke/world/blocks/Block_Types.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/vulkan_feed_mock/world/chunks/Chunk.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/vulkan_feed_mock/world/chunks/Chunk.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/tests/vulkan_feed_mock/world/chunks/Chunk_Manager.h" beforeDir="false" afterPath="$PROJECT_DIR$/tools/tests/vulkan_feed_mock/world/chunks/Chunk_Manager.h" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -121,7 +125,7 @@
   <component name="ClangdSettings">
     <option name="formatViaClangd" value="false" />
   </component>
-  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Release" />
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
@@ -288,7 +292,17 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration name="OptiCraft_Vulkan_Column_Batch_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Column_Batch_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Column_Batch_Tests">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="OptiCraft_Vulkan_Core_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Core_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Core_Tests">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_Vulkan_Entity_Batch_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Entity_Batch_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Entity_Batch_Tests">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -299,6 +313,11 @@
       </method>
     </configuration>
     <configuration name="OptiCraft_Vulkan_Stream_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_Stream_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_Stream_Tests">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="OptiCraft_Vulkan_World_Policies_Tests" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="OptiCraft" TARGET_NAME="OptiCraft_Vulkan_World_Policies_Tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="OptiCraft" RUN_TARGET_NAME="OptiCraft_Vulkan_World_Policies_Tests">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -332,9 +351,12 @@
     <list>
       <item itemvalue="CMake Application.embed" />
       <item itemvalue="CMake Application.OptiCraft" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_Column_Batch_Tests" />
       <item itemvalue="CMake Application.OptiCraft_Vulkan_Core_Tests" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_Entity_Batch_Tests" />
       <item itemvalue="CMake Application.OptiCraft_Vulkan_Mesh_Transactions_Tests" />
       <item itemvalue="CMake Application.OptiCraft_Vulkan_Stream_Tests" />
+      <item itemvalue="CMake Application.OptiCraft_Vulkan_World_Policies_Tests" />
       <item itemvalue="CMake Application.OptiCraft_VulkanBackend" />
       <item itemvalue="CMake Application.OptiCraft_VulkanCore" />
       <item itemvalue="CMake Application.OptiCraft_VulkanWindow" />

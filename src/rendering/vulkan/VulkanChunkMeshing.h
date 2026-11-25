@@ -95,6 +95,7 @@ private:
     std::array<Batch,kBatchCount> batches_;
     std::unique_ptr<GpuMeshTransactions> jobs_;
     bool lastDispatchWasCount_=false, fastOpaque_=true;
+    bool deferredBackgroundEmit_=false;
     uint32_t batchLimit_=0, nextBatch_=0, activeBatches_=0, opaqueCacheRects_=0, fastMiscQuads_=0;
 };
 

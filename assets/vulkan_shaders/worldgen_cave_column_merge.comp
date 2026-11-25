@@ -1,0 +1,28 @@
+#version 450
+// Single column view of the regional stamp cache. Compare the actual two-bit
+// material ABI, not raw four-bit kinds; mismatches retain the CPU reference.
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Kinds {uint kinds[];};
+layout(std430,binding=1) readonly buffer Reference {uint referenceWords[];};
+layout(std430,binding=2) buffer Material {uint words[];};
+layout(std430,binding=3) buffer Stats {uint accepted;};
+layout(push_constant) uniform Params {uint count;};
+void main(){
+ uint i=gl_GlobalInvocationID.x,level=gl_WorkGroupID.y;
+ if(i>=2048u||count==0u||count>9u||level>=count)return;
+ int cy=int(referenceWords[level]);if(cy < -3125000 || cy > 3125000)return;
+ int y=cy*32+int(i/64u);uint word=0u;bool valid=true;
+ if(y>=-150 && y<=130){
+  uint row=uint(y+150)*64u+i%64u;
+  for(uint j=0u;j<16u;++j){
+   uint k=(kinds[row*2u+j/8u]>>((j%8u)*4u))&15u;
+   valid=valid&&k<=4u;
+   uint v=(k==1u||k==3u)?1u:(k==2u||k==4u)?2u:0u;
+   word|=v<<(2u*j);
+  }
+ }
+ uint offset=4107u+level*2048u+i,ref=referenceWords[offset];
+ bool ok=valid&&word==ref;
+ words[offset]=ok?word:ref;
+ if(ok)atomicAdd(accepted,1u);
+}

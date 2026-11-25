@@ -65,7 +65,14 @@ GpuBlockCatalog GpuBlockCatalog::build(const Block_Registry& registry) {
                     kind = VisualAlphaCube; kindIndex = 1;
                 }
                 break;
-            case Block_Mesh_Type::Flora: kind = VisualFlora; kindIndex = 2; break;
+            case Block_Mesh_Type::Flora:
+                // Registry flora includes cubic foliage. Only XStyle is crossed geometry.
+                if (p.mesh_style == Block_Mesh_Style::XStyle) {
+                    kind = VisualFlora; kindIndex = 2;
+                } else {
+                    kind = VisualAlphaCube; kindIndex = 1;
+                }
+                break;
             case Block_Mesh_Type::Liquid: kind = VisualLiquid; kindIndex = 3; break;
             case Block_Mesh_Type::Shaped: kind = VisualShaped; kindIndex = 4; break;
             default: throw std::runtime_error("Unknown mesh type in actual block catalog");
@@ -82,9 +89,10 @@ GpuBlockCatalog GpuBlockCatalog::build(const Block_Registry& registry) {
         const bool metaDependent = p.uses_meta || p.orientation != Block_Orientation::None || p.has_active_state;
         if (metaDependent) desc.flags |= VisualMeta;
         // Alpha-cutout flora stays in the depth-writing cutout pass.
-        if (kind == VisualLiquid || kind == VisualAlphaCube ||
+        if (kind == VisualLiquid || (kind == VisualAlphaCube && p.mesh_type != Block_Mesh_Type::Flora) ||
             (kind == VisualShaped && p.is_transparent && !p.is_opaque))
             desc.flags |= VisualBlended;
+        if (kind == VisualLiquid && id == uint32_t(Block_Types::Water)) desc.flags |= VisualWater;
         desc.metaStride = metaDependent ? 6u : 0u;
         const uint32_t variants = metaDependent ? 256u : 1u;
         for (uint32_t meta = 0; meta < variants; ++meta) {

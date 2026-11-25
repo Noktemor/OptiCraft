@@ -17,6 +17,7 @@
 #define VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 1
 #define VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 2
 #define VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 4
+#define VK_MEMORY_PROPERTY_HOST_CACHED_BIT 8
 #define VK_SHARING_MODE_EXCLUSIVE 0
 #define VK_ACCESS_SHADER_READ_BIT 1
 #define VK_ACCESS_SHADER_WRITE_BIT 2
@@ -50,10 +51,12 @@ using VkSharingMode=uint32_t;
 struct VkBufferCreateInfo {int sType; void* pNext=nullptr; VkBufferCreateFlags flags=0; VkDeviceSize size=0; VkBufferUsageFlags usage=0; VkSharingMode sharingMode=0;};
 struct VkMemoryRequirements {VkDeviceSize size=0,alignment=0;uint32_t memoryTypeBits=0;};
 struct VkMemoryType {VkMemoryPropertyFlags propertyFlags=0;uint32_t heapIndex=0;};
-struct VkPhysicalDeviceMemoryProperties {uint32_t memoryTypeCount=0;VkMemoryType memoryTypes[32]{};};
+#define VK_MEMORY_HEAP_DEVICE_LOCAL_BIT 1
+struct VkMemoryHeap {VkDeviceSize size=0;uint32_t flags=0;};
+struct VkPhysicalDeviceMemoryProperties {uint32_t memoryTypeCount=0;VkMemoryType memoryTypes[32]{};uint32_t memoryHeapCount=0;VkMemoryHeap memoryHeaps[16]{};};
 struct VkMemoryAllocateInfo {int sType;void* pNext=nullptr;VkDeviceSize allocationSize=0;uint32_t memoryTypeIndex=0;};
 struct VkMappedMemoryRange {int sType;void* pNext=nullptr;VkDeviceMemory memory=nullptr;VkDeviceSize offset=0,size=0;};
-struct VkPhysicalDeviceProperties {char pad[1000]{};struct {VkDeviceSize nonCoherentAtomSize=1;uint32_t maxStorageBufferRange=128*1024*1024;uint32_t maxPerStageDescriptorStorageBuffers=16,maxDescriptorSetStorageBuffers=16,maxComputeWorkGroupSize[3]{1024,1024,64},maxComputeWorkGroupCount[3]{65535,65535,65535},maxComputeWorkGroupInvocations=1024,maxPushConstantsSize=128,maxComputeSharedMemorySize=32768;} limits;};
+struct VkPhysicalDeviceProperties {char pad[1000]{};struct {VkDeviceSize nonCoherentAtomSize=1;uint32_t maxStorageBufferRange=128*1024*1024;uint32_t maxPerStageDescriptorStorageBuffers=16,maxDescriptorSetStorageBuffers=16,maxComputeWorkGroupSize[3]{1024,1024,64},maxComputeWorkGroupCount[3]{65535,65535,65535},maxComputeWorkGroupInvocations=1024,maxPushConstantsSize=128,maxComputeSharedMemorySize=32768;VkDeviceSize minStorageBufferOffsetAlignment=256;} limits;};
 struct VkBufferCopy {VkDeviceSize srcOffset=0,dstOffset=0,size=0;};
 struct VkMemoryBarrier {int sType;void* pNext=nullptr;VkAccessFlags srcAccessMask=0,dstAccessMask=0;};
 struct VkDrawIndirectCommand {uint32_t vertexCount,instanceCount,firstVertex,firstInstance;};
@@ -224,13 +227,15 @@ void vkCmdDispatchIndirect(VkCommandBuffer,VkBuffer,VkDeviceSize);
 #define VK_TRUE 1
 #define VK_COMPARE_OP_LESS_OR_EQUAL 3
 using VkDynamicState=uint32_t;
-struct VkPipelineVertexInputStateCreateInfo{int sType;};
+struct VkVertexInputBindingDescription{uint32_t binding,stride,inputRate;};
+struct VkVertexInputAttributeDescription{uint32_t location,binding,format,offset;};
+struct VkPipelineVertexInputStateCreateInfo{int sType;uint32_t vertexBindingDescriptionCount=0;const VkVertexInputBindingDescription* pVertexBindingDescriptions=nullptr;uint32_t vertexAttributeDescriptionCount=0;const VkVertexInputAttributeDescription* pVertexAttributeDescriptions=nullptr;};
 struct VkPipelineInputAssemblyStateCreateInfo{int sType;uint32_t topology=0;};
 struct VkPipelineViewportStateCreateInfo{int sType;uint32_t viewportCount=0,scissorCount=0;};
 struct VkPipelineDynamicStateCreateInfo{int sType;uint32_t dynamicStateCount=0;const VkDynamicState* pDynamicStates=nullptr;};
 struct VkPipelineRasterizationStateCreateInfo{int sType;uint32_t polygonMode=0,cullMode=0,frontFace=0;float lineWidth=0;};
 struct VkPipelineMultisampleStateCreateInfo{int sType;uint32_t rasterizationSamples=0;};
-struct VkPipelineColorBlendAttachmentState{uint32_t colorWriteMask=0;};
+struct VkPipelineColorBlendAttachmentState{uint32_t colorWriteMask=0,blendEnable=0,srcColorBlendFactor=0,dstColorBlendFactor=0,colorBlendOp=0,srcAlphaBlendFactor=0,dstAlphaBlendFactor=0,alphaBlendOp=0;};
 struct VkPipelineColorBlendStateCreateInfo{int sType;uint32_t attachmentCount=0;const VkPipelineColorBlendAttachmentState* pAttachments=nullptr;};
 struct VkPipelineDepthStencilStateCreateInfo{int sType;uint32_t depthTestEnable=0,depthWriteEnable=0,depthCompareOp=0;};
 struct VkGraphicsPipelineCreateInfo{
@@ -246,3 +251,31 @@ struct VkGraphicsPipelineCreateInfo{
     VkPipelineLayout layout=nullptr;VkRenderPass renderPass=nullptr;
 };
 extern "C" VkResult vkCreateGraphicsPipelines(VkDevice,void*,uint32_t,const VkGraphicsPipelineCreateInfo*,const void*,VkPipeline*);
+
+#define VK_VERTEX_INPUT_RATE_VERTEX 0
+#define VK_FORMAT_R32G32B32_SFLOAT 1
+#define VK_FORMAT_R32G32_SFLOAT 2
+#define VK_FORMAT_R32_SFLOAT 3
+#define VK_FORMAT_R32G32B32A32_SFLOAT 4
+#define VK_FORMAT_R32G32B32A32_SINT 5
+#define VK_CULL_MODE_NONE 0
+#define VK_FALSE 0
+#define VK_BLEND_FACTOR_SRC_ALPHA 1
+#define VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA 2
+#define VK_BLEND_FACTOR_ONE 3
+#define VK_BLEND_OP_ADD 0
+#define VK_PIPELINE_BIND_POINT_GRAPHICS 0
+#define VK_INDEX_TYPE_UINT32 1
+struct VkViewport{float x,y,width,height,minDepth,maxDepth;};
+struct VkOffset2D{int32_t x,y;};
+struct VkRect2D{VkOffset2D offset;VkExtent2D extent;};
+extern "C" {
+void vkCmdSetViewport(VkCommandBuffer,uint32_t,uint32_t,const VkViewport*);
+void vkCmdSetScissor(VkCommandBuffer,uint32_t,uint32_t,const VkRect2D*);
+void vkCmdBindVertexBuffers(VkCommandBuffer,uint32_t,uint32_t,const VkBuffer*,const VkDeviceSize*);
+void vkCmdBindIndexBuffer(VkCommandBuffer,VkBuffer,VkDeviceSize,uint32_t);
+void vkCmdDraw(VkCommandBuffer,uint32_t,uint32_t,uint32_t,uint32_t);
+void vkCmdDrawIndexed(VkCommandBuffer,uint32_t,uint32_t,uint32_t,int32_t,uint32_t);
+}
+#define VK_BUFFER_USAGE_VERTEX_BUFFER_BIT 16
+#define VK_BUFFER_USAGE_INDEX_BUFFER_BIT 32

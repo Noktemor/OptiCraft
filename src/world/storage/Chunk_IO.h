@@ -53,6 +53,9 @@ public:
 
     // Чанк уже сохранён: лежит в очереди записи или в индексе региона.
     bool has_saved(const std::shared_ptr<Region_File>& region, const Region_File::Key& key);
+    // Unlike !has_saved, unavailable/unopened storage is not an absence proof.
+    // Caller must already exclude new producers for this key.
+    bool confirm_unsaved(const std::shared_ptr<Region_File>& region, const Region_File::Key& key);
 
     // Читает пачку. stages[i] — буфер с блоками чанка keys[i] (его потом надо release_stage)
     // или kNone, если чанка нет и его нужно сгенерировать.

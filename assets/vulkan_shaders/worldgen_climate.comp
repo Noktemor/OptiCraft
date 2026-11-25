@@ -1,0 +1,50 @@
+#version 450
+// FP64 OpenSimplex2S 2D, exactly the existing seeded permutation/gradient order.
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Permutations { int permutation[]; };
+layout(std430,binding=1) readonly buffer Gradients { dvec2 gradients[]; };
+struct Lattice { dvec2 delta; ivec4 offsets; };
+layout(std430,binding=2) readonly buffer Lattices { Lattice lattice[]; };
+struct Raw { double value[8]; };
+layout(std430,binding=3) writeonly buffer Output { Raw raw[]; };
+layout(push_constant) uniform Params { int origin_x; int origin_z; };
+
+double noise2d(int field,double x,double z) {
+    precise double s=0.366025403784439lf*(x+z);
+    precise double xs=x+s, ys=z+s;
+    int xb=int(floor(xs)), yb=int(floor(ys));
+    precise double xsi=xs-double(xb), ysi=ys-double(yb);
+    int a=int(xsi+ysi);
+    int index=(a<<2) | (int(xsi-ysi/2.0lf+1.0lf-double(a)/2.0lf)<<3)
+                     | (int(ysi-xsi/2.0lf+1.0lf-double(a)/2.0lf)<<4);
+    precise double ssi=(xsi+ysi)*-0.211324865405187lf;
+    precise double xi=xsi+ssi, yi=ysi+ssi, value=0.0lf;
+    int base=field*2048;
+    for(int i=0;i<4;++i) {
+        Lattice c=lattice[index+i];
+        precise double dx=xi+c.delta.x, dy=yi+c.delta.y;
+        precise double attn=2.0lf/3.0lf-dx*dx-dy*dy;
+        if(attn<=0.0lf) continue;
+        int px=(xb+c.offsets.x)&2047, py=(yb+c.offsets.y)&2047;
+        dvec2 g=gradients[base+(permutation[base+px]^py)];
+        precise double ext=g.x*dx+g.y*dy;
+        attn*=attn; value+=attn*attn*ext;
+    }
+    return value;
+}
+const int octaves[8]=int[8](4,4,5,4,3,5,3,4);
+const double frequencies[8]=double[8](0.00055lf,0.00075lf,0.00022lf,0.0018lf,0.0009lf,0.0022lf,0.012lf,0.00125lf);
+double sampleField(int field,double x,double z) {
+    precise double frequency=frequencies[field], amp=1.0lf, sum=0.0lf, weight=0.0lf;
+    for(int i=0;i<octaves[field];++i) {
+        sum+=noise2d(field,x*frequency,z*frequency)*amp;
+        weight+=amp;frequency*=2.0lf;amp*=0.5lf;
+    }
+    return sum/weight;
+}
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    if(i>=1089u) return;
+    double x=double(origin_x+int(i%33u)),z=double(origin_z+int(i/33u));
+    for(int f=0;f<8;++f) raw[i].value[f]=sampleField(f,x,z);
+}

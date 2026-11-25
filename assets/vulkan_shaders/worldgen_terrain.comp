@@ -1,0 +1,60 @@
+#version 450
+layout(local_size_x=64) in;
+struct Raw { double value[8]; };
+struct Terrain { double height,slope,temperature,humidity,continental,erosion,weirdness,mountain; };
+layout(std430,binding=0) readonly buffer Input { Raw raw[]; };
+layout(std430,binding=1) writeonly buffer Output { Terrain terrain[]; };
+layout(push_constant) uniform Params { int min_y; int max_y; };
+// GLSL does not provide portable FP64 exp/erf. The argument ranges are bounded
+// by the existing continental spline and normalized climate. Use FP64 series.
+double expNegative(double x) {
+    // exp(-x), x>=0. Reduce by 128 and square seven times.
+    double r=-x/128.0lf, term=1.0lf, sum=1.0lf;
+    for(int i=1;i<=16;++i) { term*=r/double(i);sum+=term; }
+    for(int i=0;i<7;++i) sum*=sum;
+    return sum;
+}
+double clamp01(double x) {return clamp(x,0.0lf,1.0lf);}
+double normalized(double x) {return clamp01(x*0.5lf+0.5lf);}
+double spread(double x) {
+    double t=(normalized(x)-0.5lf)/(0.14lf*1.41421356237lf);
+    double term=t,sum=t;
+    for(int i=1;i<=48;++i) {term*=(-t*t)/double(i);sum+=term/double(2*i+1);}
+    return clamp01(0.5lf*(1.0lf+1.1283791670955125739lf*sum));
+}
+double smoothCurve(double a,double b,double x) {
+    double t=clamp01((x-a)/(b-a));return t*t*(3.0lf-2.0lf*t);
+}
+const double knots[9]=double[9](-1.0lf,-0.62lf,-0.34lf,-0.17lf,-0.06lf,0.10lf,0.38lf,0.70lf,1.0lf);
+const double elevations[9]=double[9](17.0lf,33.0lf,50.0lf,59.5lf,65.0lf,71.0lf,81.0lf,93.0lf,107.0lf);
+double elevation(double c) {
+    if(c<=knots[0]) return elevations[0];
+    for(int i=1;i<9;++i) if(c<=knots[i])
+        return elevations[i-1]+(elevations[i]-elevations[i-1])*smoothCurve(knots[i-1],knots[i],c);
+    return elevations[8];
+}
+double heightAt(Raw r,int low,int high) {
+    double c=clamp(r.value[2],-1.0lf,1.0lf), e=normalized(r.value[3]), m=normalized(r.value[7]);
+    double base=elevation(c), land=smoothCurve(-0.32lf,0.02lf,c), rugged=1.0lf-smoothCurve(0.35lf,0.85lf,e);
+    double dist=(base-63.0lf)/11.0lf;
+    double shore=0.30lf+0.70lf*clamp01(1.0lf-expNegative(dist*dist));
+    double hill=(9.0lf+rugged*34.0lf)*(0.30lf+0.70lf*land)*shore;
+    double gate=smoothCurve(0.50lf,0.80lf,m)*rugged*land*shore;
+    double detail=(2.5lf+rugged*5.5lf)*(0.35lf+0.65lf*land);
+    return clamp(base+r.value[5]*hill+gate*235.0lf+r.value[6]*detail,double(low)+1.0lf,double(high));
+}
+Terrain reconstruct(Raw here,Raw east,Raw north,int low,int high) {
+    Terrain t;
+    t.height=heightAt(here,low,high);
+    t.slope=max(abs(heightAt(east,low,high)-t.height),abs(heightAt(north,low,high)-t.height));
+    t.temperature=spread(here.value[0]);t.humidity=spread(here.value[1]);
+    t.continental=clamp(here.value[2],-1.0lf,1.0lf);t.erosion=normalized(here.value[3]);
+    t.weirdness=normalized(here.value[4]);t.mountain=normalized(here.value[7]);
+    return t;
+}
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    if(i>=1024u) return;
+    uint p=(i/32u)*33u+i%32u;
+    terrain[i]=reconstruct(raw[p],raw[p+1u],raw[p+33u],min_y,max_y);
+}

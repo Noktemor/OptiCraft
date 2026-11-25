@@ -242,8 +242,9 @@ public:
     void run();
     // Live chunk snapshots for an attached Vulkan backend; inert until enabled.
     void set_vulkan_chunk_sink(OptiCraft::Vulkan::VulkanGameChunkFeed::UploadSink upload,
-        OptiCraft::Vulkan::VulkanGameChunkFeed::EvictSink evict = {}) {
-        m_vulkan_chunk_feed.setSink(std::move(upload), std::move(evict));
+        OptiCraft::Vulkan::VulkanGameChunkFeed::EvictSink evict = {},
+        OptiCraft::Vulkan::VulkanGameChunkFeed::SnapshotLeaseSink lease = {}) {
+        m_vulkan_chunk_feed.setSink(std::move(upload), std::move(evict), std::move(lease));
     }
     void shutdown();
 

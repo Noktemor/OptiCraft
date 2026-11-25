@@ -1,0 +1,105 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "voxel_address.glsl"
+// Closed batch of pinned resident slots. Mode 3 rebuilds block seeds from IDs;
+// input light contributes only the authoritative sky nibble in that mode.
+// Each dispatch reads a frozen bank, writes a distinct bank; global compute
+// barrier between passes. No publication or mutation of resident data.
+layout(local_size_x=64) in;
+struct ChunkSlot { uvec4 source; ivec4 origin; ivec4 neighborA; ivec4 neighborB; };
+struct Job { uint slot; uint neighbors[6]; uint reserved; };
+layout(std430,binding=0) readonly buffer Blocks { uint blocks[]; };
+layout(std430,binding=1) readonly buffer Slots { ChunkSlot slots[]; };
+layout(std430,binding=2) readonly buffer Jobs { Job jobs[]; };
+layout(std430,binding=3) readonly buffer Transparency { uint transparentBits[]; };
+layout(std430,binding=4) buffer Scratch { uint scratchWords[]; };
+layout(std430,binding=9) readonly buffer ResidentSeeds { uint seedWords[]; };
+layout(push_constant,std430) uniform Params { uint jobCount; uint readBank; uint writeBank; };
+const uint low=0x0f0f0f0fu, guard=0x10101010u, missing=0xffffffffu;
+uint max4(uint a,uint b) {
+    uint m=((((a|guard)-b)&guard)>>4u)*15u;
+    return (a&m)|(b&~m);
+}
+uint decay4(uint a) { return a-((((a|guard)-0x01010101u)&guard)>>4u); }
+uint loadLight(uint j,uint w) {
+    if(j==missing) return 0u;
+    if(readBank!=2u) return scratchWords[((readBank>=5u?readBank-5u:readBank)*jobCount+j)*8192u+w];
+    ChunkSlot s=slots[jobs[j].slot];
+    return VOXEL_WORD(seedWords,uint(s.neighborB.w),w,s.origin.w,VOXEL_UNIFORM_LIGHT);
+}
+uint levelWord(uint j,uint w) {
+    uint v=loadLight(j,w);
+    return (readBank>=5u?v>>4u:v)&low;
+}
+// One invocation owns four X columns (one packed word per Y). Only the
+// top job of each contiguous vertical chain writes the whole chain, so
+// direct sunlight crosses chunk boundaries without a dispatch per level.
+void seedSky(uint j,uint columnWord) {
+    if(columnWord>=256u||jobs[j].neighbors[3]!=missing) return;
+    uint x=columnWord&7u,z=columnWord>>3u;
+    uint open=(transparentBits[2048u+j*32u+z]>>(4u*x))&15u;
+    // Host validation establishes acyclic reciprocal vertical links.
+    for(uint step=0u;j!=missing&&step<jobCount;++step) {
+        ChunkSlot s=slots[jobs[j].slot];
+        for(int y=31;y>=0;--y) {
+            uint w=uint(y)*256u+columnWord;
+            uint sky=0u;
+            if(open!=0u) {
+                uint a=VOXEL_WORD(blocks,s.source.x,2u*w,s.origin.w,VOXEL_UNIFORM_BLOCK);
+                uint b=VOXEL_WORD(blocks,s.source.x,2u*w+1u,s.origin.w,VOXEL_UNIFORM_BLOCK);
+                for(uint lane=0u;lane<4u;++lane) {
+                    uint id=((lane<2u?a:b)>>((lane&1u)*16u))&65535u;
+                    if((transparentBits[id/32u]&(1u<<(id&31u)))==0u) open&=~(1u<<lane);
+                    if((open&(1u<<lane))!=0u) sky|=240u<<(8u*lane);
+                }
+            }
+            uint old=VOXEL_WORD(seedWords,uint(s.neighborB.w),w,s.origin.w,VOXEL_UNIFORM_LIGHT);
+            scratchWords[(writeBank*jobCount+j)*8192u+w]=(old&low)|sky;
+        }
+        j=jobs[j].neighbors[2];
+    }
+}
+void main() {
+    uint j=gl_WorkGroupID.y, w=gl_GlobalInvocationID.x;
+    if(j>=jobCount||w>=8192u) return;
+    if(readBank==4u) {seedSky(j,w);return;}
+    uint dst=(writeBank*jobCount+j)*8192u+w;
+    if(readBank==3u) {
+        ChunkSlot s=slots[jobs[j].slot];
+        uint sky=VOXEL_WORD(seedWords,uint(s.neighborB.w),w,s.origin.w,VOXEL_UNIFORM_LIGHT)&0xf0f0f0f0u;
+        uint a=VOXEL_WORD(blocks,s.source.x,2u*w,s.origin.w,VOXEL_UNIFORM_BLOCK);
+        uint b=VOXEL_WORD(blocks,s.source.x,2u*w+1u,s.origin.w,VOXEL_UNIFORM_BLOCK);
+        for(uint lane=0u;lane<4u;++lane) {
+            uint id=((lane<2u?a:b)>>((lane&1u)*16u))&65535u;
+            uint e=(transparentBits[2048u+id/8u]>>(4u*(id&7u)))&15u;
+            sky|=e<<(8u*lane);
+        }
+        scratchWords[dst]=sky;
+        return;
+    }
+    uint cur=loadLight(j,w), c=(readBank>=5u?cur>>4u:cur)&low;
+    if(c==low) {scratchWords[dst]=cur;return;}
+    uint x=w&7u,z=(w>>3u)&31u,y=w>>8u;
+    uint left=(c<<8u)&low,right=c>>8u;
+    left|=(levelWord(x!=0u?j:jobs[j].neighbors[0],x!=0u?w-1u:w+7u)>>24u)&15u;
+    right|=(levelWord(x!=7u?j:jobs[j].neighbors[1],x!=7u?w+1u:w-7u)&15u)<<24u;
+    uint n=max4(left,right);
+    n=max4(n,levelWord(y!=0u?j:jobs[j].neighbors[2],y!=0u?w-256u:w+7936u)&low);
+    n=max4(n,levelWord(y!=31u?j:jobs[j].neighbors[3],y!=31u?w+256u:w-7936u)&low);
+    n=max4(n,levelWord(z!=0u?j:jobs[j].neighbors[4],z!=0u?w-8u:w+248u)&low);
+    n=max4(n,levelWord(z!=31u?j:jobs[j].neighbors[5],z!=31u?w+8u:w-248u)&low);
+    uint candidate=max4(c,decay4(n));
+    if(candidate==c) {scratchWords[dst]=cur;return;}
+    ChunkSlot s=slots[jobs[j].slot];
+    uint a=VOXEL_WORD(blocks,s.source.x,2u*w,s.origin.w,VOXEL_UNIFORM_BLOCK);
+    uint b=VOXEL_WORD(blocks,s.source.x,2u*w+1u,s.origin.w,VOXEL_UNIFORM_BLOCK);
+    uint mask=0u;
+    for(uint lane=0u;lane<4u;++lane) {
+        uint shift=lane*8u;
+        if(((candidate^c)&(15u<<shift))==0u) continue;
+        uint id=((lane<2u?a:b)>>((lane&1u)*16u))&65535u;
+        if((transparentBits[id/32u]&(1u<<(id&31u)))!=0u) mask|=15u<<shift;
+    }
+    uint shift=readBank>=5u?4u:0u;
+    scratchWords[dst]=(cur&~(mask<<shift))|((candidate&mask)<<shift);
+}

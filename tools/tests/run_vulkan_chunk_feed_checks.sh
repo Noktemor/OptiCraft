@@ -7,6 +7,13 @@ trap 'rm -f "$testbin"' EXIT
   -I"$repo/tools/tests/vulkan_feed_mock" -I"$repo/src" \
   "$repo/src/rendering/vulkan/GpuWorldCore.cpp" \
   "$repo/src/rendering/vulkan/VulkanGameChunkFeed.cpp" \
+  "$repo/src/rendering/vulkan/VulkanChunkStreamPlan.cpp" \
   "$repo/tools/tests/test_vulkan_chunk_feed.cpp" -o "$testbin"
 OPTICRAFT_VULKAN_COMPACT_UPLOAD=1 "$testbin"
 OPTICRAFT_VULKAN_COMPACT_UPLOAD=0 "$testbin"
+OPTICRAFT_VULKAN_LOD_CONTROL=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=1 "$testbin"
+OPTICRAFT_VULKAN_LOD_CONTROL=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=0 "$testbin"
+OPTICRAFT_VULKAN_LIGHT_CONTROL=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=1 "$testbin"
+OPTICRAFT_VULKAN_LIGHT_CONTROL=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=0 "$testbin"
+OPTICRAFT_VULKAN_GPU_SOURCE_PACKETS=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=1 "$testbin"
+OPTICRAFT_VULKAN_GPU_SOURCE_PACKETS=0 OPTICRAFT_VULKAN_COMPACT_UPLOAD=0 "$testbin"

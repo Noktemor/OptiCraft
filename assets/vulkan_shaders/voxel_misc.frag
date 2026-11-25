@@ -14,6 +14,7 @@ layout(location=5) in vec3 worldPosition;
 layout(push_constant) uniform Projection {mat4 vp; vec4 eyeAmbient; vec4 fogColorStart; vec4 fogEnd; vec4 heldLight;} projection;
 layout(location=6) in vec3 localPosition;
 layout(location=7) flat in uint chunkSlot;
+layout(location=8) flat in float alphaScale;
 struct MiscSlot {uvec4 source; ivec4 origin; ivec4 neighborA; ivec4 neighborB; ivec4 metaA; ivec4 metaB;};
 struct Material {uint faceBase;uint metaStride;uint shape;uint flags;};
 layout(std430,set=0,binding=0) readonly buffer BlockWords {uint blocks[];};
@@ -67,10 +68,11 @@ void main(){
     float sky=float((packedLight>>4u)&15u)/15.0;
     float block=float(packedLight&15u)/15.0;
     vec3 sun=projection.fogEnd.yzw;
-    float direct=sun.y>0.0?0.75+0.25*max(dot(normal,sun),0.0):1.0;
-    float brightness=max(max(sky*projection.eyeAmbient.w*direct,block),0.08);
-    vec3 shade=(0.75+0.25*abs(normal.y))*max(vec3(brightness),dynamicLight(worldPosition,normal,projection.eyeAmbient.xyz,projection.heldLight));
+    float direct=mix(1.0,mix(0.80,1.08,max(dot(normal,sun),0.0)),smoothstep(-0.12,0.10,sun.y));
+    float brightness=max(max(sky*projection.eyeAmbient.w,block)*direct,0.32);
+    float faceShade=normal.y>0.9?1.0:normal.y<-0.9?0.5:0.7;
+    vec3 shade=faceShade*max(vec3(brightness),dynamicLight(worldPosition,normal,projection.eyeAmbient.xyz,projection.heldLight));
     if(isBlended==0u && (kind&4u)==0u)shade*=ambientOcclusion(distance(worldPosition,projection.eyeAmbient.xyz));
     color=vec4(mix(c.rgb*shade,projection.fogColorStart.rgb,
-        smoothstep(projection.fogColorStart.w,projection.fogEnd.x,distance(worldPosition,projection.eyeAmbient.xyz))),c.a);
+        smoothstep(projection.fogColorStart.w,projection.fogEnd.x,distance(worldPosition,projection.eyeAmbient.xyz))),isBlended!=0u?c.a*alphaScale:1.0);
 }

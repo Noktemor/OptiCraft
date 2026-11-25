@@ -62,51 +62,63 @@ void lodSurface(out vec2 tile,out vec4 rect,out uint packedLight){
     }
     packedLight=lightAt(slot,q);
 }
-// Follow at most three axial neighbor links for corner samples, including
-// diagonals. Missing/unloaded source data is treated as non-occluding.
-bool occludes(uint slot,ivec3 p){
+// Sample a real cell from the current light grid. Missing pages and opaque
+// cells are excluded from the corner average, not interpreted as black air.
+// Return state: 0=missing, 1=light-bearing, 2=opaque.
+uint sampleLight(uint slot,ivec3 p,out vec2 light){
+    light=vec2(0);
     for(int axis=0;axis<3;++axis){
         if(p[axis]>=0 && p[axis]<32)continue;
         ChunkSlot c=slots[slot];
         int side=axis*2+int(p[axis]>=32);
         int base=side<4?c.xa[side]:c.zb[side-4];
-        if(base<0)return false;
+        if(base<0)return 0u;
         slot=voxelNeighborSlot(c.origin.w,base);
-        if(slot>=uint(slots.length()))return false;
+        if(slot>=uint(slots.length()))return 0u;
         p[axis]=(p[axis]+32)%32;
     }
-    uint i=uint((p.y*32+p.z)*32+p.x);
+    uint i=voxelIndex(p);
     ChunkSlot cell=slots[slot];
     uint word=VOXEL_WORD(blocks,cell.source.x,i>>1u,cell.origin.w,VOXEL_UNIFORM_BLOCK);
     uint id=(word>>((i&1u)*16u))&65535u;
-    return (materials[id].flags&32u)!=0u;
+    if((materials[id].flags&32u)!=0u)return 2u;
+    uint l=lightAt(slot,p);
+    light=vec2(float(l>>4u),float(l&15u))/15.0;
+    return 1u;
 }
-// Approximate smooth corner AO using the nearest corner's three occupancy
-// samples. Operates on original voxels even inside a huge greedy rectangle.
-// Fade out from 20 to 32 blocks to bound the extra fragment memory traffic.
-float ambientOcclusion(float range){
-    if(range>=32.0)return 1.0;
+// Nine samples in the face's adjacent plane, reused by the four corners.
+// Interpolate corner averages and AO across each real voxel of a greedy quad.
+void smoothFaceLight(float range,inout vec2 light,out float ao){
+    ao=1.0;
+    if(range>=32.0)return;
     ivec3 n=ivec3(round(vNormal));
     int axis=n.x!=0?0:(n.y!=0?1:2);
     int u=(axis+1)%3,v=(axis+2)%3;
-    vec3 p=localPosition+vec3(n)*0.001;
-    ivec3 front=ivec3(floor(p));
-    vec3 f=fract(p);
-    ivec3 du=ivec3(0),dv=ivec3(0);
-    du[u]=f[u]<0.5?-1:1;dv[v]=f[v]<0.5?-1:1;
-    bool a=occludes(chunkSlot,front+du),b=occludes(chunkSlot,front+dv);
-    // The diagonal cannot change the result when both sides occlude.
-    // Avoid its potentially cross-chunk voxel/material lookup in that case.
-    float dark=3.0;
-    if(!(a&&b)){
-        bool c=occludes(chunkSlot,front+du+dv);
-        dark=float(int(a)+int(b)+int(c));
+    ivec3 cell=clamp(ivec3(floor(localPosition-vec3(n)*0.001)),ivec3(0),ivec3(31));
+    vec2 f=clamp(vec2(localPosition[u]-float(cell[u]),localPosition[v]-float(cell[v])),0.0,1.0);
+    vec2 samples[9];uint states[9];
+    for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
+        ivec3 q=cell+n;q[u]+=x;q[v]+=y;
+        int k=(y+1)*3+x+1;
+        states[k]=sampleLight(chunkSlot,q,samples[k]);
     }
-    float weight=abs(2.0*f[u]-1.0)*abs(2.0*f[v]-1.0);
-    // Side occlusion remains visible along an edge, not only at the corner.
-    float edges=max(a?abs(2.0*f[u]-1.0):0.0,b?abs(2.0*f[v]-1.0):0.0);
-    float amount=max(dark/3.0*weight,edges*0.45);
-    return 1.0-0.35*amount*(1.0-smoothstep(20.0,32.0,range));
+    vec2 corners[4];float cornerAO[4];
+    for(int y=0;y<2;++y)for(int x=0;x<2;++x){
+        int du=x==0?-1:1,dv=y==0?-3:3;
+        int a=4+du,b=4+dv,c=4+du+dv;
+        int indices[4]=int[4](4,a,b,c);
+        vec2 sum=vec2(0);float count=0.0;
+        for(int j=0;j<4;++j){int k=indices[j];if(states[k]==1u){sum+=samples[k];count+=1.0;}}
+        int k=y*2+x;
+        corners[k]=count>0.0?sum/count:light;
+        bool sa=states[a]==2u,sb=states[b]==2u,sc=states[c]==2u;
+        float level=sa&&sb?0.0:3.0-float(int(sa)+int(sb)+int(sc));
+        cornerAO[k]=mix(0.45,1.0,level/3.0);
+    }
+    float fade=1.0-smoothstep(20.0,32.0,range);
+    vec2 smoothLight=mix(mix(corners[0],corners[1],f.x),mix(corners[2],corners[3],f.x),f.y);
+    light=mix(light,smoothLight,fade);
+    ao=mix(1.0,mix(mix(cornerAO[0],cornerAO[1],f.x),mix(cornerAO[2],cornerAO[3],f.x),f.y),fade);
 }
 layout(push_constant) uniform View {mat4 vp; vec4 eyeAmbient; vec4 fogColorStart; vec4 fogEnd; vec4 heldLight;} camera;
 void main(){
@@ -122,16 +134,14 @@ void main(){
                   max(rect.xy,rect.zw)-texelHalf);
     vec4 texel=textureGrad(atlas,uv,
                            dFdx(tile)*scale,dFdy(tile)*scale);
-    float sky=float((packedLight>>4u)&15u)/15.0;
-    float block=float(packedLight&15u)/15.0;
-    // Direct sky and propagated block light, with a small safety floor while
-    // the game streams its light grid. No GI or dynamic shadow casting yet.
+    vec2 light=vec2(float((packedLight>>4u)&15u),float(packedLight&15u))/15.0;
+    float range=distance(worldPosition,camera.eyeAmbient.xyz),ao;
+    smoothFaceLight(range,light,ao);
     vec3 sun=camera.fogEnd.yzw;
-    float direct=1.0;
-    if(sun.y>0.0)direct=0.75+0.25*max(dot(vNormal,sun),0.0);
-    float brightness=max(max(sky*camera.eyeAmbient.w*direct,block),0.08);
-    float range=distance(worldPosition,camera.eyeAmbient.xyz);
-    vec3 shade=(0.68+0.32*abs(vNormal.y))*max(vec3(brightness),dynamicLight(worldPosition,vNormal,camera.eyeAmbient.xyz,camera.heldLight))*ambientOcclusion(range);
+    float direct=mix(1.0,mix(0.80,1.08,max(dot(vNormal,sun),0.0)),smoothstep(-0.12,0.10,sun.y));
+    float brightness=max(max(light.x*camera.eyeAmbient.w,light.y)*direct,0.32);
+    float faceShade=vNormal.y>0.9?1.0:vNormal.y<-0.9?0.5:0.7;
+    vec3 shade=faceShade*max(vec3(brightness),dynamicLight(worldPosition,vNormal,camera.eyeAmbient.xyz,camera.heldLight))*ao;
     outColor=vec4(mix(texel.rgb*shade,camera.fogColorStart.rgb,
         smoothstep(camera.fogColorStart.w,camera.fogEnd.x,range)),1.0);
 }

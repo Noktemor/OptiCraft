@@ -1,0 +1,237 @@
+#version 450
+// Exact CPU surface policy, no river/cave/overlay decisions. FP64 climate input.
+// 64-bit coordinate hash uses uint pairs to avoid requiring shaderInt64.
+layout(local_size_x=64) in;
+struct Terrain { double height,slope,temperature,humidity,continental,erosion,weirdness,mountain; };
+struct Layers { double height; uint biome; uint packed_layers; };
+layout(std430,binding=0) readonly buffer Input { Terrain terrain[]; };
+layout(std430,binding=1) writeonly buffer Output { Layers layers[]; };
+layout(push_constant) uniform Params { int origin_x; int origin_z; uint seed; uint single_biome; uint selected_biome; };
+const double kSeaLevel=63.0lf,kMountainHeight=118.0lf,kHighMountainHeight=175.0lf,kPlateauHeight=92.0lf;
+const uint B_Alpine_Meadow=34u;
+const uint B_Aspen_Grove=28u;
+const uint B_Badlands=31u;
+const uint B_Beach=2u;
+const uint B_Beech_Forest=27u;
+const uint B_Cherry_Grove=26u;
+const uint B_Cold_Desert=32u;
+const uint B_Cold_Ocean=35u;
+const uint B_Coral_Reef=37u;
+const uint B_Count=39u;
+const uint B_Desert=9u;
+const uint B_Forest=4u;
+const uint B_High_Mountains=15u;
+const uint B_Ice_Fields=13u;
+const uint B_Jungle=7u;
+const uint B_Mangrove_Swamp=25u;
+const uint B_Meadow=29u;
+const uint B_Mountains=14u;
+const uint B_Mushroom_Fields=38u;
+const uint B_Ocean=0u;
+const uint B_Plains=3u;
+const uint B_Plateau=16u;
+const uint B_Savanna=8u;
+const uint B_Shallow_Water=1u;
+const uint B_Shrubland=30u;
+const uint B_Sky=19u;
+const uint B_Slime=17u;
+const uint B_Snowy_Taiga=33u;
+const uint B_Solar=18u;
+const uint B_Steppe=11u;
+const uint B_Stone_Desert=10u;
+const uint B_Swamp=24u;
+const uint B_Taiga=6u;
+const uint B_Temperate_Rainforest=23u;
+const uint B_Tundra=12u;
+const uint B_Warm_Ocean=36u;
+const uint M_Cloud_Stone=48u;
+const uint M_Dirt=2u;
+const uint M_Grass=1u;
+const uint M_Gravel=13u;
+const uint M_Ice=49u;
+const uint M_Mud=46u;
+const uint M_Red_Sand=12u;
+const uint M_Sand=4u;
+const uint M_Slime_Block=42u;
+const uint M_Snow_Block=14u;
+const uint M_Stone=5u;
+// lo/hi words, arithmetic modulo 2^64 (same as unsigned CPU hash).
+uvec2 multiply64(uvec2 a,uvec2 b) {
+    uint hi,lo; umulExtended(a.x,b.x,hi,lo);
+    return uvec2(lo,hi+a.x*b.y+a.y*b.x);
+}
+uvec2 shiftRight29(uvec2 v) { return uvec2((v.x>>29u)|(v.y<<3u),v.y>>29u); }
+uvec2 signedWords(int x) { return uvec2(uint(x),x<0 ? 0xffffffffu : 0u); }
+int surfaceRoll(int x,int z,uint s) {
+    uvec2 h=uvec2(s,0u);
+    h^=multiply64(signedWords(x),uvec2(0x85EBCA87u,0x9E3779B1u));
+    h^=multiply64(signedWords(z),uvec2(0x27D4EB4Fu,0xC2B2AE3Du));
+    h^=uvec2(0x9E3779F9u,0x165667B1u); // salt=1
+    h^=shiftRight29(h);
+    h=multiply64(h,uvec2(0x1CE4E5B9u,0xBF58476Du));
+    h.x^=h.y; // h ^= h >> 32
+    return int(((h.y%100u)*96u+h.x%100u)%100u); // 2^32 mod 100 = 96
+}
+double smoothCurve(double a,double b,double x) {
+    precise double t=clamp((x-a)/(b-a),0.0lf,1.0lf);
+    precise double result=t*t*(3.0lf-2.0lf*t);return result;
+}
+bool nearOcean(Terrain column) {return column.height<kSeaLevel+6.0lf || column.continental < -0.14lf;}
+uint classify(Terrain column) {
+    if (single_biome != 0u) return selected_biome;
+    double h = column.height;
+    double t = column.temperature;
+    double wet = column.humidity;
+    double rugged = 1.0lf - smoothCurve(0.35lf, 0.85lf, column.erosion);
+    double relief = column.mountain;
+    double weird = column.weirdness;
+    if (h < kSeaLevel - 16.0lf) {
+        if (t < 0.25lf) return B_Cold_Ocean;
+        if (t > 0.64lf && wet > 0.57lf && h > kSeaLevel - 34.0lf)
+            return B_Coral_Reef;
+        if (t > 0.62lf) return B_Warm_Ocean;
+        return B_Ocean;
+    }
+    if (h < kSeaLevel - 1.0lf) {
+        if (t < 0.25lf) return B_Cold_Ocean;
+        if (t > 0.64lf && wet > 0.57lf && h > kSeaLevel - 34.0lf)
+            return B_Coral_Reef;
+        if (t > 0.62lf) return B_Warm_Ocean;
+        return B_Shallow_Water;
+    }
+    if (h <= kSeaLevel + 3.0lf && column.slope < 2.6lf) return B_Beach;
+    if (rugged > 0.40lf && h >= kHighMountainHeight) return B_High_Mountains;
+    if (rugged > 0.40lf && h >= kMountainHeight) return B_Mountains;
+    if (rugged < 0.40lf && h >= kPlateauHeight && relief > 0.55lf)
+        return B_Plateau;
+    if (h >= 103.0lf && h < kMountainHeight && relief > 0.52lf && t < 0.58lf)
+        return B_Alpine_Meadow;
+    bool lowland = h <= kSeaLevel + 17.0lf;
+    if (lowland && nearOcean(column) && column.slope < 1.7lf && wet > 0.74lf) {
+        if (t > 0.66lf) return B_Mangrove_Swamp;
+        if (t > 0.30lf && t < 0.78lf) return B_Swamp;
+    }
+    if (weird > 0.84lf && wet > 0.66lf && t > 0.30lf && t < 0.72lf)
+        return B_Mushroom_Fields;
+    if (t > 0.72lf && wet < 0.30lf) {
+        if (weird > 0.58lf) return B_Badlands;
+        return B_Desert;
+    }
+    if (t > 0.78lf && wet < 0.43lf && weird > 0.48lf) return B_Stone_Desert;
+    if (t > 0.67lf && wet > 0.78lf) return B_Jungle;
+    if (t > 0.66lf && wet >= 0.38lf && wet <= 0.67lf) return B_Savanna;
+    if (t > 0.67lf && wet > 0.67lf) return B_Temperate_Rainforest;
+    if (t < 0.12lf) return B_Ice_Fields;
+    if (t < 0.24lf && wet < 0.40lf) return B_Tundra;
+    if (t < 0.32lf && wet > 0.48lf) return B_Snowy_Taiga;
+    if (t < 0.30lf && wet < 0.28lf) return B_Cold_Desert;
+    if (t < 0.40lf && wet > 0.56lf) return B_Taiga;
+    if (t > 0.40lf && t < 0.70lf && wet > 0.80lf) return B_Temperate_Rainforest;
+    if (t > 0.42lf && t < 0.72lf && wet > 0.54lf && wet <= 0.80lf && weird > 0.70lf)
+        return B_Cherry_Grove;
+    if (t > 0.42lf && t < 0.68lf && wet > 0.59lf && h > 78.0lf && relief > 0.35lf)
+        return B_Beech_Forest;
+    if (t > 0.28lf && t < 0.47lf && wet > 0.34lf && wet < 0.70lf)
+        return B_Aspen_Grove;
+    if (floor(column.height) >= kSeaLevel && floor(column.height) <= kSeaLevel + 14 &&
+        column.continental < 0.30lf && wet > 0.80lf && t >= 0.55lf && t <= 0.95lf &&
+        column.erosion >= 0.35lf && column.erosion <= 0.75lf && weird > 0.45lf && nearOcean(column))
+        return B_Slime;
+    if (wet > 0.73lf && t > 0.28lf && t < 0.62lf) return B_Forest;
+    if (t > 0.58lf && wet < 0.39lf) return B_Steppe;
+    if (wet < 0.36lf) return B_Shrubland;
+    if (wet > 0.60lf && column.slope < 1.8lf) return B_Meadow;
+    if (wet < 0.51lf) return B_Plains;
+    return B_Plains;
+}
+uint surfaceBlock(Terrain column,uint biome,int world_x,int world_z) {
+    int chance = surfaceRoll(world_x, world_z, seed);
+    double h = column.height;
+    if (h < kSeaLevel - 1.0lf) {
+        if (h >= kSeaLevel - 5.0lf) return M_Sand;
+        if (h >= kSeaLevel - 14.0lf) return chance < 70 ? M_Sand : M_Gravel;
+        if (h >= kSeaLevel - 30.0lf) return chance < 55 ? M_Gravel : M_Stone;
+        return chance < 25 ? M_Gravel : M_Stone;
+    }
+    switch (biome) {
+        case B_Beach:
+            if (column.temperature < 0.25lf) return M_Gravel;
+            return chance < 92 ? M_Sand : M_Gravel;
+        case B_Desert:
+        case B_Cold_Desert:
+            return chance < 82 ? M_Sand : M_Red_Sand;
+        case B_Badlands:
+            return chance < 82 ? M_Red_Sand : M_Stone;
+        case B_Swamp:
+        case B_Mangrove_Swamp:
+            return M_Mud;
+        case B_Stone_Desert:
+        case B_Mountains:
+        case B_High_Mountains:
+        case B_Solar:
+            if (h > 150.0lf && column.temperature < 0.55lf) return M_Snow_Block;
+            return M_Stone;
+        case B_Ice_Fields:
+            return chance < 65 ? M_Snow_Block : M_Ice;
+        case B_Tundra:
+        case B_Snowy_Taiga:
+            return chance < 75 ? M_Snow_Block : M_Grass;
+        case B_Cold_Ocean:
+            return chance < 58 ? M_Gravel : M_Stone;
+        case B_Alpine_Meadow:
+        case B_Meadow:
+        case B_Cherry_Grove:
+        case B_Beech_Forest:
+        case B_Aspen_Grove:
+        case B_Temperate_Rainforest:
+        case B_Mushroom_Fields:
+            return M_Grass;
+        case B_Steppe:
+        case B_Savanna:
+        case B_Shrubland:
+            return chance < 35 ? M_Red_Sand : M_Grass;
+        case B_Slime:
+            return M_Slime_Block;
+        case B_Sky:
+            return M_Cloud_Stone;
+        default:
+            if (column.slope > 6.0lf) return M_Stone;
+            return M_Grass;
+    }
+}
+uint mantleBlock(Terrain column,uint biome) {
+    switch (biome) {
+            case B_Beach:
+            case B_Desert:
+            case B_Cold_Desert:
+                return M_Sand;
+            case B_Badlands:
+                return M_Red_Sand;
+            case B_Swamp:
+            case B_Mangrove_Swamp:
+                return M_Mud;
+            case B_Ocean:
+            case B_Shallow_Water:
+                return column.height >= kSeaLevel - 14.0lf
+                     ? M_Sand : M_Gravel;
+            case B_Mountains:
+            case B_High_Mountains:
+            case B_Plateau:
+            case B_Alpine_Meadow:
+            case B_Stone_Desert:
+            case B_Solar:
+                return M_Stone;
+            case B_Sky:
+                return M_Cloud_Stone;
+            default:
+                return M_Dirt;
+        }
+}
+void main() {
+    uint i=gl_GlobalInvocationID.x;if(i>=1024u)return;
+    Terrain c=terrain[i];
+    uint biome=classify(c);
+    if(biome>=B_Count) {layers[i]=Layers(c.height,B_Count,0xffffffffu);return;}
+    uint surface=surfaceBlock(c,biome,origin_x+int(i%32u),origin_z+int(i/32u));
+    layers[i]=Layers(c.height,biome,surface|(mantleBlock(c,biome)<<16u));
+}

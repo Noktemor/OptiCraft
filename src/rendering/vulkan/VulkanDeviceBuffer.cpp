@@ -1,3 +1,4 @@
+#include "rendering/vulkan/VulkanAllocationLedger.h"
 #include "rendering/vulkan/VulkanDeviceBuffer.h"
 #include <algorithm>
 #include <cstring>
@@ -57,7 +58,7 @@ void VulkanDeviceBuffer::create(VkPhysicalDevice physical,VkDevice device,VkDevi
         VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         alloc.allocationSize=needs.size;
         alloc.memoryTypeIndex=chosen;
-        check(vkAllocateMemory(device_,&alloc,nullptr,&memory_),"vkAllocateMemory(buffer)");
+        check(allocateTrackedMemory(physical,device_,alloc,memory_),"vkAllocateMemory(buffer)");
         check(vkBindBufferMemory(device_,buffer_,memory_,0),"vkBindBufferMemory");
         if (memoryFlags_&VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             check(vkMapMemory(device_,memory_,0,VK_WHOLE_SIZE,0,&mapping_),"vkMapMemory");
@@ -104,7 +105,7 @@ void VulkanDeviceBuffer::destroy() noexcept {
     if (device_) {
         if (mapping_) vkUnmapMemory(device_,memory_);
         if (buffer_) vkDestroyBuffer(device_,buffer_,nullptr);
-        if (memory_) vkFreeMemory(device_,memory_,nullptr);
+        if (memory_) freeTrackedMemory(device_,memory_);
     }
     device_=VK_NULL_HANDLE;buffer_=VK_NULL_HANDLE;memory_=VK_NULL_HANDLE;
     mapping_=nullptr;size_=allocationSize_=0;atomSize_=1;memoryFlags_=0;

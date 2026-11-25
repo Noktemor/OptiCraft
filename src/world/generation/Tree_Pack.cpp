@@ -130,13 +130,25 @@ Tree_Pack::Tree_Pack() {
     m_valid = true;
 }
 
+int Tree_Pack::variant_at(Tree_Type species, int x, int z, uint64_t world_seed) {
+    const int id = static_cast<int>(species);
+    return id >= 0 && id < k_species_count ? choose_variant(x, z, id, world_seed) : -1;
+}
+
+std::span<const Tree_Pack::Block> Tree_Pack::template_at(Tree_Type species, int variant) const noexcept {
+    const int id = static_cast<int>(species);
+    if (!m_valid || id < 0 || id >= k_species_count || variant < 0 || variant >= k_variants_per_species) return {};
+    return m_templates[id][variant];
+}
+
+std::span<const Tree_Pack::Block> Tree_Pack::selected_template(
+        Tree_Type species, int x, int z, uint64_t world_seed) const {
+    return template_at(species, variant_at(species, x, z, world_seed));
+}
+
 bool Tree_Pack::place(Tree_Type species, int x, int y, int z,
                       const Tree_Generator::Block_Setter& setter, uint64_t world_seed) const {
-    if (!m_valid) return false;
-    const int id = static_cast<int>(species);
-    if (id < 0 || id >= k_species_count) return false;
-    const int variant = choose_variant(x, z, id, world_seed);
-    const auto& tree = m_templates[id][variant];
+    const auto tree = selected_template(species, x, z, world_seed);
     if (tree.empty()) return false;
     for (const Block& block : tree) {
         setter(x + block.x, y + block.y, z + block.z, block.type);

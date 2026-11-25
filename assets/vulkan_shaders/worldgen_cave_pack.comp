@@ -1,0 +1,19 @@
+#version 450
+layout(local_size_x=64) in;
+layout(std430,binding=6) readonly buffer Kinds { uint kinds[]; };
+// Existing material binding 5 payload, including nine reserved Y indices.
+layout(std430,binding=7) buffer MaterialInput { uint material[]; };
+layout(push_constant) uniform Params { int chunk_y; uint level; };
+void main() {
+    uint i=gl_GlobalInvocationID.x;if(i>=2048u || level>=9u || chunk_y < -3125000 || chunk_y > 3125000) return;
+    int y=chunk_y*32+int(i/64u);uint word=0u;
+    if(y>=-150 && y<=130) {
+        uint row=uint(y+150)*64u+i%64u;
+        for(uint j=0u;j<16u;++j) {
+            uint k=(kinds[row*2u+j/8u]>>((j%8u)*4u))&15u;
+            uint v=(k==1u || k==3u)?1u:(k==2u || k==4u)?2u:0u;
+            word|=v<<(j*2u);
+        }
+    }
+    material[4107u+level*2048u+i]=word;
+}

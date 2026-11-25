@@ -1,0 +1,74 @@
+#version 450
+// One workgroup per stamp; atomic OR permits overlapping paths/chambers.
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Permutations { int permutation[]; };
+layout(std430,binding=1) readonly buffer Gradients { dvec2 gradients[]; };
+struct Lattice { dvec2 delta; ivec4 offsets; };
+layout(std430,binding=2) readonly buffer Lattices { Lattice lattice[]; };
+struct Stamp { double x,y,z,rxz,ry; uint type,pad; };
+layout(std430,binding=3) readonly buffer Stamps { Stamp stamps[]; };
+layout(std430,binding=4) readonly buffer Heights { int heights[]; };
+// Both planes must be zero-cleared before dispatch. y,z rows; one bit per X.
+layout(std430,binding=5) buffer Masks { uint masks[]; };
+struct Column { int origin_x,origin_z,sea; uint count,first_stamp; };
+layout(std430,binding=8) readonly buffer Columns { Column cols[]; };
+layout(push_constant) uniform Params { uint columns; };
+double noise2d(int field,double x,double z) {
+    precise double s=0.366025403784439lf*(x+z);
+    precise double xs=x+s, ys=z+s;
+    int xb=int(floor(xs)), yb=int(floor(ys));
+    precise double xsi=xs-double(xb), ysi=ys-double(yb);
+    int a=int(xsi+ysi);
+    int index=(a<<2) | (int(xsi-ysi/2.0lf+1.0lf-double(a)/2.0lf)<<3)
+                     | (int(ysi-xsi/2.0lf+1.0lf-double(a)/2.0lf)<<4);
+    precise double ssi=(xsi+ysi)*-0.211324865405187lf;
+    precise double xi=xsi+ssi, yi=ysi+ssi, value=0.0lf;
+    int base=field*2048;
+    for(int i=0;i<4;++i) {
+        Lattice c=lattice[index+i];
+        precise double dx=xi+c.delta.x, dy=yi+c.delta.y;
+        precise double attn=2.0lf/3.0lf-dx*dx-dy*dy;
+        if(attn<=0.0lf) continue;
+        int px=(xb+c.offsets.x)&2047, py=(yb+c.offsets.y)&2047;
+        dvec2 g=gradients[base+(permutation[base+px]^py)];
+        precise double ext=g.x*dx+g.y*dy;
+        attn*=attn; value+=attn*attn*ext;
+    }
+    return value;
+}
+
+void main() {
+    uint col=gl_WorkGroupID.y;if(col>=columns || col>=8u) return;
+    Column c=cols[col]; uint si=gl_WorkGroupID.x;if(si>=c.count) return;
+    int origin_x=c.origin_x,origin_z=c.origin_z;
+    uint height_base=col*1156u, mask_base=col*17984u;
+    Stamp s=stamps[c.first_stamp+si];bool sealed=s.type>=2u;
+    precise double margin=s.rxz*(sealed?1.10lf:1.0lf);
+    int xa=max(origin_x,int(floor(s.x-margin))),xb=min(origin_x+31,int(ceil(s.x+margin)));
+    int za=max(origin_z,int(floor(s.z-margin))),zb=min(origin_z+31,int(ceil(s.z+margin)));
+    int ya=max(sealed?-150:-60,int(floor(s.y-s.ry))),yb=min(sealed?-63:130,int(ceil(s.y+s.ry)));
+    if(xa>xb || za>zb || ya>yb) return;
+    uint width=uint(xb-xa+1), area=width*uint(zb-za+1);
+    for(uint i=gl_LocalInvocationID.x;i<area;i+=64u) {
+        int x=xa+int(i%width),z=za+int(i/width);
+        int lx=x-origin_x,lz=z-origin_z;
+        precise double dx=(double(x)+0.5lf-s.x)/s.rxz,dz=(double(z)+0.5lf-s.z)/s.rxz;
+        precise double dx2=dx*dx,dz2=dz*dz,horizontal=dx2+dz2;
+        if(horizontal>(sealed?1.21lf:1.0lf)) continue;
+        int top=yb;
+        precise double rough=1.0lf,vertical=1.0lf;
+        if(sealed) {
+            precise double nx=double(x)*0.037lf+s.x*0.001lf,nz=double(z)*0.037lf+s.z*0.001lf;
+            precise double n=noise2d(0,nx,nz);
+            rough=0.91lf+0.13lf*n;vertical=1.0lf+0.10lf*n;
+        } else top=min(top,heights[height_base+uint((lz+1)*34+lx+1)]-(s.type==1u?0:5));
+        for(int y=ya;y<=top;++y) {
+            precise double dy=(double(y)+0.5lf-s.y)/s.ry, dy2=dy*dy;
+            precise double d=sealed?horizontal+dy2/(vertical*vertical):dx2+dy2+dz2;
+            if(d>rough) continue;
+            uint row=uint((y+150)*32+lz), bit=1u<<uint(lx);
+            atomicOr(masks[mask_base+row],bit);
+            if(s.type==3u) atomicOr(masks[mask_base+8992u+row],bit);
+        }
+    }
+}

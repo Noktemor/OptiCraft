@@ -1,0 +1,32 @@
+#version 450
+layout(local_size_x=64) in;
+layout(std430,binding=4) readonly buffer Heights { int heights[]; };
+layout(std430,binding=5) readonly buffer Masks { uint masks[]; };
+layout(std430,binding=6) writeonly buffer Kinds { uint kinds[]; };
+struct Column { int origin_x,origin_z,sea; uint count,first_stamp; };
+layout(std430,binding=8) readonly buffer Columns { Column cols[]; };
+layout(push_constant) uniform Params { uint columns; };
+// One lane owns eight four-bit Cave_Kind values. No atomic output needed.
+void main() {
+    uint col=gl_WorkGroupID.y;if(col>=columns || col>=8u) return;
+    int sea=cols[col].sea;
+    uint mask_base=col*17984u; int height_base=int(col)*1156;
+    uint i=gl_GlobalInvocationID.x;if(i>=35968u) return;
+    uint row=i/4u;int y=int(row/32u)-150,z=int(row%32u),x=int(i%4u)*8;
+    uint word=0u;
+    for(int k=0;k<8;++k) {
+        int lx=x+k;uint bit=1u<<uint(lx),kind=0u;
+        if((masks[mask_base+row]&bit)!=0u) {
+            if(y<=-63) kind=(masks[mask_base+8992u+row]&bit)!=0u?4u:3u;
+            else if(y>=-60) {
+                int h=height_base+(z+1)*34+lx+1,center=heights[h];
+                bool wet=y<=sea && (y>heights[h+1] || y>heights[h-1] ||
+                    (y+1<=sea && y+1>center) || (y-1<=sea && y-1>center) ||
+                    y>heights[h+34] || y>heights[h-34]);
+                kind=wet?2u:1u;
+            }
+        }
+        word|=kind<<uint(4*k);
+    }
+    kinds[col*35968u+i]=word;
+}

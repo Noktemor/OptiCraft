@@ -1,0 +1,95 @@
+#version 450
+// Isolated 32^3 volume. All offsets are uint-word indices. Source and destination
+// ranges must not overlap; a compute barrier is required between iterations.
+// One invocation owns four adjacent X voxels in y,z,x order.
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Blocks { uint blocks[]; };
+layout(std430,binding=3) readonly buffer Transparency { uint transparentBits[]; };
+layout(std430,binding=4) buffer Lights { uint lights[]; };
+layout(push_constant,std430) uniform Params {
+    uint blockBase;
+    uint transparencyBase;
+    uint readBase;
+    uint writeBase;
+    uint tileOrigin;
+};
+const uint low = 0x0f0f0f0fu;
+const uint guard = 0x10101010u;
+// Four independent unsigned nibble max operations in byte-separated lanes.
+// Guard bits prevent cross-byte borrowing; multiply by 15 expands 0/1 to 0/f.
+uint max4(uint a,uint b) {
+    uint m=((((a|guard)-b)&guard)>>4u)*15u;
+    return (a&m)|(b&~m);
+}
+uint decay4(uint a) {
+    uint nonzero=(((a|guard)-0x01010101u)&guard)>>4u;
+    return a-nonzero;
+}
+uint maxLight(uint a,uint b) {
+    return max4(a&low,b&low)|(max4((a>>4u)&low,(b>>4u)&low)<<4u);
+}
+uint decayLight(uint a) {
+    return decay4(a&low)|(decay4((a>>4u)&low)<<4u);
+}
+uint loadLight(uint w) { return lights[readBase+w]; }
+// Single-channel runtime path: skylight stays authoritative on CPU. Load
+// neighbours before the block IDs so dark/saturated words need no material reads.
+void blockOnly(uint w,uint cur) {
+    uint c=cur&low;
+    if(c==low) { lights[writeBase+w]=cur; return; }
+    uint x=w&7u,z=(w>>3u)&31u,y=w>>8u;
+    uint left=(c<<8u)&low,right=c>>8u;
+    if(x!=0u) left|=(loadLight(w-1u)>>24u)&15u;
+    if(x!=7u) right|=(loadLight(w+1u)&15u)<<24u;
+    uint n=max4(left,right);
+    if(z!=0u) n=max4(n,loadLight(w-8u)&low);
+    if(z!=31u) n=max4(n,loadLight(w+8u)&low);
+    if(y!=0u) n=max4(n,loadLight(w-256u)&low);
+    if(y!=31u) n=max4(n,loadLight(w+256u)&low);
+    uint candidate=max4(c,decay4(n));
+    if(candidate==c) { lights[writeBase+w]=cur; return; }
+    uint a=blocks[blockBase+2u*w],b=blocks[blockBase+2u*w+1u];
+    uint mask=0u;
+    for(uint lane=0u;lane<4u;++lane) {
+        uint shift=lane*8u;
+        if(((candidate^c)&(15u<<shift))==0u) continue;
+        uint id=((lane<2u?a:b)>>((lane&1u)*16u))&65535u;
+        if((transparentBits[(transparencyBase&0x7fffffffu)+id/32u]&(1u<<(id&31u)))!=0u)
+            mask|=15u<<shift;
+    }
+    lights[writeBase+w]=(cur&~mask)|(candidate&mask);
+}
+void main() {
+    uint w=gl_GlobalInvocationID.x;
+    if((tileOrigin&0x80000000u)!=0u) {
+        uvec3 tile=gl_WorkGroupID+uvec3(tileOrigin&15u,(tileOrigin>>4u)&15u,(tileOrigin>>8u)&15u);
+        uint lane=gl_LocalInvocationID.x;
+        // X is in packed words; the other axes count voxels.
+        uint x=tile.x*4u+(lane&3u), z=tile.y*4u+((lane>>2u)&3u), y=tile.z*4u+(lane>>4u);
+        if(x>=8u||z>=32u||y>=32u) return;
+        w=y*256u+z*8u+x;
+    }
+    if(w>=8192u) return;
+    uint cur=loadLight(w);
+    if((transparencyBase&0x80000000u)!=0u) { blockOnly(w,cur); return; }
+    uint a=blocks[blockBase+2u*w], b=blocks[blockBase+2u*w+1u];
+    uint allowed=0u;
+    for(uint lane=0u;lane<4u;++lane) {
+        uint id=((lane<2u?a:b)>>((lane&1u)*16u))&65535u;
+        if((transparentBits[transparencyBase+id/32u]&(1u<<(id&31u)))!=0u)
+            allowed|=255u<<(lane*8u);
+    }
+    // Opaque receivers retain their own emission; they may still illuminate
+    // transparent neighbours. Skip all neighbour loads for fully opaque words.
+    if(allowed==0u || cur==0xffffffffu) { lights[writeBase+w]=cur; return; }
+    uint x=w&7u,z=(w>>3u)&31u,y=w>>8u;
+    uint left=cur<<8u, right=cur>>8u;
+    if(x!=0u) left|=loadLight(w-1u)>>24u;
+    if(x!=7u) right|=loadLight(w+1u)<<24u;
+    uint n=maxLight(left,right);
+    if(z!=0u) n=maxLight(n,loadLight(w-8u));
+    if(z!=31u) n=maxLight(n,loadLight(w+8u));
+    if(y!=0u) n=maxLight(n,loadLight(w-256u));
+    if(y!=31u) n=maxLight(n,loadLight(w+256u));
+    lights[writeBase+w]=maxLight(cur,decayLight(n)&allowed);
+}

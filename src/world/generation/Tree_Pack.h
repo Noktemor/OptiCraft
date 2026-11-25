@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <span>
 #include "world/generation/Tree_Generator.h"
 
 class Tree_Pack {
@@ -24,11 +25,17 @@ public:
     bool place(Tree_Type species, int x, int y, int z,
                const Tree_Generator::Block_Setter& setter, uint64_t world_seed) const;
 
-private:
+    // Borrowed immutable archive view; empty means use the legacy generator.
     struct Block {
         int16_t x, y, z;
         Block_Types type;
     };
+    std::span<const Block> selected_template(Tree_Type species, int x, int z,
+                                             uint64_t world_seed) const;
+    std::span<const Block> template_at(Tree_Type species, int variant) const noexcept;
+    static int variant_at(Tree_Type species, int x, int z, uint64_t world_seed);
+
+private:
     using Template = std::vector<Block>;
     std::array<std::array<Template, k_variants_per_species>, k_species_count> m_templates{};
     bool m_enabled = false;

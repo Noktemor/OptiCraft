@@ -14,7 +14,11 @@ VkShaderModule makeShader(VkDevice device,std::span<const uint32_t> code){
 }
 }
 void VulkanEntityPipeline::initialize(VulkanFrameRuntime& rt,VkDescriptorSetLayout atlasLayout,std::span<const uint32_t> vs,std::span<const uint32_t> fs){
-    device_=rt.device();physical_=rt.physicalDevice();
+    initialize(rt.physicalDevice(),rt.device(),rt.renderPass(),atlasLayout,vs,fs);
+}
+void VulkanEntityPipeline::initialize(VkPhysicalDevice physical,VkDevice device,VkRenderPass renderPass,VkDescriptorSetLayout atlasLayout,std::span<const uint32_t> vs,std::span<const uint32_t> fs){
+    if(device_||!physical||!device||!renderPass)throw std::invalid_argument("Invalid graphics pipeline device");
+    device_=device;physical_=physical;
     (void)atlasLayout;
     try {
         VkPhysicalDeviceProperties props{};vkGetPhysicalDeviceProperties(physical_,&props);maxPoseBytes_=props.limits.maxStorageBufferRange;
@@ -33,11 +37,12 @@ void VulkanEntityPipeline::initialize(VulkanFrameRuntime& rt,VkDescriptorSetLayo
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount=2;pl.pSetLayouts=layouts;pl.pushConstantRangeCount=1;pl.pPushConstantRanges=&push;
         check(vkCreatePipelineLayout(device_,&pl,nullptr,&layout_),"Entity pipeline layout");
-        recreate(rt.renderPass(),vs,fs);
+        recreate(renderPass,vs,fs);
     }catch(...){shutdown();throw;}
 }
 void VulkanEntityPipeline::recreate(VkRenderPass pass,std::span<const uint32_t> vsCode,std::span<const uint32_t> fsCode){
-    if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);pipeline_=VK_NULL_HANDLE;
+    if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);
+    pipeline_=VK_NULL_HANDLE;
     VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
     try {
         vs=makeShader(device_,vsCode);fs=makeShader(device_,fsCode);
@@ -72,16 +77,28 @@ void VulkanEntityPipeline::recreate(VkRenderPass pass,std::span<const uint32_t> 
     }catch(...){if(vs)vkDestroyShaderModule(device_,vs,nullptr);if(fs)vkDestroyShaderModule(device_,fs,nullptr);throw;}
     vkDestroyShaderModule(device_,vs,nullptr);vkDestroyShaderModule(device_,fs,nullptr);
 }
-void VulkanEntityPipeline::prepare(const VulkanFrameRuntime::Frame& frame,std::span<const EntityDraw> entities){
+void VulkanEntityPipeline::prepare(const VulkanFrameRuntime::Frame& frame,std::span<const EntityDraw> entities,const GpuFrustum& frustum){
     // Keep staging until its frame fence completes, not merely until command recording ends.
     for(auto& [key,a]:assets_)if(a.uploadSlot==frame.frameSlot){for(auto& texture:a.textures)texture->releaseStagingAfterCompletion();a.uploadSlot=UINT32_MAX;}
-    if(entities.empty())return;
-    const VkDeviceSize bytes=VkDeviceSize(entities.size())*sizeof(EntityPose);
+    auto& f=frames_.at(frame.frameSlot);
+    // Model-space bounds are immutable with the asset. Animated bounds include
+    // every active bone, including the identity fallback for unweighted vertices.
+    std::vector<EntityWorldBounds> worldBounds;
+    worldBounds.reserve(entities.size());
+    for(const auto& e:entities){
+        if(!e.asset || e.asset->vertices.empty()){worldBounds.push_back(unknownEntityBounds());continue;}
+        auto [it,inserted]=bounds_.try_emplace(e.asset.get(),e.asset,unknownEntityBounds());
+        if(inserted)it->second.second=entityLocalBounds(*e.asset);
+        worldBounds.push_back(animatedEntityBounds(it->second.second,e.pose));
+    }
+    f.batch=EntityBatchPlan::build(entities,&frustum,worldBounds);
+    stats_={entities.size(),f.batch.poses.size(),f.batch.culled,0,0};
+    for(const auto& run:f.batch.runs){stats_.drawCalls+=run.primitives.size();stats_.unbatchedDrawCalls+=run.primitives.size()*size_t(run.instanceCount);}
+    const VkDeviceSize bytes=VkDeviceSize(f.batch.poses.size())*sizeof(EntityPose);
+    if(!bytes)return;
     if(bytes>maxPoseBytes_)throw std::runtime_error("Entity poses exceed storage range");
-    poses_.clear();poses_.reserve(entities.size());
-    for(const auto& entity:entities){
-        poses_.push_back(entity.pose);
-        if(!entity.asset || entity.asset->vertices.empty() || entity.asset->indices.empty())continue;
+    for(const auto& run:f.batch.runs){
+        const auto& entity=run;
         if(assets_.contains(entity.asset.get()))continue;
         auto& gpu=assets_[entity.asset.get()];gpu.owner=entity.asset;
         auto& asset=*entity.asset;
@@ -94,21 +111,21 @@ void VulkanEntityPipeline::prepare(const VulkanFrameRuntime::Frame& frame,std::s
         for(const auto& source:asset.textures){
             if(source.rgba.size()!=uint64_t(source.width)*source.height*4)throw std::runtime_error("Invalid entity texture");
             auto tex=std::make_unique<VulkanBlockAtlas>();tex->initializePixels(physical_,device_,source.width,source.height,source.rgba.data(),1,true);
-            gpu.sets.push_back(tex->createDescriptorSet(atlasLayout_));tex->recordUpload(frame.cmd);gpu.textures.push_back(std::move(tex));
+            tex->recordUpload(frame.cmd);gpu.sets.push_back(tex->createDescriptorSet(atlasLayout_));gpu.textures.push_back(std::move(tex));
         }
         gpu.uploadSlot=frame.frameSlot;
     }
-    auto& f=frames_.at(frame.frameSlot);
     if(f.buffer.size()<bytes){
         f.buffer.destroy();f.buffer.create(physical_,device_,std::min(maxPoseBytes_,std::max<VkDeviceSize>(bytes,256*1024)),VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         VkDescriptorBufferInfo info{f.buffer.buffer(),0,f.buffer.size()};
         VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=f.set;w.dstBinding=0;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;w.pBufferInfo=&info;
         vkUpdateDescriptorSets(device_,1,&w,0,nullptr);
     }
-    f.buffer.write(0,poses_.data(),bytes);
+    f.buffer.write(0,f.batch.poses.data(),bytes);
 }
-void VulkanEntityPipeline::draw(const VulkanFrameRuntime::Frame& frame,std::span<const EntityDraw> entities,const WorldViewParams& view)const{
-    if(entities.empty())return;
+void VulkanEntityPipeline::draw(const VulkanFrameRuntime::Frame& frame,const WorldViewParams& view)const{
+    const auto& batch=frames_.at(frame.frameSlot).batch;
+    if(batch.runs.empty())return;
     const VkViewport vp{0,0,float(frame.extent.width),float(frame.extent.height),0,1};const VkRect2D sc{{0,0},frame.extent};
     vkCmdSetViewport(frame.cmd,0,1,&vp);vkCmdSetScissor(frame.cmd,0,1,&sc);
     vkCmdBindPipeline(frame.cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline_);
@@ -116,25 +133,24 @@ void VulkanEntityPipeline::draw(const VulkanFrameRuntime::Frame& frame,std::span
     vkCmdBindDescriptorSets(frame.cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,layout_,0,1,&poseSet,0,nullptr);
     vkCmdPushConstants(frame.cmd,layout_,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(view),&view);
     const EntityAsset* active=nullptr;VkDescriptorSet texture=VK_NULL_HANDLE;
-    for(uint32_t i=0;i<entities.size();++i){
-        const auto& e=entities[i];auto it=assets_.find(e.asset.get());if(it==assets_.end())continue;
+    for(const auto& e:batch.runs){auto it=assets_.find(e.asset.get());if(it==assets_.end())continue;
         const auto& g=it->second;
         if(active!=e.asset.get()){
             active=e.asset.get();const auto vb=g.vertices.buffer();const VkDeviceSize zero=0;
             vkCmdBindVertexBuffers(frame.cmd,0,1,&vb,&zero);vkCmdBindIndexBuffer(frame.cmd,g.indices.buffer(),0,VK_INDEX_TYPE_UINT32);
         }
-        for(const auto& p:e.asset->primitives){
-            if(!e.hiddenMaterial.empty() && p.material.find(e.hiddenMaterial)!=std::string::npos)continue;
+        for(auto primitive:e.primitives){
+            const auto& p=e.asset->primitives[primitive];
             if(p.texture>=g.sets.size() || uint64_t(p.first)+p.count>e.asset->indices.size())continue;
             const auto set=g.sets[p.texture];if(set!=texture){texture=set;vkCmdBindDescriptorSets(frame.cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,layout_,1,1,&texture,0,nullptr);}
-            vkCmdDrawIndexed(frame.cmd,p.count,1,p.first,0,i);
+            vkCmdDrawIndexed(frame.cmd,p.count,e.instanceCount,p.first,0,e.firstInstance);
         }
     }
 }
 void VulkanEntityPipeline::shutdown()noexcept{
     if(!device_)return;
-    assets_.clear();poses_.clear();
-    for(auto& f:frames_){f.buffer.destroy();f.set=VK_NULL_HANDLE;}
+    assets_.clear();bounds_.clear();stats_={};
+    for(auto& f:frames_){f.buffer.destroy();f.set=VK_NULL_HANDLE;f.batch={};}
     if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);
     if(layout_)vkDestroyPipelineLayout(device_,layout_,nullptr);
     if(pool_)vkDestroyDescriptorPool(device_,pool_,nullptr);

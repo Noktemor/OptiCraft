@@ -9,6 +9,7 @@
 #include "world/blocks/Block_Shapes.h"
 #include "math/Math_Helpers.h"
 #include "world/generation/World_Generator.h"
+#include "world/generation/Generation_Overlay.h"
 #include "rendering/atlas/Texture_Atlas.h"
 #include "utils/logging/Logger.h"
 #include <atomic>
@@ -291,30 +292,129 @@ void Chunk::finish_generation(bool already_known_air, bool layer_metadata_precom
         return;
     }
 
-    const int start_x = m_chunk_x * Config::chunk_size;
-    const int start_z = m_chunk_z * Config::chunk_size;
+    static thread_local std::vector<uint32_t> overlay_words;
+    Generation_Overlay overlay(m_chunk_x, m_chunk_y, m_chunk_z, overlay_words);
+    collect_generation_overlay(*m_world_generator, overlay);
 
-    // Декорации размещаются только после базового рельефа всех чанков колонки. Это важно
-    // для деревьев/структур на границе Y: порядок готовности отдельных чанков не меняет результат.
-    if (m_world_generator->may_decorate_chunk(m_chunk_x, m_chunk_y, m_chunk_z)) {
-        for (int x = -Config::decoration_overhang;
-             x < Config::chunk_size + Config::decoration_overhang; ++x) {
-            for (int z = -Config::decoration_overhang;
-                 z < Config::chunk_size + Config::decoration_overhang; ++z) {
-                m_world_generator->decorate_column(*this, start_x + x, start_z + z);
+    // This is a private, unpublished chunk. Defer heightmap and dirty work to
+    // the existing finalization scan; preserve per-write ID/meta semantics.
+    bool changed = false;
+    // Dense overlays (large buildings, cleared interiors) can repeatedly grow
+    // the palette and search sparse metadata. Replay once into flat scratch and
+    // rebuild the palette once. Small overlays retain the cheap sparse path.
+    constexpr size_t dense_overlay_threshold = 4096;
+    if (overlay.words().size() >= dense_overlay_threshold) {
+        static thread_local Generation_Overlay_Packet packet;
+        if (packet.compile(overlay.words())) {
+            static thread_local std::array<Block_ID, Chunk_Block_Grid::voxel_count> ids;
+            static thread_local std::array<uint8_t, Chunk_Block_Grid::voxel_count> meta;
+            m_blocks.unpack(ids.data());
+            m_blocks.unpack_meta(meta.data());
+            uint64_t edits = 0;
+            for (const auto& task : packet.tasks) {
+                const size_t p = size_t(task.group) * 4;
+                uint32_t a = uint32_t(ids[p]) | (uint32_t(ids[p+1]) << 16u);
+                uint32_t b = uint32_t(ids[p+2]) | (uint32_t(ids[p+3]) << 16u);
+                uint32_t m = uint32_t(meta[p]) | (uint32_t(meta[p+1]) << 8u) |
+                    (uint32_t(meta[p+2]) << 16u) | (uint32_t(meta[p+3]) << 24u);
+                edits += Generation_Overlay_Packet::apply(
+                    std::span<const uint32_t>(packet.commands).subspan(task.begin, task.end-task.begin), a,b,m);
+                ids[p] = Block_ID(a); ids[p+1] = Block_ID(a >> 16u);
+                ids[p+2] = Block_ID(b); ids[p+3] = Block_ID(b >> 16u);
+                for (unsigned i=0; i<4; ++i) meta[p+i] = uint8_t(m >> (i*8u));
             }
+            if (edits) {
+                m_blocks.assign_flat(ids.data());
+                for (uint32_t i=0; i<meta.size(); ++i)
+                    if (meta[i]) m_blocks.set_meta_by_index(i, meta[i]);
+                m_blocks_version += edits;
+                mark_mesh_dirty();
+            }
+            m_blocks.compact();
+            recalculate_metadata();
+            m_is_modified = false;
+            return;
         }
     }
-
-    // The same finalization phase applies villages AFTER trees/flora, so buildings,
-    // cleared interiors and streets have deterministic priority. No extra worldgen job.
-    m_world_generator->place_villages_in_chunk(*this);
+    overlay.replay(
+        [&](int x, int y, int z, Block_Types type) {
+            const Block_Types old = m_blocks.get(x, y, z);
+            if (old == type) return; // Chunk::set_block keeps meta on same-ID writes.
+            if (layer_metadata_precomputed) {
+                m_layer_block_count[y] += int(type != Block_Types::Air) - int(old != Block_Types::Air);
+            }
+            m_blocks.set(x, y, z, type);
+            ++m_blocks_version;
+            changed = true;
+        },
+        [&](int x, int y, int z, uint8_t meta) {
+            if (m_blocks.get_meta(x, y, z) == meta) return;
+            m_blocks.set_meta(x, y, z, meta);
+            ++m_blocks_version;
+            changed = true;
+        });
+    if (changed) mark_mesh_dirty();
 
     // Декорации меняют сетку через set() — выкидываем ставшие ненужными записи палитры.
     m_blocks.compact();
     if (!layer_metadata_precomputed) recalculate_metadata();
     else recalculate_column_heightmap();
     m_is_modified = false;
+}
+
+// Called only for a private chunk after full GPU overlay parity verification.
+void Chunk::adopt_generation_overlay(const std::vector<uint32_t>& words, uint64_t edits) {
+    static thread_local std::array<Block_ID, Chunk_Block_Grid::voxel_count> ids;
+    for (size_t i=0;i<ids.size();++i) ids[i]=Block_ID(words[i/2] >> ((i&1u)*16u));
+    m_blocks.assign_flat(ids.data());
+    for (size_t i=0;i<ids.size();++i) {
+        const auto meta=uint8_t(words[ids.size()/2+i/4] >> ((i&3u)*8u));
+        if (meta) m_blocks.set_meta_by_index(static_cast<uint32_t>(i),meta);
+    }
+    m_blocks_version += edits;
+    if (edits) mark_mesh_dirty();
+    m_blocks.compact();
+    recalculate_metadata();
+    m_is_modified=false;
+}
+
+std::unique_ptr<Chunk> Chunk::from_resident_words(int x,int y,int z,Dimension_Id dimension,
+        const World_Generator& generator,std::span<const uint32_t> blocks,
+        std::span<const uint32_t> meta,std::span<const uint32_t> light) {
+    constexpr size_t n=Chunk_Block_Grid::voxel_count;
+    const auto valid=[](auto words,size_t count){return words.size()==1||words.size()==count;};
+    if (generator.get_dimension_id()!=dimension || !valid(blocks,n/2) ||
+        !valid(meta,n/4) || !valid(light,n/4)) return {};
+    // World coordinates must remain representable, including a one-voxel halo.
+    const auto coord=[](int v,int extent){const int64_t base=int64_t(v)*extent;
+        return base>std::numeric_limits<int>::min() && base+extent<=std::numeric_limits<int>::max();};
+    if (!coord(x,Config::chunk_size)||!coord(y,Config::chunk_height)||!coord(z,Config::chunk_size)) return {};
+    auto chunk=std::make_unique<Chunk>(x,y,z,generator);
+    if (blocks.size()==1 && uint16_t(blocks[0])==uint16_t(blocks[0]>>16u)) {
+        chunk->m_blocks.fill(Block_Types(uint16_t(blocks[0])));
+    } else {
+        static thread_local std::array<Block_ID,n> ids;
+        for (size_t i=0;i<n;++i) ids[i]=Block_ID(blocks[blocks.size()==1?0:i/2]>>((i&1u)*16u));
+        chunk->m_blocks.assign_flat(ids.data());
+    }
+    // Unknown IDs must not be silently replaced by air. The caller must
+    // supply finalized voxels. Validate once per distinct material, not per voxel.
+    const auto& registry=Block_Registry::get_instance();
+    for (const auto id:chunk->m_blocks.palette())
+        if (id!=Block_ID(Block_Types::Air) && !registry.is_known(id)) return {};
+    if (!(meta.size()==1 && meta[0]==0)) {
+        for (size_t i=0;i<n;++i) {
+            const auto value=uint8_t(meta[meta.size()==1?0:i/4]>>((i&3u)*8u));
+            if (value) chunk->m_blocks.set_meta_by_index(uint32_t(i),value);
+        }
+    }
+    if (!chunk->m_block_light.assign_resident_words(light)) return {};
+    chunk->recalculate_metadata();
+    // Fresh CPU instance/version domain. Never import renderer instance IDs or
+    // mesh versions; the first CPU mesh is dirty and must be built normally.
+    chunk->mark_mesh_dirty();
+    chunk->mark_modified(); // promoted GPU data must be eligible for saving
+    return chunk;
 }
 
 // ---------------------------------------------------------------------------

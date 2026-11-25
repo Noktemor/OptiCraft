@@ -1,4 +1,7 @@
+#include <cstdlib>
+#include <string_view>
 #include "rendering/vulkan/VulkanLiveWorldRenderer.h"
+#include "rendering/vulkan/OwnedWorldStartup.h"
 #include "rendering/vulkan/VulkanBlockCatalog.h"
 #include "world/blocks/Block_Types.h"
 
@@ -44,6 +47,12 @@ void VulkanLiveWorldRenderer::initialize(VulkanFrameRuntime& runtime,
         multiDraw_=runtime.supportsMultiDrawIndirect();
         const char* cacheOpaque=std::getenv("OPTICRAFT_VULKAN_OPAQUE_CACHE");
         opaqueCacheEnabled_=!(cacheOpaque && std::string(cacheOpaque)=="0");
+        // Match generation/block BFS transparency, not visual occluder flags.
+        lightTransparency_.fill(0);
+        for(uint32_t id=0;id<65536;++id){
+            if(blocks.sky_transparent_table()[id])lightTransparency_[id/32]|=1u<<(id&31u);
+            lightEmission_[id]=blocks.light_emission_table()[id];
+        }
         const auto catalog=GpuBlockCatalog::build(blocks);
         if(catalog.activeBlockDefinitions==0)
             throw std::runtime_error("Vulkan game material registry is empty");
@@ -207,6 +216,20 @@ void VulkanLiveWorldRenderer::recordFrame(VulkanFrameRuntime& runtime,
                 if((flags&(1u<<i)) && !elapsed(2+2*i,gpuTimes_[i]))gpuTimes_[i]=-1;
             }
         }
+        if(ownedWorld_ && ownedTimingValid_[frame.frameSlot] && flags && gpuTimes_[0]>0){
+            using B=AdaptiveWorldWorkBudget;
+            B::Sample sample;sample.serial=++workSampleSerial_;sample.frameMs=gpuTimes_[0];
+            auto add=[&](B::Lane lane,uint32_t offset,uint32_t count){
+                double ms=0;if(count && elapsed(offset,ms) && ms>0){sample.work[lane]=count;sample.ms[lane]=ms;}
+            };
+            add(B::Meshing,0,timestampWork_[frame.frameSlot]);
+            const auto& timed=ownedTimedWork_[frame.frameSlot];
+            add(B::BlockLight,10,timed[B::BlockLight]);add(B::SkyLight,12,timed[B::SkyLight]);
+            add(B::Transfers,14,timed[B::Transfers]);
+            ownedWorkBudget_.observe(sample);
+        }
+        ownedTimedWork_[frame.frameSlot]={};
+        ownedTimingValid_[frame.frameSlot]=bool(ownedWorld_);
         timestampWork_[frame.frameSlot]=0;timestampCount_[frame.frameSlot]=false;flags=1u;
         vkCmdResetQueryPool(frame.cmd,meshQueries_,query,kQueriesPerFrame);
         vkCmdWriteTimestamp(frame.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,meshQueries_,query+2);
@@ -224,7 +247,71 @@ void VulkanLiveWorldRenderer::recordFrame(VulkanFrameRuntime& runtime,
         atlasSet_=atlas_.createDescriptorSet(miscPipeline_.atlasSetLayout());
         initialUploadsRecorded_=true;uploadFrameSlot_=frame.frameSlot;
     }
-    const auto changed=stream_.record(frame.cmd,frame.frameSlot,meshing_.acceptsUploads());
+    using B=AdaptiveWorldWorkBudget;
+    B::Counts grants{};
+    if(ownedWorld_){
+        const auto meshCap=workBudget_.budget();
+        B::Counts demand{uint32_t(drawWorld && ownedWorld_->generationPending()>0),
+            uint32_t(std::min<size_t>(meshCap,meshing_.pendingCount()+stream_.plan().pendingCount())),
+            uint32_t(ownedWorld_->count()>0 || residentLightScheduler_.pendingCount()>0),
+            uint32_t(ownedWorld_->count()>0),uint32_t(ownedWorld_->needsTransfers())};
+        grants=ownedWorkBudget_.allocate(demand,{1,meshCap,1,1,1});
+        // Always drain submitted Base/Overlay; only new columns are budgeted.
+        ownedWorld_->pumpPreparation(drawWorld && grants[B::Generation]>0);
+        // Never starve Count/Emit; the existing transaction engine drains Emit independently.
+        meshing_.setWorkBudget((demand[B::Generation] || ownedWorld_->count())?
+            std::max(4u,grants[B::Meshing]):meshCap);
+    }
+    ownedGrants_=grants;
+    const bool allowUploads=meshing_.acceptsUploads();
+    auto changed=stream_.record(frame.cmd,frame.frameSlot,allowUploads);
+    residentLightScheduler_.observe(changed);
+    if(ownedWorld_)ownedWorld_->observe(changed);
+    auto& light=residentLight_[frame.frameSlot];
+    if(light)light->retire(); // beginFrame already waited this frame-slot fence
+    // No allocation or dispatch in the normal CPU-owned world. Bound one
+    // complete halo transaction per frame, and respect imminent mesh Emit.
+    if(allowUploads && !residentLightUnavailable_ && (residentLightScheduler_.pendingCount() || (ownedWorld_ && ownedWorld_->count())) &&
+       (!ownedWorld_ || grants[B::BlockLight])){
+        if(ownedWorld_)stamp(10);
+        const auto selection=residentLightScheduler_.select(stream_.plan());
+        if(!selection.keys.empty() || (ownedWorld_ && ownedWorld_->count())){
+            if(!light){
+                try{
+                    auto next=std::make_unique<VulkanResidentLight>();
+                    next->initialize(runtime.physicalDevice(),device_,ResidentLightScheduler::defaultJobBudget,
+                                     shader("worldgen_light_resident.comp"));
+                    light=std::move(next);
+                }catch(const std::exception& e){
+                    residentLightUnavailable_=true;
+                    if(ownedWorld_)ownedWorld_->disableNewGeneration();
+                    std::cerr<<"[Vulkan] Resident light unavailable: "<<e.what()<<'\n';
+                }
+            }
+            if(light && residentLightScheduler_.record(frame.cmd,frame.frameSlot,stream_,changed,*light,
+                                                    selection,lightTransparency_,lightEmission_))
+                residentLightRecordedCores_+=selection.keys.size();
+            if(light && ownedWorld_)ownedWorld_->recordBlockPreview(frame.cmd,frame.frameSlot,changed,*light,
+                        residentLightScheduler_,lightTransparency_,lightEmission_);
+        }
+        if(ownedWorld_){stamp(11);ownedTimedWork_[frame.frameSlot][B::BlockLight]=uint32_t(light && light->busy());}
+    }
+    if(ownedWorld_){
+        auto& sky=ownedSky_[frame.frameSlot];if(sky)sky->retire();
+        if(allowUploads && ownedWorld_->count() && !ownedSkyUnavailable_ && grants[B::SkyLight]){
+            stamp(12);
+            if(!sky)try{
+                auto next=std::make_unique<VulkanResidentLight>();
+                next->initialize(runtime.physicalDevice(),device_,ResidentSkylightScheduler::defaultJobBudget,
+                                 shader("worldgen_light_resident.comp"));sky=std::move(next);
+            }catch(const std::exception& e){ownedSkyUnavailable_=true;ownedWorld_->disableNewGeneration();std::cerr<<"[Vulkan] Owned sky unavailable: "<<e.what()<<'\n';}
+            if(sky)ownedWorld_->recordSky(frame.cmd,frame.frameSlot,changed,*sky,lightTransparency_);
+            stamp(13);ownedTimedWork_[frame.frameSlot][B::SkyLight]=uint32_t(sky && sky->busy());
+        }
+        stamp(14);
+        ownedTimedWork_[frame.frameSlot][B::Transfers]=uint32_t(ownedWorld_->pumpOwnership(frame.cmd,frame.frameSlot,changed,residentLightScheduler_,grants[B::Transfers]>0));
+        stamp(15);
+    }
     meshing_.selectVoxelFrame(frame.frameSlot);
     opaquePipeline_.selectVoxelFrame(frame.frameSlot,stream_.voxelEpoch(),stream_.voxelBuffers(),stream_.voxelSizes());
     const bool measure=meshQueries_ && meshing_.mayDispatch(changed);
@@ -262,8 +349,8 @@ void VulkanLiveWorldRenderer::recordFrame(VulkanFrameRuntime& runtime,
         if(!useHiZ && !reusedMisc_){sortAlpha();cache.store(view.vp,drawRevision_,live);}
     }
     uiPipeline_.prepare(frame,ui);
-    if(drawWorld)itemPipeline_.prepare(frame,items);
-    entityPipeline_.prepare(frame,drawWorld?entities:std::span<const EntityDraw>{});
+    itemPipeline_.prepare(frame,drawWorld?items:std::span<const ItemVertex>{});
+    entityPipeline_.prepare(frame,drawWorld?entities:std::span<const EntityDraw>{},frustum);
     const auto drawOpaque=[&](){
         const VkViewport viewport{0,0,float(frame.extent.width),float(frame.extent.height),0,1};
         const VkRect2D scissor{{0,0},frame.extent};
@@ -290,14 +377,41 @@ void VulkanLiveWorldRenderer::recordFrame(VulkanFrameRuntime& runtime,
         miscPipeline_.recordDraws(frame.cmd,meshing_.miscSet(),atlasSet_,alphaSort_.set(frame.frameSlot),view,
                                   alphaSort_.commands(frame.frameSlot),alphaSort_.depthCommandOffset(frame.frameSlot),live,false,multiDraw_,maxIndirectCount_);
     }
-    if(drawWorld){entityPipeline_.draw(frame,entities,view);itemPipeline_.draw(frame,items,atlasSet_,view);}
+    if(drawWorld){entityPipeline_.draw(frame,view);itemPipeline_.draw(frame,atlasSet_,view);}
     if(drawWorld && live)miscPipeline_.recordDraws(frame.cmd,meshing_.miscSet(),atlasSet_,alphaSort_.set(frame.frameSlot),view,
                                   alphaSort_.commands(frame.frameSlot),0,live,true,multiDraw_,maxIndirectCount_);
     uiPipeline_.draw(frame,ui,atlasSet_);
     runtime.endColorPass(frame);
     stamp(3);
 }
+void VulkanLiveWorldRenderer::attachWorld(Chunk_Manager& manager){
+    const char* enabled=std::getenv("OPTICRAFT_VULKAN_OWNED_WORLD");
+    if(!ownedWorldRequested(enabled,std::getenv("OPTICRAFT_GPU_WORLDGEN")) || ownedWorld_ || !runtime_ || residentLightUnavailable_ ||
+       !stream_.indirectVoxelPages() || !OwnedWorldRuntime::reservedCapacity(residentCapacity()) ||
+       !runtime_->supportsShaderFloat64() || !manager.world_generator())return;
+    const auto& dim=manager.world_generator()->get_dimension();
+    if(dim.terrain!=Terrain_Mode::Noise || !dim.ground)return;
+    const auto reserve=OwnedWorldRuntime::reservedCapacity(residentCapacity());
+    // Voxel arena soft admission limit, not total VRAM: includes retired voxel buffers.
+    const uint64_t bytes=uint64_t(residentCapacity())*OwnedWorldRuntime::denseBytesPerChunk;
+    try {
+        // Reject missing mandatory light SPIR-V before excluding CPU chunks.
+        (void)shader("worldgen_light_resident.comp");
+        ownedWorld_=std::make_unique<OwnedWorldRuntime>(manager,stream_,*runtime_,reserve,bytes);
+    } catch(const std::exception& e) {
+        std::cerr<<"[Vulkan] Owned world unavailable, CPU generation retained: "<<e.what()<<'\n';
+        return;
+    }
+    ownedWorkBudget_=AdaptiveWorldWorkBudget{};ownedTimedWork_={};ownedTimingValid_={};ownedGrants_={};
+    std::cout<<"[Vulkan] owned-world reserve "<<reserve<<" voxel admission budget "<<bytes<<" B\n";
+}
+void VulkanLiveWorldRenderer::detachWorldIdle(){
+    if(ownedWorld_){ownedWorld_->closeIdle();ownedWorld_.reset();meshing_.setWorkBudget(workBudget_.budget());}
+    for(auto& sky:ownedSky_)sky.reset();ownedSkyUnavailable_=false;
+    ownedTimedWork_={};ownedTimingValid_={};ownedGrants_={};
+}
 void VulkanLiveWorldRenderer::shutdown()noexcept{
+    detachWorldIdle();
     // Owner must unregister Game callbacks, then wait for GPU idle before this.
     if(meshQueries_ && device_)vkDestroyQueryPool(device_,meshQueries_,nullptr);
     meshQueries_=VK_NULL_HANDLE;timestampBits_=0;timestampNs_=0;timestampWork_.fill(0);timestampCount_.fill(false);timestampFlags_.fill(0);gpuTimes_.fill(-1);
@@ -312,6 +426,8 @@ void VulkanLiveWorldRenderer::shutdown()noexcept{
         frame.misc.destroy();frame.opaque.destroy();
         frame.miscCount.destroy();frame.opaqueCount.destroy();
     }
+    for(auto& light:residentLight_)light.reset();
+    residentLightScheduler_.reset();residentLightUnavailable_=false;residentLightRecordedCores_=0;
     meshing_.shutdown();atlas_.shutdown();materials_.shutdown();stream_.shutdown();
     device_=VK_NULL_HANDLE;runtime_=nullptr;atlasSet_=VK_NULL_HANDLE;
     initialUploadsRecorded_=false;staticStagingReleased_=false;

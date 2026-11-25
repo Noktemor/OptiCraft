@@ -21,6 +21,28 @@ static LiveChunkPacket packet(int x, uint64_t instance, uint64_t version) {
     return p;
 }
 int main() {
+    {
+        VulkanChunkStreamPlan editStream(16,64);
+        editStream.submit({packet(0,1,1),packet(1,1,1),packet(2,1,1)});
+        editStream.take(16);
+        for(int i=3;i<12;++i)editStream.submit({packet(i,1,1)});
+        auto background=packet(0,1,2);background.priority=0;
+        auto edit=packet(2,1,2);edit.priority=100;edit.interactive=true;
+        editStream.submit({background,edit});
+        auto newerEdit=packet(2,1,3);newerEdit.priority=100;
+        editStream.submit({newerEdit});
+        auto urgent=editStream.take(1,{}, {},true);
+        assert(urgent.uploads.size()==1 && urgent.uploads[0].packet.position.x==2);
+        assert(urgent.uploads[0].packet.blocksVersion==3 && urgent.uploads[0].packet.interactive);
+        assert(std::binary_search(urgent.interactiveRemeshSlots.begin(),urgent.interactiveRemeshSlots.end(),2u));
+        assert(std::binary_search(urgent.interactiveRemeshSlots.begin(),urgent.interactiveRemeshSlots.end(),1u));
+        assert(editStream.take(8,{}, {},true).empty());
+        assert(editStream.pendingCount()==10);
+        assert(editStream.take(1).uploads[0].packet.position.x==0);
+        auto retry=packet(2,1,4);retry.interactive=true;editStream.submit({retry});
+        assert(editStream.take(1,[](auto,auto const&,bool){return false;},{},true).empty());
+        assert(editStream.take(1,{}, {},true).uploads[0].packet.position.x==2);
+    }
     VulkanChunkStreamPlan stream(3,4);
     std::vector<LiveChunkPacket> initial;
     initial.push_back(packet(0,1,1));
@@ -212,6 +234,103 @@ int main() {
     ++a.lodRevision;a.meshKinds&=~kGeometryLodFlag;lod.submit({a});auto fineAgain=lod.take(1);
     assert(fineAgain.remeshSlots==std::vector<uint32_t>{0} && !fineAgain.uploads[0].uploadVoxels);
     ++a.meshVersion;++a.lodRevision;lod.submit({a});assert(lod.take(1).uploads[0].uploadVoxels);
+    // Stage56: LOD control packets need an existing source or a pending full
+    // payload. No boundary scan, page admission or neighbor dirtying is needed.
+    {
+        VulkanChunkStreamPlan deltaPlan(4,8);
+        auto full=packet(0,11,1);full.overlayReference.ticket=42;
+        auto neighbor=packet(1,12,1);
+        auto delta=full;delta.lodOnly=true;delta.overlayReference={};
+        delta.blockWords.clear();delta.metaWords.clear();delta.lightWords.clear();
+        delta.lodRevision=1;delta.meshKinds|=kSurfaceLodFlag;
+        auto reject=[&](std::vector<LiveChunkPacket> packets){
+            const auto pending=deltaPlan.pendingCount();
+            try{deltaPlan.submit(std::move(packets));assert(false);}catch(const std::invalid_argument&){}
+            assert(deltaPlan.pendingCount()==pending);
+        };
+        reject({neighbor,delta}); // atomic rejection with valid unrelated full packet
+        deltaPlan.submit({full,neighbor});deltaPlan.submit({delta});
+        auto first=deltaPlan.take(4);assert(first.uploads.size()==2);
+        const auto& merged=first.uploads[0];
+        assert(merged.uploadVoxels && !merged.packet.lodOnly && merged.packet.blockWords==full.blockWords);
+        assert(merged.packet.metaWords==full.metaWords && merged.packet.lightWords==full.lightWords);
+        assert(merged.packet.overlayReference.ticket==42 && merged.packet.lodRevision==1);
+        const auto boundary=deltaPlan.boundaryPayloadBytes();
+        delta.lodRevision=2;delta.meshKinds|=kGeometryLodFlag;
+        deltaPlan.submit({delta});++delta.lodRevision;delta.meshKinds|=kFarGeometryLodFlag;
+        deltaPlan.submit({delta});
+        auto update=deltaPlan.take(4,[](auto,const auto&,bool){assert(false);return false;});
+        assert(update.uploads.size()==1 && update.uploads[0].packet.lodOnly && !update.uploads[0].uploadVoxels);
+        assert(update.remeshSlots==std::vector<uint32_t>{0} && deltaPlan.boundaryPayloadBytes()==boundary);
+        assert(deltaPlan.lookup(full.position)->lodRevision==3);
+        auto stale=delta;--stale.lodRevision;deltaPlan.submit({stale});assert(deltaPlan.take(4).empty());
+        auto wrong=delta;++wrong.blocksVersion;reject({wrong});
+        wrong=delta;++wrong.meshVersion;reject({wrong});
+        wrong=delta;++wrong.chunkInstance;reject({wrong});
+        wrong=delta;wrong.gpuBlockLightOwned=true;reject({wrong});
+        wrong=delta;++wrong.lightOwnershipRevision;reject({wrong});
+        wrong=delta;wrong.meshKinds^=2;reject({wrong});
+        wrong=delta;wrong.blockWords={0};reject({wrong});
+        reject({full,delta});reject({delta,delta});
+        // A later source upload supersedes a queued control packet.
+        ++delta.lodRevision;deltaPlan.submit({delta});
+        ++full.blocksVersion;++full.meshVersion;full.lodRevision=5;
+        deltaPlan.submit({full});assert(deltaPlan.take(4).uploads[0].uploadVoxels);
+        reject({delta}); // old source must not replace it
+        deltaPlan.evict(full.position);delta=full;delta.lodOnly=true;delta.overlayReference={};
+        delta.blockWords.clear();delta.metaWords.clear();delta.lightWords.clear();++delta.lodRevision;
+        reject({delta});assert(deltaPlan.take(4).releases.size()==1);reject({delta});
+        deltaPlan.submit({full});deltaPlan.submit({delta});assert(deltaPlan.take(4).uploads[0].uploadVoxels);
+    }
+    // Stage57: independent light payload, full snapshot coalescing, exact
+    // boundary retention, LOD composition and atomic rejection of missing source.
+    {
+        VulkanChunkStreamPlan plan(8,16);
+        auto full=packet(0,11,1);full.overlayReference.ticket=42;
+        auto neighbor=packet(1,12,1);
+        full.blockWords={0x12341234};full.metaWords={0x56565656};full.lightWords={0x78787878};
+        auto light=full;light.lightOnly=true;light.overlayReference={};
+        light.blockWords.clear();light.metaWords.clear();light.lightWords={0x89898989};
+        ++light.meshVersion;++light.lodRevision;
+        auto reject=[&](std::vector<LiveChunkPacket> packets){
+            auto pending=plan.pendingCount();try{plan.submit(std::move(packets));assert(false);}catch(const std::invalid_argument&){}
+            assert(plan.pendingCount()==pending);
+        };
+        reject({neighbor,light});
+        plan.submit({full,neighbor});plan.submit({light});
+        auto first=plan.take(8);assert(first.uploads.size()==2);
+        const auto& merged=first.uploads[0].packet;
+        assert(!merged.lightOnly && merged.blockWords==full.blockWords && merged.metaWords==full.metaWords);
+        assert(merged.lightWords==light.lightWords && merged.overlayReference.ticket==42);
+        auto boundary=plan.boundaryPayloadBytes();
+        auto lod=light;lod.lightOnly=false;lod.lodOnly=true;lod.lightWords.clear();
+        ++lod.lodRevision;lod.meshKinds|=kSurfaceLodFlag;
+        plan.submit({lod});
+        light.meshKinds=lod.meshKinds;light.lodRevision=lod.lodRevision+1;
+        ++light.meshVersion;light.lightWords.assign(kChunkVoxels/4,0x89898989);
+        // A single changed interior light word must not dirty the neighbor.
+        light.lightWords[16*256+16*8+4]=0x12345678;
+        plan.submit({light});
+        lod=light;lod.lodOnly=true;lod.lightOnly=false;lod.lightWords.clear();++lod.lodRevision;
+        plan.submit({lod});
+        auto refused=plan.take(8,[](auto,const auto& p,bool){assert(p.lightOnly);return false;});
+        assert(refused.empty() && plan.pendingCount()==1);
+        auto update=plan.take(8);assert(update.uploads.size()==1 && update.uploads[0].packet.lightOnly);
+        assert(update.uploads[0].packet.lodRevision==lod.lodRevision);
+        assert(update.remeshSlots==std::vector<uint32_t>{0} && plan.boundaryPayloadBytes()==boundary);
+        // Modify one +X face; following full payload with the same boundary
+        // must not dirty the neighbor again (block/meta boundary preserved).
+        light.lodRevision=lod.lodRevision+1;++light.meshVersion;
+        light.lightWords[(16*1024+16*32+31)/4]^=0x01000000u;
+        plan.submit({light});assert((plan.take(8).remeshSlots==std::vector<uint32_t>{0,1}));
+        full.lightWords=light.lightWords;full.meshVersion=light.meshVersion+1;
+        full.lodRevision=light.lodRevision+1;full.meshKinds=light.meshKinds;
+        plan.submit({full});assert(plan.take(8).remeshSlots==std::vector<uint32_t>{0});
+        auto wrong=light;++wrong.blocksVersion;reject({wrong});wrong=light;++wrong.chunkInstance;reject({wrong});
+        wrong=light;wrong.blockWords={0};reject({wrong});wrong=light;wrong.lodOnly=true;reject({wrong});
+        reject({light,light});plan.submit({light});assert(plan.take(8).empty());
+        plan.evict(full.position);reject({light});assert(plan.take(8).releases.size()==1);reject({light});
+    }
     VulkanChunkStreamPlan compact(8,16);
     auto c=packet(0,1,1);
     c.blockWords={0x1234abcd};c.metaWords={0x12345678};c.lightWords={0xFEDCBA98};

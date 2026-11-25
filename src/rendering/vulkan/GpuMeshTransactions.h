@@ -30,6 +30,7 @@ public:
         bool eligible = true;
         uint32_t workCost = 8;
         bool forceLegacy = false;
+        bool interactive = false;
     };
     struct DrawChange {
         uint32_t slot = UINT32_MAX;
@@ -42,16 +43,18 @@ public:
     // Same 16-byte ABI as VkDrawIndirectCommand, independent of Vulkan headers.
     using FastDraw = std::array<uint32_t,4>;
     static_assert(sizeof(FastDraw)==16);
-    struct Stats {uint64_t published=0, stale=0, overflow=0, allocationFailures=0, allocationRetries=0, opaqueCacheHits=0, opaqueCacheOverflow=0, fastBatches=0, fastJobs=0, fastFallbacks=0, fastReservationMisses=0, fastMixedJobs=0, fastMiscOverflow=0;};
+    struct Stats {uint64_t published=0, stale=0, overflow=0, allocationFailures=0, allocationRetries=0, opaqueCacheHits=0, opaqueCacheOverflow=0, fastBatches=0, fastJobs=0, fastFallbacks=0, fastReservationMisses=0, fastMixedJobs=0, fastMiscOverflow=0, interactiveStarted=0, interactivePublished=0;};
 
     GpuMeshTransactions(uint32_t maxSlots, uint64_t opaqueBytes, uint64_t miscBytes,
                         uint32_t maxBatch = 8, uint32_t workBudget = 0, uint32_t batchCount = 1);
     void selectBatch(uint32_t index);
     bool isCurrent(const Entry& entry) const { return current(entry); }
-    void dirty(uint32_t slot, uint32_t generation, uint32_t workCost = 8);
+    void dirty(uint32_t slot, uint32_t generation, uint32_t workCost = 8, bool interactive = false);
     void clearEmpty(uint32_t slot, uint32_t generation);
     void evict(uint32_t slot, uint32_t generation);
     [[nodiscard]] bool startCount();
+    bool hasReadyInteractive() const noexcept;
+    bool batchInteractive(uint32_t index) const noexcept;
     [[nodiscard]] Phase phase() const noexcept { return batch().phase; }
     [[nodiscard]] const std::vector<Entry>& jobs() const noexcept { return batch().jobs; }
     // Completes count on a frame fence. On failure, the previous published
@@ -93,6 +96,7 @@ private:
         uint64_t revision = 0;
         bool active = false;
         bool pending = false;
+        bool interactive = false;
         bool retryOnRelease = false;
         bool inFlight = false;
         bool forceLegacy = false;
@@ -108,7 +112,7 @@ private:
     void discard(Entry& entry);
     std::vector<Resident> slots_;
     struct Pending {uint32_t slot,generation; uint64_t token;};
-    std::deque<Pending> pending_;
+    std::deque<Pending> pending_, interactivePending_;
     uint64_t nextPendingToken_=0;
     size_t pendingCount_=0;
     struct Batch { std::vector<Entry> jobs; Phase phase=Phase::Idle; BufferRange fastSlab{}, fastMiscSlab{}; uint32_t fastCapacity=0, fastMiscCapacity=0; };

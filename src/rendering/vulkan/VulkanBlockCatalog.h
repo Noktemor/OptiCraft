@@ -21,6 +21,7 @@ enum VisualFlags : uint32_t {
     VisualOccluder   = 1u << 5,
     VisualMeta       = 1u << 6,
     VisualBlended    = 1u << 7, // translucent, not alpha-cutout
+    VisualWater      = 1u << 8, // liquid opacity multiplier, distinct from lava
 };
 inline constexpr uint32_t kVisualKindMask = VisualOpaqueCube | VisualAlphaCube |
     VisualFlora | VisualLiquid | VisualShaped;

@@ -25,6 +25,7 @@ float coord(uint bits,uint axis){return float((bits>>(7u*axis))&127u)/64.0;}
 layout(location=5) out vec3 worldPosition;
 layout(location=6) out vec3 localPosition;
 layout(location=7) flat out uint chunkSlot;
+layout(location=8) flat out float alphaScale;
 layout(constant_id=0) const int ALPHA_PASS=0;
 void main(){
     // Draw-list partition ABI: firstVertex=0 for direct depth/alpha,
@@ -34,6 +35,7 @@ void main(){
     uint quadIndex=(ALPHA_PASS!=0 || indexedDepth)?alphaOrder[gl_InstanceIndex]:uint(gl_InstanceIndex);
     uvec4 a=quads[quadIndex*2u];
     Material mat=materials[a.y];
+    alphaScale=(mat.flags&256u)!=0u?0.78:1.0;
     isBlended = ((mat.flags & 128u) != 0u) ? 1u : 0u;
     // Safety guard; normally the partition excludes the other class entirely.
     // Also supports the diagnostic legacy unpartitioned depth list.

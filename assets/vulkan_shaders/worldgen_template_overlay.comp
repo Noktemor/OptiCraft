@@ -1,0 +1,60 @@
+#version 450
+// Distinct immutable base and mutable output. One owner per four voxels.
+// Input instance order is authoritative; records are stably sorted per template.
+layout(local_size_x=64) in;
+struct Record { int x,y,z; uint value; };
+struct Instance { ivec3 origin; uint rotation; uvec4 range; ivec4 lo; ivec4 hi; };
+layout(std430,binding=0) readonly buffer Base { uint base[]; };
+layout(std430,binding=1) buffer Blocks { uint blocks[]; };
+layout(std430,binding=2) buffer Metadata { uint metadata[]; };
+layout(std430,binding=3) readonly buffer Records { Record records[]; };
+layout(std430,binding=4) readonly buffer Instances { Instance instances[]; };
+layout(std430,binding=5) buffer Changes { uint changes[]; };
+layout(push_constant) uniform Params { uint instanceCount; uint firstY; uint lastY; };
+ivec3 coord(Record r) { return ivec3(r.x,r.y,r.z); }
+bool lessThanKey(ivec3 a,ivec3 b) {
+    return a.x<b.x || (a.x==b.x && (a.y<b.y || (a.y==b.y && a.z<b.z)));
+}
+ivec3 inverseRotate(ivec3 p,uint r) {
+    if(r==1u)return ivec3(p.z,p.y,-p.x);
+    if(r==2u)return ivec3(-p.x,p.y,-p.z);
+    if(r==3u)return ivec3(-p.z,p.y,p.x);
+    return p;
+}
+void main(){
+    uint g=gl_GlobalInvocationID.x;
+    if(g>=8192u || instanceCount>128u || firstY>=lastY || lastY>32u)return;
+    uint y=g>>8u;
+    if(y<firstY||y>=lastY){changes[g]=0u;return;}
+    uint b[2]=uint[2](blocks[2u*g],blocks[2u*g+1u]);
+    uint m=metadata[g],count=0u;
+    for(uint lane=0u;lane<4u;++lane){
+        uint voxel=4u*g+lane,k=lane>>1u,bs=(lane&1u)*16u,ms=lane*8u;
+        uint original=(base[2u*g+k]>>bs)&65535u;
+        uint id=(b[k]>>bs)&65535u,meta=(m>>ms)&255u;
+        ivec3 world=ivec3(int(voxel&31u),int(y),int((voxel>>5u)&31u));
+        for(uint j=0u;j<instanceCount;++j){
+            Instance inst=instances[j];
+            // Compacted GPU lists terminate with an empty range. Legacy packets never contain one.
+            if(inst.range.x==inst.range.y)break;
+            if((inst.range.z==1u&&original!=0u)||(inst.range.z==2u&&original!=7u))continue;
+            ivec3 p=inverseRotate(world-inst.origin,inst.rotation);
+            if(any(lessThan(p,inst.lo.xyz))||any(greaterThan(p,inst.hi.xyz)))continue;
+            uint a=inst.range.x,e=inst.range.y;
+            while(a<e){uint mid=a+(e-a)/2u;if(lessThanKey(coord(records[mid]),p))a=mid+1u;else e=mid;}
+            for(uint i=a;i<inst.range.y;++i){
+                Record r=records[i];if(any(notEqual(coord(r),p)))break;
+                uint next=r.value&65535u, v=(r.value>>16u)&255u;
+                bool rotate=(r.value&0x1000000u)!=0u;
+                if(id!=next){id=next;meta=0u;++count;}
+                if(next!=0u&&(v!=0u||rotate)){
+                    if(rotate)v=(v&~3u)|((v+inst.rotation)&3u);
+                    if(meta!=v){meta=v;++count;}
+                }
+            }
+        }
+        b[k]=(b[k]&~(65535u<<bs))|(id<<bs);
+        m=(m&~(255u<<ms))|(meta<<ms);
+    }
+    blocks[2u*g]=b[0];blocks[2u*g+1u]=b[1];metadata[g]=m;changes[g]=count;
+}

@@ -88,6 +88,9 @@ public:
                     std::vector<uint8_t>& ok);
     bool write_batch(const std::vector<Key>& keys, const std::vector<const Chunk_Block_Grid*>& blocks);
     bool contains(const Key& key);
+    // Promotion must not interpret unavailable storage as an empty index.
+    // No opening/recovery or file creation on this conservative path.
+    bool confirmed_absent(const Key& key);
     // Сбрасывает индекс и данные на диск. Дёргается на выгрузке мира и при
     // выходе; между этими моментами индекс живёт в памяти.
     bool flush();

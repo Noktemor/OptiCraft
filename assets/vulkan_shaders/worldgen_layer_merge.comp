@@ -1,0 +1,34 @@
+#version 450
+// Transition: retain CPU hydrology, cave masks and flags, use GPU climate
+// layers only when they cannot change the existing Base material decisions.
+layout(local_size_x=64) in;
+struct Layer {double height;uint biome,packed_layers;};
+struct Column {double surface_height;uint biome,pad;};
+layout(std430,binding=0) readonly buffer Layers {Layer layers[];};
+layout(std430,binding=1) readonly buffer ReferenceColumns {Column referenceColumns[];};
+layout(std430,binding=2) readonly buffer ReferenceWords {uint referenceWords[];};
+layout(std430,binding=3) writeonly buffer Columns {Column columns[];};
+layout(std430,binding=4) writeonly buffer Words {uint words[];};
+layout(std430,binding=5) buffer Stats {uint accepted;};
+layout(push_constant) uniform Params {uint count;};
+bool compatible(double a,double b) {
+    if(isnan(a)||isinf(a)||isnan(b)||isinf(b)||abs(a)>100000000.0lf||abs(b)>100000000.0lf)return false;
+    if(a==b)return true;
+    // Base compares height and depth to integer boundaries (4,90,250).
+    // Keep an ample rounding margin for all supported world Y coordinates.
+    if(abs(a-b)>1e-9lf||floor(a)!=floor(b))return false;
+    double f=a-floor(a);
+    return f>1e-7lf && f<1.0lf-1e-7lf;
+}
+void main(){
+    uint i=gl_GlobalInvocationID.x;
+    if(i>=1024u||count==0u||count>9u)return;
+    Column c=referenceColumns[i];Layer l=layers[i];uint p=11u+4u*i;
+    bool ok=compatible(c.surface_height,l.height)&&c.biome==l.biome&&referenceWords[p+3u]==l.packed_layers;
+    columns[i]=ok?Column(l.height,l.biome,c.pad):c;
+    if(ok)atomicAdd(accepted,1u);
+    if(i==0u)for(uint j=0u;j<11u;++j)words[j]=referenceWords[j];
+    for(uint j=0u;j<3u;++j)words[p+j]=referenceWords[p+j];
+    words[p+3u]=ok?l.packed_layers:referenceWords[p+3u];
+    for(uint j=0u;j<count;++j){uint k=4107u+j*2048u+2u*i;words[k]=referenceWords[k];words[k+1u]=referenceWords[k+1u];}
+}

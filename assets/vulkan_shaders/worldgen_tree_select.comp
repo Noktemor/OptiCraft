@@ -1,0 +1,29 @@
+#version 450
+layout(local_size_x=64) in;
+struct Candidate {int x,y,z;uint biome,eligible,gentle,palm_roll,reserved;};
+layout(std430,binding=0) readonly buffer Input {Candidate candidates[];};
+layout(std430,binding=1) writeonly buffer Output {uint handles[];};
+layout(push_constant) uniform Params {uint count,seed;};
+uvec2 mul64(uvec2 a,uvec2 b){uint hi,lo;umulExtended(a.x,b.x,hi,lo);return uvec2(lo,hi+a.x*b.y+a.y*b.x);}
+uvec2 shr(uvec2 a,uint n){if(n==32u)return uvec2(a.y,0);return uvec2((a.x>>n)|(a.y<<(32u-n)),a.y>>n);}
+uvec2 sign64(int x){return uvec2(uint(x),x<0?0xffffffffu:0u);}
+uint mod64(uvec2 a,uint n){return ((a.y%n)*(((0xffffffffu%n)+1u)%n)+a.x%n)%n;}
+uvec2 hashpos(int x,int z,uint salt,uint seed){
+ uvec2 h=uvec2(seed,0)^mul64(sign64(x),uvec2(0x85ebca87u,0x9e3779b1u))^mul64(sign64(z),uvec2(0x27d4eb4fu,0xc2b2ae3du))^mul64(uvec2(salt,0),uvec2(0x9e3779f9u,0x165667b1u));
+ h=mul64(h^shr(h,29u),uvec2(0x1ce4e5b9u,0xbf58476du));return h^shr(h,32u);
+}
+uvec2 mix64(uvec2 h){h=mul64(h^shr(h,30u),uvec2(0x1ce4e5b9u,0xbf58476du));h=mul64(h^shr(h,27u),uvec2(0x133111ebu,0x94d049bbu));return h^shr(h,31u);}
+int fd(int a,int d){int q=a/d;return q-int(a-q*d<0);}
+bool anchor(int x,int z,int r,uint seed){uvec2 h=hashpos(x,z,9u,seed);for(int dz=-r;dz<=r;++dz)for(int dx=-r;dx<=r;++dx){if(dx==0&&dz==0)continue;uvec2 other=hashpos(x+dx,z+dz,9u,seed);if(other.y>h.y||(other.y==h.y&&other.x>=h.x))return false;}return true;}
+bool sparse(int x,int z,uint seed){int cx=fd(x,60),cz=fd(z,60);uvec2 h=hashpos(cx,cz,0x5c1fu,seed);if(h.y%100u>=40u)return false;return x==cx*60+25+int(mod64(h,11u))&&z==cz*60+25+int(mod64(shr(h,16u),11u));}
+uint variant(int x,int z,uint species,uint seed){int cx=fd(x,16),cz=fd(z,16),tx=fd(cx,6),tz=fd(cz,6);uvec2 h=mix64(uvec2(seed,species<<16));h=mix64(h^mul64(sign64(tx),uvec2(0x85ebca87u,0x9e3779b1u)));h=mix64(h^mul64(sign64(tz),uvec2(0x27d4eb4fu,0xc2b2ae3du)));return (uint((cz-tz*6)*6+cx-tx*6)+mod64(h,36u))%36u;}
+uint selectTree(Candidate c,uint seed){uint s=0xffffffffu;int r=0;uint density=100u;
+ if(c.eligible==1u){
+ switch(c.biome){case 4u:s=0u;r=3;density=55u;break;case 5u:s=3u;r=3;density=40u;break;case 28u:s=15u;r=4;density=48u;break;case 27u:s=7u;r=4;density=52u;break;case 26u:s=14u;r=4;density=40u;break;case 23u:s=8u;r=5;density=35u;break;case 6u:case 33u:s=4u;r=4;density=60u;break;case 7u:s=5u;r=4;density=50u;break;case 24u:s=10u;r=5;density=34u;break;case 25u:s=9u;r=4;density=58u;break;case 8u:s=mod64(hashpos(c.x,c.z,0xba0bu,seed),4u)==0u?13u:2u;r=s==13u?5:4;density=27u;break;case 17u:s=6u;break;default:break;}
+ if(s!=0xffffffffu && (c.gentle!=1u || !(s==6u?sparse(c.x,c.z,seed):(mod64(hashpos(c.x,c.z,0x7de5u,seed),100u)<density&&anchor(c.x,c.z,r,seed)))))s=0xffffffffu;
+ if(c.biome==9u&&c.palm_roll==1u)s=1u;
+ }
+ return s==0xffffffffu?s:s*36u+variant(c.x,c.z,s,seed);
+}
+
+void main(){uint i=gl_GlobalInvocationID.x;if(i>=count||count>4096u)return;handles[i]=selectTree(candidates[i],seed);}

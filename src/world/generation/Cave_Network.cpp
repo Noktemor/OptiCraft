@@ -16,7 +16,8 @@ namespace {
 constexpr int kRegion = 256;          // сторона региона, колонок
 constexpr int kMargin = 320;          // запас спавна червей: больше максимального охвата червя
 constexpr int kCell = 64;             // сторона ячейки спавна червей
-constexpr int kCacheRegions = 24;     // сколько регионов держим в памяти
+constexpr int kCacheRegions = 24;
+constexpr int kGpuStampCacheRegions = 8;     // сколько регионов держим в памяти
 
 constexpr int kNetNY = Cave_Network::kNetworkMaxY - Cave_Network::kNetworkMinY + 1;
 constexpr int kSealedNY = Cave_Network::kSealedMaxY - Cave_Network::kSealedMinY + 1;
@@ -87,9 +88,10 @@ class Builder {
 public:
     Builder(const Cave_Network::Height_Fn& height, uint32_t seed,
             OpenSimplexEnv* env, OpenSimplexGradients* grad,
-            Cave_Network::Region& region, int sea_level)
+            Cave_Network::Region& region, int sea_level,
+            Gpu_Cave_Dispatch::RegionStamps* packet = nullptr)
         : m_height(height), m_seed(seed), m_env(env), m_grad(grad),
-          m_region(region), m_sea(sea_level)
+          m_region(region), m_sea(sea_level), m_packet(packet)
     {
         m_ax = region.x0 - kMargin;
         m_az = region.z0 - kMargin;
@@ -101,11 +103,12 @@ public:
     void build() {
         const size_t net_bits = static_cast<size_t>(kRegion) * kRegion * kNetNY;
         const size_t sealed_bits = static_cast<size_t>(kRegion) * kRegion * kSealedNY;
-        m_region.net.assign((net_bits + 63) / 64, 0);
-        m_region.water.assign((net_bits + 63) / 64, 0);
-        m_region.sealed.assign((sealed_bits + 63) / 64, 0);
-        m_region.flood.assign((sealed_bits + 63) / 64, 0);
-
+        if (!m_packet) {
+            m_region.net.assign((net_bits + 63) / 64, 0);
+            m_region.water.assign((net_bits + 63) / 64, 0);
+            m_region.sealed.assign((sealed_bits + 63) / 64, 0);
+            m_region.flood.assign((sealed_bits + 63) / 64, 0);
+        }
         std::vector<Worm> queue;
         spawn_worms(queue);
         for (size_t i = 0; i < queue.size(); ++i) {
@@ -113,7 +116,7 @@ public:
             run_worm(w, queue);
         }
         spawn_sealed();
-        mark_water();
+        if (!m_packet) mark_water();
     }
 
 private:
@@ -148,8 +151,25 @@ private:
                wz >= m_region.z0 && wz < m_region.z0 + kRegion;
     }
 
+    void emit_stamp(double x,double y,double z,double rxz,double ry,uint32_t type) {
+        const double r=rxz*(type>=Gpu_Cave_Dispatch::Sealed?1.10:1.0);
+        // Stage98 overlap rule, bin all 64 columns in one region simulation.
+        const int lo_x=std::max(m_region.x0,static_cast<int>(std::floor(x-r)));
+        const int hi_x=std::min(m_region.x0+kRegion-1,static_cast<int>(std::ceil(x+r)));
+        const int lo_z=std::max(m_region.z0,static_cast<int>(std::floor(z-r)));
+        const int hi_z=std::min(m_region.z0+kRegion-1,static_cast<int>(std::ceil(z+r)));
+        if(lo_x>hi_x || lo_z>hi_z) return;
+        for(int bz=(lo_z-m_region.z0)/32;bz<=(hi_z-m_region.z0)/32;++bz)
+            for(int bx=(lo_x-m_region.x0)/32;bx<=(hi_x-m_region.x0)/32;++bx) {
+                auto& bin=m_packet->bins[bz*8+bx];
+                if(bin.size()<=Gpu_Cave_Dispatch::max_stamps)
+                    bin.push_back({x,y,z,rxz,ry,type,0});
+            }
+    }
+
     // Эллипсоид сети. Крыша: обычный ход держит kRoof блоков, шахта может срезать верхний блок.
     void carve_net(double cx, double cy, double cz, double rxz, double ry, bool shaft) {
+        if(m_packet) { emit_stamp(cx,cy,cz,rxz,ry,shaft?Gpu_Cave_Dispatch::Shaft:Gpu_Cave_Dispatch::Network); return; }
         const int xa = std::max(m_region.x0, static_cast<int>(std::floor(cx - rxz)));
         const int xb = std::min(m_region.x0 + kRegion - 1, static_cast<int>(std::ceil(cx + rxz)));
         const int za = std::max(m_region.z0, static_cast<int>(std::floor(cz - rxz)));
@@ -322,6 +342,7 @@ private:
     // эллипсоида получаются карманы, выступы и узкие перешейки. Шум вычисляется раз на
     // колонку X/Z, поэтому форма неровная без дорогого 3D-шума на каждый воксель.
     void carve_sealed(double cx, double cy, double cz, double rxz, double ry, bool flood) {
+        if(m_packet) { emit_stamp(cx,cy,cz,rxz,ry,flood?Gpu_Cave_Dispatch::Flooded:Gpu_Cave_Dispatch::Sealed); return; }
         const double warp_margin = 1.10;
         const int xa = std::max(m_region.x0, static_cast<int>(std::floor(cx - rxz * warp_margin)));
         const int xb = std::min(m_region.x0 + kRegion - 1, static_cast<int>(std::ceil(cx + rxz * warp_margin)));
@@ -417,6 +438,7 @@ private:
     OpenSimplexGradients* m_grad;
     Cave_Network::Region& m_region;
     int m_sea;
+    Gpu_Cave_Dispatch::RegionStamps* m_packet;
     int m_ax = 0, m_az = 0, m_area = 0;
     std::vector<int> m_hval;
     std::vector<uint8_t> m_hset;
@@ -441,6 +463,7 @@ Cave_Network::~Cave_Network() = default;
 
 void Cave_Network::clear_cache() const {
     m_regions.clear();
+    m_gpu_stamps.clear();
 }
 
 bool Cave_Network::region_ready_at(int world_x, int world_z) const {
@@ -588,3 +611,75 @@ void Cave_Network::fill_column_kinds(int world_x, int world_z, int first_y, int 
     }
 }
 
+
+
+namespace {
+int64_t cave_region_key(int rx,int rz) {
+    return std::bit_cast<int64_t>((uint64_t(uint32_t(rx))<<32)|uint32_t(rz));
+}
+}
+bool Cave_Network::gpu_stamp_region_ready_at(int world_x,int world_z) const {
+    return m_gpu_stamps.is_ready(cave_region_key(floordiv(world_x,kRegion),floordiv(world_z,kRegion)));
+}
+std::shared_ptr<const Gpu_Cave_Dispatch::RegionStamps> Cave_Network::fetch_gpu_stamps(int rx,int rz) const {
+    return m_gpu_stamps.get(cave_region_key(rx,rz),kGpuStampCacheRegions,[&] {
+        auto bins=std::make_shared<Gpu_Cave_Dispatch::RegionStamps>();
+        Region region;
+        region.rx=rx;region.rz=rz;region.x0=rx*kRegion;region.z0=rz*kRegion;
+        Builder builder(m_height,m_seed,static_cast<OpenSimplexEnv*>(m_env),
+                        static_cast<OpenSimplexGradients*>(m_grad),region,m_sea_level,bins.get());
+        builder.build();
+        return bins;
+    });
+}
+bool Cave_Network::export_gpu_tables(Gpu_Cave_Dispatch::Tables& out) const {
+    if(!m_env || !m_grad) return false;
+    auto* env=static_cast<OpenSimplexEnv*>(m_env);
+    auto* grad=static_cast<OpenSimplexGradients*>(m_grad);
+    if(!env->LOOKUP_2D || !grad->perm || !grad->permGrad2) return false;
+    for(size_t i=0;i<2048;++i) {
+        const int v=grad->perm[i]; if(v<0 || v>=2048) return false;
+        out.permutation[i]=v;
+        out.gradient[i]={grad->permGrad2[i].dx,grad->permGrad2[i].dy};
+    }
+    for(size_t i=0;i<32;++i) {
+        const auto* c=env->LOOKUP_2D[i];if(!c) return false;
+        out.lattice[i]={c->dx,c->dy,c->xsv,c->ysv,0,0};
+    }
+    return true;
+}
+bool Cave_Network::export_gpu_cave_batch(std::span<const Gpu_Cave_Dispatch::Coord> coords,Gpu_Cave_Dispatch::Batch& out) const {
+    using D=Gpu_Cave_Dispatch;
+    if(coords.empty() || coords.size()>D::max_columns) return false;
+    D::Batch b;
+    for(const auto& c:coords) {
+        D::Push p;
+        if(!D::make(c.x,c.z,m_sea_level,p)) return false;
+        for(const auto& prev:b.columns) if(prev.origin_x==p.origin_x && prev.origin_z==p.origin_z) return false;
+        b.columns.push_back({p.origin_x,p.origin_z,p.sea,0,0});
+    }
+    if(!export_gpu_tables(b.tables)) return false;
+    b.heights.reserve(coords.size()*D::halo*D::halo);
+    for(auto& c:b.columns) {
+        const int rx=floordiv(c.origin_x,kRegion),rz=floordiv(c.origin_z,kRegion);
+        auto bins=fetch_gpu_stamps(rx,rz);
+        const auto& bin=bins->bins[((c.origin_z-rz*kRegion)/32)*8+(c.origin_x-rx*kRegion)/32];
+        if(bin.size()>D::max_stamps) return false;
+        c.first_stamp=static_cast<uint32_t>(b.stamps.size());c.count=static_cast<uint32_t>(bin.size());
+        b.carve_groups=std::max(b.carve_groups,c.count);
+        b.stamps.insert(b.stamps.end(),bin.begin(),bin.end());
+        for(int z=0;z<D::halo;++z) for(int x=0;x<D::halo;++x)
+            b.heights.push_back(m_height(c.origin_x+x-1,c.origin_z+z-1));
+    }
+    if(!b.valid()) return false;
+    out=std::move(b);return true;
+}
+bool Cave_Network::export_gpu_cave_packet(int chunk_x,int chunk_z,Gpu_Cave_Dispatch::Packet& out) const {
+    using D=Gpu_Cave_Dispatch;
+    const D::Coord c{chunk_x,chunk_z};D::Batch batch;
+    if(!export_gpu_cave_batch(std::span(&c,1),batch)) return false;
+    const auto& col=batch.columns[0];D::Packet p;
+    p.push={col.origin_x,col.origin_z,col.sea,col.count};p.tables=batch.tables;
+    std::copy(batch.heights.begin(),batch.heights.end(),p.heights.begin());
+    p.stamps=std::move(batch.stamps);out=std::move(p);return true;
+}

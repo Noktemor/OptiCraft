@@ -17,6 +17,7 @@
 // мьютекс на построение и поиск регионов, дополнительно thread_local кэш последнего региона.
 
 #include "world/generation/Region_Cache.h"
+#include "world/generation/Gpu_Cave_Data.h"
 
 #include <cstdint>
 #include <functional>
@@ -30,6 +31,10 @@ enum class Cave_Kind : uint8_t {
     Sealed_Dry,      // закрытая большая пещера, сухая
     Sealed_Flooded   // закрытая большая пещера, затопленная (выше -120)
 };
+
+static_assert(static_cast<uint8_t>(Cave_Kind::None)==0 && static_cast<uint8_t>(Cave_Kind::Air)==1 &&
+              static_cast<uint8_t>(Cave_Kind::Water)==2 && static_cast<uint8_t>(Cave_Kind::Sealed_Dry)==3 &&
+              static_cast<uint8_t>(Cave_Kind::Sealed_Flooded)==4);
 
 class Cave_Network {
 public:
@@ -64,6 +69,12 @@ public:
     std::optional<Cave_Kind> try_kind_at(int world_x, int world_y, int world_z) const;
     void prewarm_region_at(int world_x, int world_z) const;
 
+    // Emits original primitives for one horizontal chunk, without carving CPU bitmaps.
+    bool export_gpu_cave_packet(int chunk_x,int chunk_z,Gpu_Cave_Dispatch::Packet& out) const;
+
+    // Worker-only: may build immutable primitive bins, not CPU masks.
+    bool export_gpu_cave_batch(std::span<const Gpu_Cave_Dispatch::Coord> coords,Gpu_Cave_Dispatch::Batch& out) const;
+    bool gpu_stamp_region_ready_at(int world_x,int world_z) const;
     struct Region;
 
 private:
@@ -78,6 +89,9 @@ private:
     void* m_env = nullptr;         // OpenSimplexEnv*
     void* m_grad = nullptr;        // OpenSimplexGradients*
 
+    std::shared_ptr<const Gpu_Cave_Dispatch::RegionStamps> fetch_gpu_stamps(int rx,int rz) const;
+    bool export_gpu_tables(Gpu_Cave_Dispatch::Tables& out) const;
+    mutable Region_Cache<Gpu_Cave_Dispatch::RegionStamps> m_gpu_stamps;
     mutable Region_Cache<Region> m_regions;   // LRU без замка на построение
 };
 

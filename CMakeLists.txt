@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(OptiCraft VERSION 0.13)
+project(OptiCraft VERSION 0.13.1)
 
 # =============== Настройки ===============
 set(CMAKE_CXX_STANDARD 20)
@@ -393,6 +393,18 @@ if(OPTICRAFT_VULKAN_CORE_TESTS)
     add_executable(OptiCraft_Vulkan_Mesh_Transactions_Tests tools/tests/test_vulkan_mesh_transactions.cpp)
     target_link_libraries(OptiCraft_Vulkan_Mesh_Transactions_Tests PRIVATE OptiCraft_VulkanCore)
     add_test(NAME VulkanMeshTransactions COMMAND OptiCraft_Vulkan_Mesh_Transactions_Tests)
+    add_executable(OptiCraft_Vulkan_World_Policies_Tests tools/tests/test_vulkan_stage75_77.cpp)
+    target_compile_features(OptiCraft_Vulkan_World_Policies_Tests PRIVATE cxx_std_20)
+    target_include_directories(OptiCraft_Vulkan_World_Policies_Tests PRIVATE ${SRC_DIR})
+    add_test(NAME VulkanWorldPolicies COMMAND OptiCraft_Vulkan_World_Policies_Tests)
+    add_executable(OptiCraft_Vulkan_Entity_Batch_Tests tools/tests/test_vulkan_stage78_79.cpp ${SRC_DIR}/rendering/vulkan/GpuFrustum.cpp)
+    target_compile_features(OptiCraft_Vulkan_Entity_Batch_Tests PRIVATE cxx_std_20)
+    target_include_directories(OptiCraft_Vulkan_Entity_Batch_Tests PRIVATE ${SRC_DIR})
+    add_test(NAME VulkanEntityBatch COMMAND OptiCraft_Vulkan_Entity_Batch_Tests)
+    add_executable(OptiCraft_Vulkan_Column_Batch_Tests tools/tests/test_vulkan_stage83_85.cpp)
+    target_compile_features(OptiCraft_Vulkan_Column_Batch_Tests PRIVATE cxx_std_20)
+    target_include_directories(OptiCraft_Vulkan_Column_Batch_Tests PRIVATE ${SRC_DIR})
+    add_test(NAME VulkanColumnBatch COMMAND OptiCraft_Vulkan_Column_Batch_Tests)
 endif()
 
 if(OPTICRAFT_VULKAN)
@@ -409,6 +421,7 @@ if(OPTICRAFT_VULKAN)
                 ${SRC_DIR}/rendering/vulkan/VulkanVoxelPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanGpuCuller.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanGpuMesher.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanResidentLight.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanChunkMeshing.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanOpaqueMaterialPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanLiveWorldRenderer.cpp
@@ -419,6 +432,7 @@ if(OPTICRAFT_VULKAN)
                 ${SRC_DIR}/rendering/vulkan/VulkanItemPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanEntityPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanDeviceBuffer.cpp
+                ${SRC_DIR}/rendering/vulkan/VulkanColumnMaterialRuntime.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanMaterialTables.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanBlockAtlas.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanChunkStreamGpu.cpp
@@ -428,7 +442,7 @@ if(OPTICRAFT_VULKAN)
                 ${SRC_DIR}/rendering/vulkan/VulkanMiscPipeline.cpp
                 ${SRC_DIR}/rendering/vulkan/VulkanParallelDraw.cpp)
         target_include_directories(OptiCraft_VulkanBackend PUBLIC ${SRC_DIR}
-                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/stb)
+                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/stb ${CMAKE_CURRENT_SOURCE_DIR}/external/opensimplex)
         target_link_libraries(OptiCraft_VulkanBackend PUBLIC OptiCraft_VulkanWindow
                 OptiCraft_VulkanCore)
 
@@ -445,7 +459,7 @@ if(OPTICRAFT_VULKAN)
             set(OC_VK_SPV_DIR "${CMAKE_CURRENT_BINARY_DIR}/assets/vulkan_shaders")
             set(OC_VK_SPVS)
             foreach(shader
-                    worldgen_material.comp voxel_misc_count.comp voxel_misc_emit.comp
+                    worldgen_climate.comp worldgen_terrain.comp worldgen_layers.comp worldgen_layer_merge.comp worldgen_cave_carve.comp worldgen_cave_resolve.comp worldgen_cave_pack.comp worldgen_cave_batch_carve.comp worldgen_cave_batch_resolve.comp worldgen_cave_batch_pack.comp worldgen_river_height.comp worldgen_river_smooth.comp worldgen_river_resolve.comp worldgen_river_profile.comp worldgen_river_pack.comp worldgen_river_compact_resolve.comp worldgen_river_compact_profile.comp worldgen_river_column_resolve.comp worldgen_river_column_merge.comp worldgen_material_input.comp worldgen_cave_batch_column_pack.comp worldgen_cave_column_merge.comp worldgen_material.comp worldgen_template_overlay.comp worldgen_tree_select.comp worldgen_tree_compact.comp worldgen_overlay.comp worldgen_light_propagate.comp worldgen_light_resident.comp voxel_misc_count.comp voxel_misc_emit.comp
                     voxel_misc.vert voxel_misc.frag
                     voxel_textured.vert voxel_textured.frag
                     voxel_count.comp voxel_emit.comp voxel_finalize.comp

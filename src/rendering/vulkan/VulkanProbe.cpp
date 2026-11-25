@@ -1,4 +1,4 @@
-// OptiCraft 0.13 Vulkan presentation smoke test. This is intentionally NOT a
+// OptiCraft 0.13.1 Vulkan presentation smoke test. This is intentionally NOT a
 // replacement for Game until material/shape pipelines and world residency work.
 // Launch OptiCraft_Vulkan from CLion: a real Vulkan window and frame submission.
 #define GLFW_INCLUDE_VULKAN
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     glfwDefaultWindowHints();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "OptiCraft 0.13 - Vulkan presentation test", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "OptiCraft 0.13.1 - Vulkan test 2 (presentation)", nullptr, nullptr);
     if (!window) { std::cerr << "Failed to create GLFW_NO_API window\n"; glfwTerminate(); return 1; }
     int code = 0;
     {

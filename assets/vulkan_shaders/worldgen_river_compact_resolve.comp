@@ -1,0 +1,27 @@
+#version 450
+layout(local_size_x=64) in;
+layout(push_constant) uniform Params {int sea;};
+layout(std430,binding=0) readonly buffer Coarse {int coarse[];}; // 69x69, origin full-window 248
+layout(std430,binding=4) readonly buffer Graph {uint graph[];}; // 266x266, origin 251
+// top, river flag (excludes lake), water, lake flag; 264x264, origin 252
+layout(std430,binding=5) writeonly buffer Resolved {ivec4 resolved[];};
+int height_at(int x,int z){ // graph-local coordinates, coarse origin is three cells earlier
+ x+=3;z+=3;
+ int a=(z/4)*69+x/4,fx=x%4,fz=z%4;
+ int n=(coarse[a]*(4-fx)+coarse[a+1]*fx)*(4-fz)+
+       (coarse[a+69]*(4-fx)+coarse[a+70]*fx)*fz+8;
+ return n>=0?n/16:-((-n+15)/16);
+}
+void main(){
+ uint i=gl_GlobalInvocationID.x;if(i>=69696u)return;
+ int x=int(i%264u)+1,z=int(i/264u)+1;
+ uint w=graph[z*266+x];int h=height_at(x,z);
+ if((w&0x10000u)!=0u){int level=int(w&0xffffu);if(level>=32768)level-=65536;resolved[i]=ivec4(h,0,level,1);return;}
+ if(h<=sea){resolved[i]=ivec4(h,0,0,0);return;}
+ bool wet=w>=1u;
+ for(int dz=-1;dz<=1&&!wet;++dz)for(int dx=-1;dx<=1&&!wet;++dx){
+   int nx=x+dx,nz=z+dz;
+   wet=graph[nz*266+nx]==2u&&height_at(nx,nz)>sea;
+ }
+ resolved[i]=ivec4(h,wet?1:0,wet?max(h-1,sea):0,0);
+}

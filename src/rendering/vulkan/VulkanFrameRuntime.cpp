@@ -1,3 +1,4 @@
+#include "rendering/vulkan/VulkanAllocationLedger.h"
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include "rendering/vulkan/VulkanFrameRuntime.h"
@@ -110,10 +111,10 @@ void VulkanFrameRuntime::initialize(GLFWwindow* window, GpuPreference preference
                 })) throw std::runtime_error("--validation requested but VK_LAYER_KHRONOS_validation is absent");
         }
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app.pApplicationName = "OptiCraft Vulkan 0.13";
-        app.applicationVersion = VK_MAKE_VERSION(0, 13, 0);
+        app.pApplicationName = "OptiCraft 0.13.1 - Vulkan test 2";
+        app.applicationVersion = VK_MAKE_VERSION(0, 13, 1);
         app.pEngineName = "OptiCraft";
-        app.engineVersion = VK_MAKE_VERSION(0, 13, 0);
+        app.engineVersion = VK_MAKE_VERSION(0, 13, 1);
         app.apiVersion = VK_API_VERSION_1_2;
         VkInstanceCreateInfo create{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         create.pApplicationInfo = &app;
@@ -259,17 +260,35 @@ void VulkanFrameRuntime::selectDevice(GpuPreference preference) {
     VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     indirectCount_ = multiDrawIndirect_ && supported12.drawIndirectCount;
     enabled12.drawIndirectCount = indirectCount_ ? VK_TRUE : VK_FALSE;
-    const char* extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    memoryBudgetSupported_=hasExtension(physical_,VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+    const char* extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,VK_EXT_MEMORY_BUDGET_EXTENSION_NAME};
     VkDeviceCreateInfo create{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     create.queueCreateInfoCount = 1;
     create.pQueueCreateInfos = &queue;
     create.pEnabledFeatures = &enabled;
     create.pNext = &enabled12;
-    create.enabledExtensionCount = 1;
+    create.enabledExtensionCount = memoryBudgetSupported_?2u:1u;
     create.ppEnabledExtensionNames = extensions;
     check(vkCreateDevice(physical_, &create, nullptr, &device_), "vkCreateDevice");
     vkGetDeviceQueue(device_, graphicsFamily_, 0, &graphicsQueue_);
     if (!graphicsQueue_) throw std::runtime_error("No Vulkan graphics queue returned");
+    refreshMemoryBudget();
+}
+
+void VulkanFrameRuntime::refreshMemoryBudget(){
+    if(!memoryBudgetSupported_)return;
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+    VkPhysicalDeviceMemoryProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+    props.pNext=&budget;
+    // All allocations and admissions run on the owner thread. Sample before
+    // the driver query so intervening growth is conservatively charged.
+    memoryBudgetSample_=trackedMemory(device_);
+    vkGetPhysicalDeviceMemoryProperties2(physical_,&props);
+    for(uint32_t i=0;i<16;++i){driverHeapBudget_[i]=budget.heapBudget[i];driverHeapUsage_[i]=budget.heapUsage[i];}
+}
+DeviceMemoryUsage VulkanFrameRuntime::deviceMemoryUsage() const {
+    auto usage=trackedMemory(device_);
+    return memoryBudgetSupported_?withDriverBudget(usage,memoryBudgetSample_,driverHeapBudget_,driverHeapUsage_):usage;
 }
 
 uint32_t VulkanFrameRuntime::deviceLocalMemoryType(uint32_t allowedBits) const {
@@ -301,7 +320,7 @@ VulkanFrameRuntime::DepthImage VulkanFrameRuntime::createDepthImage() const {
         VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         alloc.allocationSize = required.size;
         alloc.memoryTypeIndex = deviceLocalMemoryType(required.memoryTypeBits);
-        check(vkAllocateMemory(device_, &alloc, nullptr, &image.memory), "vkAllocateMemory(depth)");
+        check(allocateTrackedMemory(physical_,device_,alloc,image.memory), "vkAllocateMemory(depth)");
         check(vkBindImageMemory(device_, image.image, image.memory, 0), "vkBindImageMemory(depth)");
         VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         view.image = image.image;
@@ -316,7 +335,7 @@ VulkanFrameRuntime::DepthImage VulkanFrameRuntime::createDepthImage() const {
     } catch (...) {
         if (image.view) vkDestroyImageView(device_, image.view, nullptr);
         if (image.image) vkDestroyImage(device_, image.image, nullptr);
-        if (image.memory) vkFreeMemory(device_, image.memory, nullptr);
+        if (image.memory) freeTrackedMemory(device_,image.memory);
         throw;
     }
     return image;
@@ -498,6 +517,7 @@ void VulkanFrameRuntime::recreateSwapchain() {
 
 bool VulkanFrameRuntime::beginFrame(Frame& frame) {
     if (!device_ || frameOpen_) throw std::logic_error("beginFrame invalid state");
+    if(memoryBudgetTick_++%30u==0)refreshMemoryBudget();
     frame = {};
     if (resizedOrMinimized() || recreateRequested_ || !swapchain_) {
         recreateSwapchain();
@@ -622,7 +642,7 @@ void VulkanFrameRuntime::destroySwapchain() noexcept {
     for (const auto& depth : depth_) {
         if (depth.view) vkDestroyImageView(device_, depth.view, nullptr);
         if (depth.image) vkDestroyImage(device_, depth.image, nullptr);
-        if (depth.memory) vkFreeMemory(device_, depth.memory, nullptr);
+        if (depth.memory) freeTrackedMemory(device_,depth.memory);
     }
     depth_.clear();
     if(firstPass_) vkDestroyRenderPass(device_,firstPass_,nullptr);
@@ -642,6 +662,7 @@ void VulkanFrameRuntime::destroySwapchain() noexcept {
 }
 
 void VulkanFrameRuntime::shutdown() noexcept {
+    memoryBudgetSupported_=false;memoryBudgetTick_=0;memoryBudgetSample_={};driverHeapBudget_={};driverHeapUsage_={};
     if (device_) {
         // Shutdown/recovery only. Streaming/normal frame submissions never wait idle.
         vkDeviceWaitIdle(device_);

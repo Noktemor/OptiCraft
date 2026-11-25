@@ -39,7 +39,7 @@ inline int floordiv(int a, int b) {
 }
 
 inline int64_t region_key(int rx, int rz) {
-    return (static_cast<int64_t>(rx) << 32) ^ static_cast<uint32_t>(rz);
+    return std::bit_cast<int64_t>((uint64_t(uint32_t(rx)) << 32) | uint32_t(rz));
 }
 
 constexpr int kNeighborDx[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
@@ -206,6 +206,7 @@ private:
 struct River_Network::Region {
     int x0 = 0;   // мировой X левого края региона
     int z0 = 0;   // мировой Z верхнего края региона
+    Gpu_River_Dispatch::CompactPacket compact;
     std::vector<Column> cols;   // kRegion * kRegion, строка за строкой по Z
 };
 
@@ -260,7 +261,7 @@ std::shared_ptr<const River_Network::Region> River_Network::fetch_region(int rx,
 //  5) низины, куда стекают реки, заполняются водой до уровня, который растёт с притоком — это озёра;
 //  6) реки — клетки с большим водосбором; их уровень воды чуть ниже рельефа, поэтому русло идёт
 //     по склону и не режет горы глубже нескольких блоков.
-std::shared_ptr<River_Network::Region> River_Network::build_region(int rx, int rz) const {
+std::shared_ptr<River_Network::Region> River_Network::build_region(int rx, int rz, Gpu_River_Dispatch::Packet* capture) const {
 
     auto region = std::make_shared<Region>();
     region->x0 = rx * kRegion;
@@ -496,6 +497,32 @@ std::shared_ptr<River_Network::Region> River_Network::build_region(int rx, int r
         lake_level[k] = static_cast<int>(std::floor(level));
     }
 
+    // Store the lean GPU upload alongside the ordinary immutable CPU region.
+    // This reuses the expensive priority flood and lake solve, even when CPU
+    // generation warmed the region first. Diagnostic exports stay uncached.
+    using D=Gpu_River_Dispatch;
+    static_assert(kRiverArea==400 && kWideArea==1600 && kFallReach==4 && kCoarse==4);
+    if(!capture && D::valid_region(rx,rz) && m_sea_level>=-32768 && m_sea_level<=32767){
+        D::CompactPacket packet;
+        packet.region_x=rx;packet.region_z=rz;packet.sea=m_sea_level;
+        packet.coarse.reserve(D::compact_coarse_cells);packet.graph.reserve(D::compact_cells);
+        bool ok=true;
+        for(uint32_t z=0;z<D::compact_coarse_width && ok;++z)
+            for(uint32_t x=0;x<D::compact_coarse_width;++x){
+                double h=coarse[(z+D::compact_coarse_start)*kCoarseN+x+D::compact_coarse_start];
+                if(h < -32768||h>32767){ok=false;break;}
+                packet.coarse.push_back(static_cast<int32_t>(h));
+            }
+        for(uint32_t z=0;z<D::compact_width && ok;++z)
+            for(uint32_t x=0;x<D::compact_width;++x){
+                size_t i=(z+kMargin-D::compact_halo)*kWin+x+kMargin-D::compact_halo;
+                uint32_t word;
+                if(!D::encode_cell(area[i],lake[i]!=0,lake_level[i],word)){ok=false;break;}
+                packet.graph.push_back(word);
+            }
+        if(ok && packet.valid())region->compact=std::move(packet);
+    }
+
     // 6) Реки: клетки с достаточным водосбором вне озёр. Вода — чуть ниже рельефа, поэтому русло
     // стекает по склону. Вода не поднимается выше рельефа, ниже уровня моря не опускается.
     std::vector<uint8_t> river(n_cells, 0);
@@ -555,7 +582,38 @@ std::shared_ptr<River_Network::Region> River_Network::build_region(int rx, int r
         }
     }
 
+    if (capture) {
+        capture->region_x=rx; capture->region_z=rz; capture->sea=m_sea_level;
+        capture->coarse.assign(coarse.begin(),coarse.end());
+        capture->height=std::move(height); capture->smooth=std::move(smooth);
+        capture->graph.resize(n_cells);
+        for(size_t i=0;i<n_cells;++i) capture->graph[i]={area[i],lake[i],lake_level[i]};
+        capture->reference.reserve(region->cols.size());
+        for(const auto& c:region->cols) capture->reference.push_back({c.river,c.top,c.water,c.bed,c.fall,c.lake});
+    }
     return region;
+}
+
+bool River_Network::export_gpu_river_packet(int rx,int rz,Gpu_River_Dispatch::Packet& out) const {
+    if(!Gpu_River_Dispatch::valid_region(rx,rz) || m_sea_level < -32768 || m_sea_level > 32767) return false;
+    Gpu_River_Dispatch::Packet packet;
+    (void)build_region(rx,rz,&packet);
+    if(!packet.valid()) return false;
+    out=std::move(packet);return true;
+}
+
+std::shared_ptr<const Gpu_River_Dispatch::CompactPacket> River_Network::gpu_compact_region(int rx,int rz) const {
+    if(!Gpu_River_Dispatch::valid_region(rx,rz)||m_sea_level < -32768||m_sea_level>32767)return {};
+    auto region=fetch_region(rx,rz);
+    if(region->compact.graph.empty())return {};
+    return {region,&region->compact};
+}
+
+std::shared_ptr<const Gpu_River_Dispatch::CompactPacket> River_Network::try_gpu_compact_region(int rx,int rz) const {
+    if(!Gpu_River_Dispatch::valid_region(rx,rz)||m_sea_level < -32768||m_sea_level>32767)return {};
+    auto region=m_regions.try_get(region_key(rx,rz));
+    if(!region||region->compact.graph.empty())return {};
+    return {region,&region->compact};
 }
 
 River_Network::Column River_Network::column_at(int world_x, int world_z) const {

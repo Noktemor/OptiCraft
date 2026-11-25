@@ -98,6 +98,9 @@ bool VulkanGameMirror::closeRequested() const noexcept {
     return window_ && glfwWindowShouldClose(window_);
 }
 
+void VulkanGameMirror::detachWorld(){
+    if(scene_.hasOwnedWorld()){if(runtime_.device())vkDeviceWaitIdle(runtime_.device());scene_.detachWorldIdle();}
+}
 void VulkanGameMirror::shutdown() noexcept {
     if (runtime_.device()) vkDeviceWaitIdle(runtime_.device());
     scene_.shutdown();

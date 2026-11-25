@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include "rendering/vulkan/GpuWorldCore.h"
+#include "world/generation/Gpu_Overlay_Reference.h"
 // Host-only feed fixture. Not a replacement for the game's real chunk classes.
 struct MockBlockGrid {
     std::vector<uint16_t> ids{0};
@@ -41,9 +42,16 @@ struct Chunk {
     MockBlockGrid blocks;
     MockLightGrid lights;
     uint64_t instance=1, version=1, dirty=1;
+    static inline uint64_t interactiveEvents=0;
+    uint64_t interactive=0;
     static uint64_t dirty_event_count(){return 1;}
+    static uint64_t interactive_event_count(){return interactiveEvents;}
+    uint64_t interactive_mesh_epoch() const{return interactive;}
     uint64_t get_instance_id() const{return instance;}
     uint64_t get_blocks_version() const{return version;}
+    OptiCraft::Vulkan::OverlayReference overlay_ref;
+    uint64_t overlay_version=0;
+    OptiCraft::Vulkan::OverlayReference overlay_reference() const noexcept{return overlay_version==version?overlay_ref:OptiCraft::Vulkan::OverlayReference{};}
     uint64_t get_dirty_epoch() const{return dirty;}
     bool has_blocks() const{return std::any_of(blocks.ids.begin(),blocks.ids.end(),[](uint16_t id){return id!=0;});}
     const auto& get_blocks() const{return blocks;}

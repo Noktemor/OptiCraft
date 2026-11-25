@@ -30,11 +30,19 @@ public:
     }
     void submitEntity(EntityDraw&& draw){entities_.push_back(std::move(draw));}
     void present();
+    void attachWorld(Chunk_Manager& manager){scene_.attachWorld(manager);}
+    void detachWorld();
+    uint32_t cpuMirrorCapacity()const{return scene_.cpuMirrorCapacity();}
     void shutdown() noexcept;
     bool closeRequested() const noexcept;
     const std::string& gpuName() const {return runtime_.gpuName();}
     VulkanFrameRuntime& worldgenRuntime() {return runtime_;}
+    const auto& entityStats() const noexcept {return scene_.entityStats();}
+    const auto& itemStats() const noexcept {return scene_.itemStats();}
     bool compactDraws() const {return scene_.compactDraws();}
+    bool residentLightPilotAvailable() const noexcept {return scene_.residentLightPilotAvailable();}
+    size_t residentLightPending() const noexcept {return scene_.residentLightPending();}
+    uint64_t residentLightRecordedCores() const noexcept {return scene_.residentLightRecordedCores();}
     uint32_t residentCapacity() const { return scene_.residentCapacity(); }
     size_t pendingUploads() const { return scene_.pendingUploads(); }
     const auto& uploadStats() const {return scene_.uploadStats();}
@@ -47,6 +55,12 @@ public:
     size_t inFlightMeshes() const {return scene_.inFlightMeshes();}
     uint32_t residentCount() const {return scene_.residentCount();}
     uint32_t workBudget() const {return scene_.workBudget();}
+    DeviceMemoryUsage deviceMemoryUsage() const {return runtime_.deviceMemoryUsage();}
+    uint32_t ownedCapacity()const noexcept{return scene_.ownedCapacity();}
+    size_t ownedCount()const noexcept{return scene_.ownedCount();}
+    bool ownedPressure()const noexcept{return scene_.ownedPressure();}
+    double ownedQuotaMs()const noexcept{return scene_.ownedQuotaMs();}
+    const auto& ownedGrants()const noexcept{return scene_.ownedGrants();}
     double lastMeshGpuMs() const {return scene_.lastMeshGpuMs();}
     const auto& gpuTimes() const {return scene_.gpuTimes();}
     bool reusedMiscCommands() const {return scene_.reusedMiscCommands();}
@@ -57,6 +71,7 @@ public:
 
     VulkanGameChunkFeed::UploadSink uploadSink() { return scene_.uploadSink(); }
     VulkanGameChunkFeed::EvictSink evictSink() { return scene_.evictSink(); }
+    VulkanGameChunkFeed::SnapshotLeaseSink snapshotLeaseSink() {return scene_.snapshotLeaseSink();}
 private:
     GLFWwindow* window_ = nullptr;
     VulkanFrameRuntime runtime_;

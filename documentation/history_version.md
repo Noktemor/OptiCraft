@@ -1,6 +1,534 @@
 # История версий OptiCraft
 
+## 0.13.1 — Vulkan test 2
+
+Пробная версия Vulkan-рендерера, основанная на Stage 150. Включает накопленные изменения Stage 2–150, в том числе GPU-driven рендеринг, постоянные воксельные арены, Count/Emit/Publish, геометрический LOD, GPU-culling, Hi-Z, прозрачные проходы, сущности и HUD, гибридный GPU Worldgen, передачу владения и фоновое сохранение, межчанковое освещение, адаптивные бюджеты памяти и срочный ремешинг.
+
+**Сделано:** исправлена кубическая геометрия листвы, возвращена прозрачность воды и сглаживание ближнего opaque-освещения (Stage 150); экспериментальный GPU-worldgen включается по умолчанию при поддержке устройства. Добавлена сводная техническая документация [Vulkan_Render.md](../Vulkan_Render.md) с полной историей реализации.
+
+**Протестировано:** Stage 150 — 10/10 автономных Release-тестов, 30 dense/inline ABI-сравнений, тест Count/Emit листвы, флоры и жидкости, 60 сценариев освещения/AO, компиляция и линковка адаптированных GLSL в Mesa/EGL. Сборка релиза не изменяет алгоритмы Stage 150.
+
+**Осталось:** полная аппаратная валидация, визуальное соответствие OpenGL, оставшиеся CPU-зависимости Worldgen, точный свет при нерезидентных верхних чанках, аппаратная оптимизация. Полная игровая сборка ранее блокировалась отсутствующими OpenGL-зависимостями; новые замеры FPS не заявляются. OpenGL остаётся резервным бэкендом.
+
 ## 0.13 — Vulkan render (2026-11-23, разработка)
+
+### Этап 133 — Vulkan Worldgen по умолчанию и компактные структуры
+
+**Сделано:** автоматический запуск экспериментального GPU-владения без переменных окружения, сохранение CPU fallback и аппаратных ограничений; остановка новых GPU-only заявок при отказе освещения; исправление допуска предварительного block light без точного halo; компактизация команд деревьев, деревень и прочих структур для certified Overlay без изменения итоговых ID и метаданных.
+
+**Протестировано:** Release CTest 8/8, UBSan 2 159 652 сравнения, Mesa/EGL 327 680 сравнений, регрессии Overlay и передачи владения. Полная сборка блокируется OpenGL dependencies.
+
+**Осталось:** нативный выбор деревьев/шаблонов и планировка регионов, точный дальний свет, полный учёт VRAM и проверка на реальном GPU. Пилот включён по умолчанию, но не прошёл аппаратную валидацию. Для отключения: `OPTICRAFT_VULKAN_OWNED_WORLD=0`.
+
+### Этап 128 — адаптивные бюджеты и резидентность GPU (pilot)
+
+**Сделано:** Stage75/77 подключены к OwnedWorldRuntime и кадровому циклу Vulkan; резерв слотов 32–256 вместо фиксированных 32, учёт очередей и выделенных воксельных арен, обратное давление и CPU fallback; раздельный допуск новых операций и завершение ранее начатых readback; сбор завершённых GPU timestamps для кадра, мешинга, block light, skylight и передач; счётчики квот FPSCOUNTER.
+
+**Протестировано:** standalone Release CTest 7/7, тест Stage61–89 под UBSan с проверками Stage128, Vulkan mock API. Full Release configure блокируется OpenGL dependencies.
+
+**Осталось:** аппаратная валидация, настоящий лимит общей VRAM, нативные региональные алгоритмы и подключение Stage126 native material runtime. Generation использует оценочную стоимость, а не измерение отдельного GPU submission. Пилот остаётся opt-in; FPS не измерялся.
+
+### Этап 127 — интеграция владения чанками и освещения (pilot)
+
+**Сделано:** координатор кадрового цикла GPU-генерации, подготовки, публикации, освещения, CPU promotion и persistence; предварительный sky/block light при неполном halo; CPU-relight при передаче владения; остановка и освобождение ресурсов при смене мира; принудительная замена старого GPU instance; ключи CPU mirror учитывают измерение. Пилот до 32 слотов, opt-in `OPTICRAFT_VULKAN_OWNED_WORLD=1`.
+
+**Протестировано:** Release standalone CTest 7/7, Stage60, Stage61–89 coordinator/ownership tests под UBSan, Vulkan mock API и Stage126 регрессии. Full Release configure блокируется отсутствующими OpenGL-зависимостями.
+
+**Осталось:** аппаратная проверка, окончательное точное освещение, полная интеграция Stage126 native material runtime и адаптивных бюджетов, нативные региональные алгоритмы. Включение GPU-only ownership по умолчанию отложено до проверки на реальном Vulkan. Предварительный свет не является доказательством точности; FPS не измерялся.
+
+### Этап 126 — runtime integration (partial)
+
+**Сделано:** instanced entity rendering, animated frustum culling, indexed item geometry, счётчики FPSCOUNTER и отдельный VulkanColumnMaterialRuntime.
+
+**Протестировано:** standalone Release 7/7, Vulkan mock API.
+
+**Осталось:** подключение native material runtime, планировщиков и аппаратная проверка.
+
+### Этапы 122–125 — GPU Column Material Input Bridge
+
+**Сделано:** ABI одной колонки, GPU-формирование входа Base из слоёв, прямое чтение пакетных масок пещер, план dispatch и проверка лимитов/диапазонов Vulkan. Профили рек и маски пишутся в тот же вход без промежуточного CPU-readback. Игровой путь не переключён.
+
+**Протестировано:** Mesa/EGL + UBSan, четыре синтетических входа, 425984 вокселя масок, 65536 итоговых ID и сертификаты, повторное использование буфера и fallback; регрессии Stage90–97, 102–105, 118–121 и 130277 CPU Worldgen scenarios PASS.
+
+**Осталось:** реальные Vulkan descriptors/pipelines/recording, нативные региональные алгоритмы, глобальная интеграция и аппаратные замеры. Release configure блокируется OpenGL dependencies.
+
+### Этапы 118–121 — Compact Regional Hydrology
+
+**Сделано:** компактный региональный пакет 302068 байт, общий неизменяемый региональный кэш, два GPU-прохода профилей гидрологии и прямая упаковка в material ABI. Priority-flood и водосбор остаются на CPU.
+
+**Протестировано:** 262144 точных профиля и столько же упакованных профилей, UBSan, Mesa/EGL и 130277 CPU Worldgen scenarios PASS.
+
+**Осталось:** нативный региональный граф и runtime Vulkan binding; аппаратные замеры не проводились.
+
+### Этапы 114–117 — GPU Surface Tree Selection
+
+**Сделано:** единый неизменяемый каталог 581 шаблона, GPU-выбор поверхностных деревьев и вариантов, стабильная компактизация экземпляров, передача списка в Overlay без чтения количества на CPU. Предикаты пригодности поверхности, RNG пальм, смешанный порядок декораций и планировка деревень остаются частью будущей интеграции. Runtime Vulkan и игровой путь не переключены.
+
+**Протестировано:** Mesa/EGL compute + C++ UBSan, 78528 решений, 4639 выбранных деревьев, 221 экземпляр, отказ при переполнении, 131072 ID/метаданных и 32768 счётчиков в связке с Overlay; Stage110–113, Tree Pack и 130277 Worldgen scenarios PASS.
+
+**Осталось:** нативные региональные алгоритмы, постоянное выделение/загрузка каталога в Vulkan, смешанный Overlay, интеграция, аппаратные тесты. Release configure блокируется OpenGL dependencies; native SPIR-V и FPS не проверены.
+
+### Этапы 110–113 — GPU Template Overlay
+
+**Сделано:** каталог шаблонов и экземпляров, неизменяемые варианты деревьев, GPU-размещение с поворотами и проверкой исходного блока, экспорт существующих планов деревень с дорогами и пользовательскими шаблонами. Выбор якорей, планировка и часть процедурной растительности остаются на CPU. Игровой путь не переключён.
+
+**Протестировано:** Mesa/EGL compute + C++ UBSan, 196608 точных ID/метаданных вокселей, 49152 счётчика, 158457 операций, 576 вариантов деревьев, пять шаблонов строений, Stage38/68/80, village/tree pack и 130277 Worldgen scenarios PASS.
+
+**Осталось:** нативные региональные алгоритмы, Vulkan runtime binding, смешанный Overlay и интеграция. Release configure блокируется OpenGL dependencies, native SPIR-V и FPS не проверены.
+
+### Этапы 106–109 — Hybrid GPU Hydrology
+
+**Сделано:** диагностический экспорт регионального графа гидрологии, GPU-интерполяция и сглаживание рельефа, расчёт русел и водопадов, запись профилей в material ABI. Priority-flood, водосбор и расчёт озёр остаются на CPU. Игровой путь не переключён.
+
+**Протестировано:** Mesa/EGL compute + C++ UBSan, 1769472 точных высот и сглаженных значений, 196608 профилей, 9216 material profiles, защитные границы буферов, Stage102–105, Stage68/80 и 130277 Worldgen scenarios PASS.
+
+**Осталось:** нативный граф гидрологии, траектории пещер, структуры, Vulkan runtime binding и интеграция. Release configure блокируется OpenGL dependencies, native SPIR-V и FPS не проверены.
+
+### Этапы 102–105 — Regional Cave Cache / Batch
+
+**Сделано:** региональный кэш примитивов пещер, пакетная растеризация и упаковка восьми горизонтальных колонок.
+
+**Протестировано:** 2301952 классификации пещер, 1572864 упакованных вокселя, регрессии и UBSan. Подробности — VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md.
+
+### Этапы 98–101 — GPU Cave Rasterization / Material Mask
+
+**Сделано:** экспорт оригинальных примитивов пещер без CPU-растеризации, GPU-вырезание ходов, шахт и камер, классификация сухих/затопленных вокселей, упаковка в существующий material ABI. CPU-траектории и старый игровой путь сохранены.
+
+**Протестировано:** Mesa/EGL compute + C++ UBSan, 2877440 точных классификаций, 2949120 вокселей material mask, все пять Cave_Kind, границы буферов, Stage90–97 и 130277 Worldgen scenarios PASS.
+
+**Осталось:** нативная симуляция траекторий, оптимизация повторной подготовки региона, реки/структуры, Vulkan runtime binding и интеграция. Native SPIR-V и аппаратная производительность не проверены; Release configure блокируется отсутствующими OpenGL dependencies.
+
+### Этапы 94–97 — GPU Surface Biomes / Layers
+
+**Сделано:** ABI профиля колонки, compute-шейдер классификации поверхностных биомов и материалов, детерминированный хеш через uint32-пары без shaderInt64, CPU reference и проверка границ верхней мантии. Старый игровой путь сохранён.
+
+**Протестировано:** Mesa/EGL compute, 94208 колонок и точных хешей, 39 ID биомов (включая принудительные), цепочка climate → terrain → layers, пограничные значения, UBSan, 130277 Worldgen scenarios и регрессии Stage68/80, Stage72/82/86, Stage61–74/81/87–89 PASS.
+
+**Осталось:** GPU river/cave networks, структуры, runtime Vulkan binding и material ABI bridge, интеграция и аппаратная проверка. Native SPIR-V не проверен; Release configure блокируется отсутствующими OpenGL dependencies. FPS не измерен.
+
+### Этапы 90–93 — GPU Climate / Terrain
+
+**Сделано:** экспорт восьми seeded OpenSimplex2S полей, native compute климат и рельеф, диагностическая сверка с CPU.
+
+**Протестировано:** Mesa/EGL, 43560 шумовых значений (точное совпадение), 40960 параметров рельефа, максимальная погрешность 8.24e-13, UBSan.
+
+**Осталось:** runtime Vulkan dispatch, региональные сети рек/пещер, структуры и интеграция. Подробности — VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md.
+
+### Этапы 86–89 — Owned Column Producer
+
+**Сделано:** получение готовой колонки из worker queue, проверка независимых claims, один retained Base dispatch, последовательные certified Overlay, backpressure пула snapshot, публикация владения по уровням с provisional GPU lighting. Отмена одного уровня не затрагивает соседние и новые claims.
+
+**Протестировано:** Stage86–89 production interfaces с mock backend под UBSan, sparse certificates, отдельные fences, отказ/отмена, lease backpressure, fatal fence failure. Регрессии Stage61–74/81, Stage68/80, Stage72/82, Stage83–85, 130277 Worldgen scenarios PASS.
+
+**Осталось:** нативная генерация климата/пещер/структур, подключение producer к игровому циклу, свет/halo/видимость, аппаратная проверка. FPS не измерен.
+
+### Этапы 82–85 — Worldgen Column Batching / Item Indices
+
+**Сделано:** группировка worker requests по колонке, многопорционный Base packet, маршрутизация сертификатов, индексирование точных quad-пар предметов.
+
+**Протестировано:** UBSan, порядок cave slices, sparse certificates, побитовое восстановление 36000 вершин, 130277 Worldgen scenarios.
+
+**Осталось:** подключение игрового пути и Vulkan item buffers/draw. Подробности — VULKAN_ARCHITECTURE_IMPLEMENTATION_013.md.
+
+### Этап 81 — GPU Lighting Bootstrap
+
+**Сделано:** отдельный режим `start_prepared_gpu_lighting`, временный нулевой packed light, явное владение светом на GPU и revision 1. Защита от перезаписи уже опубликованного ownership token. Старый путь с готовым освещением сохранён.
+
+**Протестировано:** production producer и manager gates с mock-бэкендом под UBSan — два fence, flags, backpressure, legacy light. Stage61–74, Stage72, Stage75–77 и 130277 worldgen fastpaths PASS.
+
+**Осталось:** подключить оба light scheduler, гарантировать halo и границы мира, запретить promotion до readiness и решить видимость временно тёмных чанков. Native Vulkan не проверен. Release configure блокируется отсутствующими OpenGL libraries/headers.
+
+### Этап 80 — Shared Regional Worldgen Preparation
+
+**Сделано:** `prepare_owned_gpu_column` — до девяти уникальных Y-уровней, общая подготовка климата/поверхности/рек, отдельные cave slices и ordered overlay для каждого уровня. Выход в порядке запроса, при отказе прежний результат не меняется.
+
+**Протестировано:** production preparation с terrain stubs и реальным packet compiler: четыре неотсортированных уровня совпали с отдельной подготовкой, одна операция подготовки региона вместо четырёх, отказ некорректных входов, UBSan.
+
+**Осталось:** подключение worker, multi-level GPU dispatch, нативные GPU terrain/caves/structures. Региональные данные пока готовятся CPU.
+
+### Этап 79 — Entity Instance Batching
+
+**Сделано:** планирование instanced draw по asset и hiddenMaterial; contiguous firstInstance/count, индивидуальные позы, исключение некорректных примитивов, сохранение shared asset lifetime.
+
+**Протестировано:** 1000 одинаковых сущностей с двумя примитивами — два запланированных draw вместо 2000, разные модели и скрытые части босса, pose mapping, UBSan.
+
+**Осталось:** подключить VulkanEntityPipeline, проверить порядок перекрывающихся поверхностей, capacity и расходы CPU. FPS не измерен; предметы пока не оптимизированы.
+
+### Этап 78 — Entity Frustum Culling Interface
+
+**Сделано:** `entityVisible` — консервативная проверка актуального world-space AABB по Vulkan frustum; невалидные данные не отсекают сущность.
+
+**Протестировано:** near plane, пересечения границы, видимые и невидимые AABB, invalid/nonfinite bounds, UBSan.
+
+**Осталось:** вычисление актуальных bounds с анимациями/attachments и подключение до подготовки поз. Игровой AI и хитбоксы не изменены.
+
+### Этап 77 — Adaptive GPU Work Budgets
+
+**Сделано:** `AdaptiveWorldWorkBudget` — общая адаптивная квота для генерации, мешинга, block light, skylight и transfers. EWMA стоимости единицы работы, реакция на медленные/быстрые завершённые GPU frames, ограничение dispatch по lane, ротация дорогих неделимых задач. Без GPU waits и новых submissions.
+
+**Протестировано:** production policy, UBSan — duplicate/invalid timing, изменение квоты, caps, fairness, пустые очереди. Stage72, Stage5–71 mock, 130277 worldgen fastpaths PASS.
+
+**Осталось:** подключить timestamp sources и фактические планировщики. Квота не гарантирует FPS. Release configure блокируется отсутствующими OpenGL development libraries.
+
+### Этап 76 — Independent CPU / GPU Distances
+
+**Сделано:** `Gpu_World_Streaming::Distances` — отдельные render/CPU/vertical настройки, сохранение запрошенного CPU radius, эффективный radius ограничен render window, guard ring и OpenGL fallback. Точный расчёт количества слотов с вертикальным taper и границами мира.
+
+**Протестировано:** 45 конфигураций окна против перебора чанков, соответствие Stage64, clamp и крайние координаты, UBSan.
+
+**Осталось:** подключить настройки меню, сериализацию и основной цикл. Модель не меняет игровой радиус сама.
+
+### Этап 75 — Residency Capacity & Admission
+
+**Сделано:** `WorldResidencyBudget` — лимиты слотов, очереди и памяти, резерв, hysteresis, расчёт допустимого числа admission и стартовой capacity, фильтр безопасных кандидатов на выгрузку за пределами окна.
+
+**Протестировано:** лимиты, overflow, hysteresis, admission, capacity и eviction filter, UBSan.
+
+**Осталось:** подача измерений VRAM и подключение к аренам/stream. Фиксированная таблица слотов и лимит 4096 не изменены; автоматическое расширение таблицы не реализовано.
+
+### Этап 74 — GPU Chunk Persistence & Eviction
+
+**Сделано:** `OwnedChunkPersistence`, `BoundedPersistenceWorker` — readback через существующие frame slots, один writer и два активных задания. Сохранение block ID/meta в Region_File без создания CPU Chunk. Pin до подтверждения записи и retirement; при отказе повторная запись без снятия claim. Исправлено ложное подтверждение неудачного flush индекса/заголовка региона.
+
+**Протестировано:** production header, извлечённые manager gates, настоящий writer, stream/region stubs, UBSan — отказ capture, fence, ошибка записи, retry, retirement, защита сохранённого чанка от регенерации.
+
+**Осталось:** runtime registration, реальные fault injection и сохранение при завершении мира. Не подтверждена устойчивость к отключению питания (нет fsync). Постоянная ошибка записи сохраняет pin; перед заменой мира требуется drain. Полная сборка и аппаратная validation не выполнены.
+
+### Этап 73 — Automatic GPU Chunk Promotion Scheduler
+
+**Сделано:** `OwnedChunkPromotionScheduler` — изолированный owner-thread интерфейс переноса по CPU-радиусу + защитному кольцу, с проверкой измерения и текущего вертикального окна. До 64 кандидатов и 8 попыток резервации за проход, приоритет по горизонтальной/вертикальной дистанции, ротация отказов. Одна операция capture или CPU reconstruction за вызов, до двух in-flight слотов. `pump` принимает текущий `StreamBatch`, выполняется после обоих light passes; повторный вызов того же кадра отклоняется. Оба `recordedCurrent` должны быть true перед readback и commit. Block scheduler восстанавливает индекс после пропущенных batches; оба scheduler readiness учитывают активный promotion, dirty задачи сохраняются. `takeOwnedReadback` фильтрует по полному токену, не потребляет чужой результат. Отмена снимает временную CPU-резервацию, сохраняет долгоживущий GPU claim и дренирует записанный readback после fence; успешный commit ждёт retirement acknowledgment, только затем возвращает `released` и снимает claim. Без новых GPU ресурсов.
+
+**Протестировано:** production scheduler и функции менеджера (изолированные stubs, реальный Chunk_Slot_Pool, UBSan): дистанция, оба light gates, повторный кадр, отказ capture, разные frame slots, отмена при грязном свете и движении, drain, отказ CPU commit, повторная попытка, retirement и release. Production Vulkan stream mock: token-filtered readback, неверный slot/token, stale attempt, readiness и missed-batch rebuild. 130277 worldgen fastpaths PASS. Release configure блокируется отсутствующими OpenGL development libraries.
+
+**Осталось:** автоматическая регистрация в Game, передача актуального списка ClaimedGpuChunk, согласование реальных границ света и фоновая запись при вытеснении. Восстановление CPU Chunk выполняется на owner thread; нет принудительного переноса при отсутствующем halo/неготовом свете. Внешние незакоммиченные изменения соседей не являются частью проверки recordedCurrent. До замены мира отключить admission, продолжать pump до drain/retirement; при abandoned frame требуется безопасный idle teardown. Полный build, аппаратная validation и FPS не проверены.
+
+### Этап 72 — Asynchronous Owned Worldgen Preparation Queue
+
+**Сделано:** `OwnedWorldgenPreparationQueue` — один выделенный CPU-воркер, восемь фиксированных слотов для queued/running/ready/failed/draining. `try_enqueue` пригоден для callback Stage64: без обращения к менеджеру, подготовки массивов или ожидания вычислений. FIFO, защита повторных claim/координат, backpressure. Воркер вызывает только `World_Generator::prepare_owned_gpu_input`, готовый input передаётся перемещением указателя. `poll` на управляющем потоке проверяет world/claim/identity/координаты, освобождает неудачные заявки; занятый output защищён от перезаписи. `cancel`/`prune_stale` снимают незавершённые заявки, in-flight работа дренируется без публикации. `shutdown` прекращает admission, отменяет непринятые результаты и join воркера. Никаких новых Vulkan ресурсов.
+
+**Протестировано:** production queue, настоящий CPU-поток, stub генератора/менеджера, UBSan; FIFO, насыщение 8 слотов, 256 повторных handoff, отказ/исключение/неверные координаты, отмена queued/running/ready, устаревший claim и мир, изменение identity после завершения, shutdown с активной работой. Stage68 preparation (5120 полей, 163840 классификаций), Stage5–71 Vulkan mock, 130277 worldgen fastpaths PASS. Release configure блокируется отсутствующими OpenGL development libraries.
+
+**Осталось:** регистрация callback, отдельная обработка Ready в producer, согласование авторитетного света и перенос/сохранение GPU-owned чанков. Менеджер и неизменяемый генератор должны переживать очередь; перед сменой мира отключить callback и завершить очередь. Полученный Ready claim принадлежит вызывающему коду. Отмена не прерывает генератор посреди вычисления; shutdown может ждать текущую задачу. Полный build, реальная генерация из этого воркера и аппаратные измерения не проверены.
+
+### Этап 71 — Resident Skylight Scheduler
+
+**Сделано:** `ResidentSkylightScheduler` отслеживает только committed batches и эксклюзивные GPU world owners с `gpuBlockLightOwned`. Индекс (dimension, X, Z) → Y позволяет инвалидировать все нижние core в 3×3 горизонтальных колонках и один уровень выше изменения. CPU light-only и LOD-only не меняют прозрачность и не инвалидируют соседний sky; полные voxel uploads консервативно считаются изменением препятствий. `setBoundary` задаёт авторитетный потолок по измерению; `invalidateDimension` обновляет очередь при изменении таблицы прозрачности. Round-robin selection проверяет полноту вертикального halo, объединяет пересекающиеся области и ограничивает число jobs (72 по умолчанию) и кандидатов (32). Promoting/retiring исключаются. Отказ сохраняет pending; успешная публикация снимает задачу. `recordedCurrent` проверяет записанный актуальный sky конкретного core в наблюдаемом кадре, не завершение GPU. Пропуск committed batch вызывает восстановление индекса и консервативную инвалидацию. Без новых шейдеров, GPU-буферов и submissions.
+
+**Протестировано:** production stream/recorder с Vulkan mock: нижняя цепочка с пробелом не блокирует верхнюю, высокий roof инвалидирует core на пять уровней ниже, union 63 jobs вместо 108, границы бюджета 44/45 и 62/63, отсутствие сертифицированного потолка, LOD/light-only, повторный observe, promotion/cancel, потеря и восстановление верхнего уровня, no-sky, смена потолка, пропуск batch, stale selection и readiness, retirement. Mesa EGL: Stage69 688128 direct и 688128 final bytes vs CPU; Stage49 2359296 batch bytes vs BFS. CPU-worldgen: 130277 scenarios. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** Game registration, источник авторитетного потолка и отдельное планирование пропущенных уровней мира; строгий полный halo может не помещаться в budget. Нужна координация sky/block passes и promotion (не переносить dirty чанки); `recordedCurrent` не заменяет проверку fence или актуальности других данных. Сбросить scheduler при смене мира/отмене командного буфера. Нативная Vulkan validation и аппаратные измерения не выполнены. Далее — асинхронная очередь подготовки worldgen input.
+
+### Этап 70 — Resident Skylight Ceiling & Publication
+
+**Сделано:** `VulkanResidentLight::recordStreamSkyCore` получает текущие resident slots и расширяет полный halo по вертикали до явно заданного авторитетного `highestChunkY`. Все промежуточные уровни обязательны; отсутствующий чанк, недостаточный budget и потолок ниже halo отклоняют запрос. Открытая маска формируется только на верхних jobs; для измерения без неба достаточно halo и нулевых масок. Core сохраняет порядок. `publishStreamCore` допускает skylight только для эксклюзивного GPU world owner с плотной страницей и `gpuBlockLightOwned`, без активного promotion/retirement. Публикация копирует только core, повышает dataSerial и инвалидирует до 26 соседей. Оба stream light режима проверяют dataSerial исходных core страниц, предотвращая перезапись противоположного полубайта устаревшим scratch даже внутри одного кадра. Без новых GPU-буферов, pipeline, descriptor или submission.
+
+**Протестировано:** Stage5 production mock: расширение 27 до 45 jobs, девять верхних масок, пропущенный промежуточный уровень, отсутствующий потолок, недостаточный budget, no-sky seed-only, 32768 байт публикации, 27 dirty slots, отклонение CPU mirror, promotion/retirement, конфликт двух packed light результатов. Stage69 Mesa EGL: 688128 direct и 688128 final bytes vs CPU; Stage49: 2359296 batch bytes vs BFS. CPU-worldgen: 130277 scenarios. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** потолок и наличие неба должны предоставляться авторитетным источником конфигурации мира; интерфейс не доказывает отсутствие непрозрачных блоков за указанным потолком. Не поддерживается сокращение вертикальной цепочки через доказанные маски отсутствующих уровней; полный halo у границы мира отклоняется. Не добавлены skylight scheduler, vertical invalidation, очередь подготовки или Game integration. Нативная Vulkan validation и аппаратные измерения не выполнены.
+
+### Этап 69 — Resident GPU Skylight
+
+**Сделано:** `VulkanResidentLight::recordSky` и `recordSkyCore` восстанавливают старший полубайт света из фактических resident block pages без объекта `Chunk`. Вход — отдельная таблица sky transparency и 32 слова (1024 бита) на выбранный слот, описывающие авторитетную открытую верхнюю границу каждой непрерывной вертикальной цепочки. Маски внутренних слотов должны быть нулевыми. Один seed dispatch (4 workgroups по 64 invocation на job) проходит сверху вниз по связанным чанкам: один invocation владеет четырьмя X-колонками и пишет отдельное packed word на каждом Y. Затем 14 ping-pong проходов с затуханием 1 распространяют skylight по шести направлениям; при нулевых верхних масках propagation пропускается. Старый sky полностью заменяется, block light сохраняется побайтово, страницы источника не изменяются. `recordSkyCore` проверяет полный halo из 26 соседей и допускает дополнительные вертикальные уровни, `resultCore` возвращает только префикс core. Переиспользуются существующие pipeline, descriptor set, две scratch-банки и table buffer (без увеличения при <=256 jobs). Старые block-light режимы сохранены.
+
+**Протестировано:** production GLSL с адаптацией push constants под Mesa EGL: 688128 байт direct seeds и 688128 байт final vs independent vertical scan/BFS, три сцены по семь чанков (roof removal, no sky, nonuniform inline words, dense pages, broken vertical chain, direct light через 96 вокселей, low nibble и guard words). Stage49 block-light regression: 131072 core bytes и 2359296 batch bytes vs BFS. Stage5 mock: запись seed/propagation, 15 dispatch, 16 barriers, all-dark fast path, неверные маски, неполный halo, core prefix, epoch/busy. 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** источник верхней маски должен быть авторитетным для всего пространства над цепочкой; неизвестные границы нельзя принимать за открытое небо. Внешний halo замкнут для бокового propagation; точность core требует корректных масок всех его halo-колонок. Нет автоматического формирования масок для отсутствующих чанков, publication skylight в resident arena, GPU-owned skylight scheduler и интеграции с producer/Game. Нужна проверка соответствия sky transparency из Block_Registry и фактических верхних границ CPU/GPU мира. Нативная Vulkan validation, полный build, FPS не проверены.
+
+### Этап 68 — Prepared Owned Worldgen Input
+
+**Сделано:** `World_Generator::prepare_owned_gpu_input` готовит точный уровень региональных данных и ordered edits без создания `Chunk`, CPU-массива базовых блоков и readback. Используются существующие `prepare_chunk_column`, `extract_gpu_base_region` и `collect_generation_overlay`; подземный фильтр legacy material selector не применяется. Передаются 1024 высоты и биома, профили поверхности и рек, маска пещер и сгруппированные команды декораций/деревень. Поддерживается Noise с землёй; неподдерживаемый режим, выход за Y, крайний X/Z, отсутствующие региональные подсистемы, невалидные поля и переполнение команд отклоняются без изменения предыдущего результата. `PreparedOwnedOverlayProducer::start_prepared` принимает готовый вход по перемещению, проверяет координаты и идентичность генератора/эпохи/seed/измерения/биома/папки до submission и после обоих fence. Корректный свет остаётся обязательным независимым входом.
+
+**Протестировано:** production preparation и region packing с детерминированными terrain/decoration stubs под UBSan: пять уровней, 5120 полей колонок, 163840 классификаций пещер, порядок декораций и деревень, отсутствие base array, пустые команды, отказ без изменения результата, конфигурация мира. Producer: несовпадение координат, мира и конфигурации до запуска и после каждого fence. Stage33 region/adoption, Stage39 runtime mock, Stage5 stream mock, 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** региональная подготовка и планирование структур пока выполняются на CPU и могут быть дорогими; вызывающий код должен обеспечить неизменность и время жизни генератора, а при отказе подготовки отменить pending claim. Не реализовано доказательство полной CPU/GPU parity, получение авторитетного света без CPU Chunk, асинхронная очередь подготовки, автоматический lifecycle/save и Game registration. Новый путь не меняет игровой конвейер; полная сборка, нативная Vulkan validation и FPS не проверены.
+
+### Этап 67 — Certified Owned Worldgen Transaction
+
+**Сделано:** `PreparedOwnedOverlayProducer::start_certified` связывает одну заявку Stage64 с одним уровнем Base Worldgen и последующим Overlay без CPU-массива ID. `prepare_certified_snapshot` компилирует ordered edits без исходного массива. Producer проверяет мир, измерение, входной размер и точное соответствие положительного сертификата координатам, затем сам запускает Overlay; публикация через Stage63 только после второго fence. Неполный сертификат, отказ записи или admission возвращают pending claim CPU-планировщику. Отмена на любой стадии дренирует уже отправленную работу и не позволяет занять координаты новой заявки. Один активный чанк на producer, выделенный backend на срок жизни одного World_Generator.
+
+**Протестировано:** production producer и manager gates с stub backend/stream под UBSan: две стадии, пять вариантов некорректных сертификатов, отмена и повторный claim, неверный мир, отказ Base/Overlay/admission. Stage39 runtime mock, Stage5 stream mock, 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** подготовка региональных данных и структур, корректное освещение, Game registration, автоматический lifecycle и сохранение. Сертификат не доказывает CPU parity. Пока нет автоматической GPU-only генерации в живом мире; полный build и нативный Vulkan не проверены.
+
+### Этап 66 — GPU Base Completion Certificate
+
+**Сделано:** опциональный `start_base_certificate` / `poll_base_certificate` вместо полного чтения базовых блоков. Шейдер material в base mode считает полностью разрешённые workgroups: 512 на уровень, 64 вокселя на группу. Счётчики обнуляются перед submission, отсутствие записи не является успехом. `0xffff` в любой половине слова исключает соответствующую группу; air=0 допустим. После fence CPU читает 4 байта на уровень и получает ticket только для полностью разрешённых уровней. `start_overlay_certified` проверяет ticket, индекс и координаты, требует пустой CPU base и валидные ordered edits, копирует 64 КиБ из сохранённого material buffer и завершает существующим snapshot-only путём. Новый material dispatch инвалидирует старые tickets; без структур нет Overlay dispatch. Буфер увеличен на 36 байт, push constant — 64 байта. Прежние игровые start/poll сохранены.
+
+**Протестировано:** production recording/poll и transfer в mock под UBSan: reset счётчиков, неполный и нулевой результат, отказ до fence, координаты, stale ticket, обычный readback, копирование 64 КиБ без CPU base. Mesa EGL: 327680 вокселей в десяти уровнях, счётчики совпадают с полным сканированием, включая sky fallback и одиночную численную неопределённость. Stage32/33 adoption, Stage5 mock, 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** сертификат гарантирует только отсутствие sentinel в вычисленных группах, не CPU parity и не валидность всех материалов. Вызывающая сторона обязана готовить корректные региональные данные, команды структур и свет для того же мира и координат. API не зарегистрирован в Game и ещё не связан с автоматической заявкой Stage64/65; отклонённые уровни должны возвращаться CPU-планировщику. Полная сборка, нативная Vulkan validation и FPS не проверены.
+
+### Этап 65 — Prepared GPU Overlay Producer
+
+**Сделано:** `VulkanMaterialWorldgen::start_overlay_snapshot` и `poll_overlay_snapshot` выполняют Overlay из полностью разрешённой базы и точных ordered edits, резервируют один из трёх существующих GPU-снимков до записи команд и возвращают сильную ссылку после fence. Нет чтения блоков, metadata, edit count или CPU replay результата. Отдельный режим не требует FP64 material pipeline: command pool/fence инициализируются независимо. Проверяется CSR (непересекающиеся владельцы, полный диапазон, размеры, fallback ID), запрещены неподтверждённый base reuse и незавершённая локальная генерация света. Пустой Overlay копирует точную базу и нулевые метаданные без dispatch. При исчерпании пула отказ до submission; штатный validated Overlay не изменяет контракт. `PreparedOwnedOverlayProducer` связывает одну асинхронную задачу с исходным Stage64 claim, получает lease и публикует source-only packet через `submitClaimedGpuChunk`. Передаётся авторитетный свет, консервативные meshKinds=3; отменённый claim дренируется до fence и не публикуется. Отказ и исключение возвращают pending claim CPU. Дополнительные snapshot buffers не создаются сверх прежнего пула на экземпляр backend.
+
+**Протестировано:** production Overlay recording/poll bodies в Vulkan mock под UBSan: 10 повреждённых входов, no-op, ноль host read calls и host-read barriers, fence, обязательный lease, pool pressure, устаревшие ticket, ошибка fence/submit; production producer + manager gates со stub backend/stream под UBSan: success, busy, cancellation/drain, stale claim, отказ/исключение admission, возврат CPU. Stage5 mock, Stage37/39 Overlay (524288 и 262144 block/meta comparisons), 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** producer пока не зарегистрирован в Game. Вызывающая сторона обязана подготовить точную базу, все команды структур и корректный свет для исходной координаты, удерживать backend/stream/manager до drain и отслеживать published ownership tokens. Отказ от полного CPU replay означает, что structural validation не доказывает совпадение GPU-вычислений с CPU. Нативная Vulkan validation, полная сборка и FPS не проверены. GPU-only terrain, автоматические promotion/eviction и сохранение остаются открытыми.
+
+### Этап 64 — GPU World Streaming Policy
+
+**Сделано:** `Gpu_World_Streaming_Policy.h` классифицирует кандидатов по отдельному CPU-радиусу, защитному кольцу и существующему вертикальному окну. `Chunk_Manager::load_around` предлагает ограниченную часть очередной CPU-пачки зарегистрированному GPU-производителю до `enqueue_chunk_column_load`. Claim выделяется до вызова producer; принятые задачи исключаются обычным CPU admission gate. При отказе/исключении claim снимается, исходная задача остаётся в CPU-пачке без перепланирования. До 8 проверок claim и 2 принятых задач на один вызов `load_around`, не на кадр; сохраняется исходный общий бюджет. Pending policy claims отменяются при выходе из окна/входе в CPU-зону, замене producer или отключении Vulkan; bind повторно проверяет политику. Bound claims не удаляются автоматически. Новых GPU-ресурсов нет.
+
+**Протестировано:** production policy/admission/prune/bind в изолированном тесте Stage61 под UBSan, near/far, tapered vertical window, extreme coordinates, save/job conflict, отказ/исключение, budgets, stale pending, bound retention, detach — PASS. Stage5 Vulkan mock, 8 feed configurations, 130277 CPU-worldgen scenarios — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** реальный GPU-only producer, управление bound ownership по дистанции, readback/promotion scheduler, save и полный GPU worldgen. Producer не зарегистрирован в Game, политика не меняет обычную CPU-генерацию. Отдельный CPU-радиус пока параметр API, а не настройка UI. Полная сборка и аппаратные измерения не выполнены.
+
+### Этап 63 — CPU scheduler GPU-world claims
+
+**Сделано:** `Chunk_Manager` получил долгоживущие owner-thread claims (до 4096, отдельно от двух promotion reservations). `claim_gpu_chunk` резервирует координаты до GPU-генерации, проверяя отсутствие CPU-объекта, CPU-job, сохранения и pending writer. Single/column/backlog admission и worker completion используют единый `cpu_generation_excluded`. `bind_gpu_chunk_claim` повторно проверяет условия при публикации; pending claim можно отменить, bound claim сохраняется при отмене readback. `submitClaimedGpuChunk` связывает claim с эксклюзивным GPU-источником и откатывает при отказе admission. `ClaimedGpuChunk` привязывает токены менеджера и стримера; promotion требует соответствующего claim. Успешный commit или разрешённый discard освобождает CPU claim только после retirement GPU-слота. Отмена/освобождение перепланирует CPU backlog. Счётчик ticket не переполняется с повторным использованием ID. Capture отклоняется при активных claims. Новых GPU-ресурсов нет.
+
+**Протестировано:** production claim/reserve/commit functions и adapter со stub stream/storage/registration, реальный CPU slot pool под UBSan; pending/bound, смена wanted window, CPU/disk conflict, rollback admission/exception, отмена и повтор promotion, cross-manager/stream ticket, 4096 claims, исчерпание serial, retirement — PASS. Actual stream Vulkan mock (Stage62), восемь feed configurations, 130277 CPU-worldgen cases — PASS. Release configure: отсутствуют OpenGL development libraries.
+
+**Осталось:** подключить выбор GPU-only кандидатов до `load_around`, producer и автоматическое управление жизненным циклом claims/readback при движении и смене мира. Пока новый API не вызывается из Game, CPU-worldgen сохраняется. Claims не снимаются автоматически при смене радиуса/backend/world: владелец обязан отменить pending, корректно завершить/сохранить bound, дождаться retirement и освободить claim до перехода. После массового reset действует ограничение Stage61. Полный manager build, live-world promotion, native Vulkan validation, FPS не проверены.
+
+### Этап 62 — Exclusive GPU world ownership registry
+
+**Сделано:** `VulkanChunkStreamGpu` получил отдельный owner-thread вход `submitOwnedGpuSnapshot`, реестр по координатам и process-wide ownership/promotion ticket. Состояния Queued, Resident, Promoting, Retiring. Обычный CPU mirror packet не может заменить защищённый источник; batch отклоняется до изменения очереди, обычный evict игнорируется. Снимок readback привязывается к конкретной попытке переноса; проверки Stage59/60/61 сохраняются. Отказ CPU commit оставляет транзакцию для повторной попытки, отмена возвращает GPU-владение. После успешного commit либо явного разрешённого discard старый слот освобождается в следующем record, прежде чем разрешить CPU-пакет (независимо от численного instance ID). `OwnedChunkPromotion.h` связывает резервирование CPU, отмену и commit с токенами стримера. Новых GPU-ресурсов нет.
+
+**Протестировано:** actual stream + Vulkan mock: эксклюзивный вход, pending/resident collision, batch preflight, two-promotion budget, stale ticket/readback, 131072 bytes roundtrip, retry, cancellation, retirement, lower CPU instance, shutdown/restart. Production manager reservation/commit + adapter в изолированном stub окружении под UBSan, восемь конфигураций feed, 130277 CPU worldgen fastpaths — PASS. Release configure блокируется отсутствием OpenGL development libraries.
+
+**Осталось:** интегрировать реестр с CPU scheduler до начала GPU-only generation; текущий реестр защищает renderer stream, а не саму CPU world generation или запись. Caller обязан исключить CPU producer и подтвердить отсутствие сохранения до claim, своевременно разрешать отменённые CPU reservations, дренировать readback и подтверждать допустимость discard. Game пока не вызывает новый вход. Нет автоматической promotion policy, GPU-only worldgen, background save, native Vulkan validation или измеренного FPS.
+
+### Этап 61 — CPU promotion reservation / commit
+
+**Сделано:** `Chunk_Manager` получил два owner-thread reservation slot с уникальными ticket. Резервирование исключает обычную постановку CPU-загрузки и принятие запоздавших worker-результатов для координаты. Проверяются измерение, окно загрузки, отсутствие CPU-объекта и задачи, отсутствие записи в открытом region index, pending writer и legacy-файле. Недоступное хранилище не считается пустым. `commitResidentChunkPromotion` восстанавливает приватный объект Stage60, переносит его voxel storage в обычный `Chunk_Slot_Pool` со свежим instance ID, проверяет актуальность источника непосредственно перед публикацией и использует тот же `register_arrived_chunk`, что и обычная загрузка (свет, жидкости, меши, epoch). Чанк modified для штатного сохранения; немедленная запись на диск не выполняется. Отмена перепланирует CPU backlog. После массового сброса очереди, capture или повторного связывания мира promotion отключён до создания нового менеджера: старый worker может ещё писать на диск.
+
+**Протестировано:** production reservation/commit и storage gates в изолированном stub-окружении под UBSan, реальный Chunk_Slot_Pool, повтор после исчерпания пула, rollback, stale/cross-manager ticket, disk/legacy/pending writer rejection. Проверено совпадение тела общей регистрации со Stage60 (кроме форматирования и неиспользованной переменной). Stage60 reconstruction: 1048576 voxel triples, 1024 layer counts, 32768 heightmap entries. Vulkan Stage5 mock и 130277 worldgen fastpaths — PASS. Полная Release-конфигурация блокируется отсутствием OpenGL development libraries.
+
+**Осталось:** подключить authoritative GPU-only world registry, автоматически инициировать readback/promotion, запретить GPU-правки при передаче владения и реализовать долговременную защиту worker-транзакций после сброса очереди. Интерфейс не вызывается Game: source-only renderer mirror не является самостоятельным владельцем мира. Caller обязан доказать GPU authority, исключить конкурентные producers, удерживать исходный GPU-чанк и разрешать CPU fallback только для воспроизводимых данных. Нет native Vulkan validation, полного теста регистрации в живом мире или измеренного FPS.
+
+### Этап 60 — CPU chunk promotion preparation
+
+**Сделано:** `Chunk::from_resident_words` создаёт новый приватный CPU Chunk из трёх packed-каналов resident readback, без повторного worldgen/overlay. Один uint32 может задавать повторяющийся рисунок, а не обязательно один ID/байт. Восстанавливаются палитра, sparse metadata, оба канала света, заполненность слоёв и heightmap; однородные данные остаются компактными. Проверяются размер, измерение, диапазон координат и известные ID. Новый объект получает собственный instance/revisions, dirty mesh и флаг modified для последующего сохранения. `residentReadbackQuiescent` дополнительно отклоняет queued update/eviction для того же ключа. `prepareResidentChunkPromotion` проверяет ключ и актуальность до и после построения. Это подготовка, не вставка в Chunk_Manager: вызывающий код обязан владеть переходом, исключить конкурентных producers, подтвердить GPU-only ownership и отсутствие CPU объекта.
+
+**Протестировано:** production reconstruction + inline adapter со stub окружением под UBSan: 1048576 voxel triples, 1024 layer counts, 32768 heightmap entries, 32 сцены; неправильные размеры, неизвестные ID, неверные координаты/измерение и stale rejection. Stage5 mock: pending update, pending eviction, unrelated queue entries, прежние readback/lighting/stream regressions. Stage37/39 overlay 524288 + 262144 voxel comparisons; CPU worldgen 130277 scenarios PASS. Release configure blocked by missing OpenGL development libraries.
+
+**Осталось:** автоматическое владение GPU-only чанками, резерв CPU-слота и атомарный commit в Chunk_Manager, включение освещения/игровых событий и сохранение, планировщик promotion/eviction. Штатный игровой путь Stage59 сохранён. Флаг modified только разрешает обычное сохранение; запись на диск не выполнена. Native Vulkan validation и FPS не измерены.
+
+### Этап 59 — asynchronous resident voxel readback
+
+**Сделано:** добавлен обратный интерфейс GPU → CPU для резидентных блоков, метаданных и света: `recordResidentReadback`, `takeResidentReadback`, `residentReadbackCurrent`. Независимые страницы копируются в lazy HOST_VISIBLE буфер кадра, inline-каналы возвращаются одним словом. Fence существующего кадра, без дополнительных submit/wait. До двух незавершённых снимков; до 128 КиБ GPU staging на слот кадра. Независимый serial меняется при voxel upload и GPU light publication, но не при LOD-only или миграции арен. Исторический снимок остаётся доступен после вытеснения, а проверка актуальности отклоняет его для переноса.
+
+**Протестировано:** Stage5 mock — 131072 байта после освобождения исходного GPU-снимка, uniform/dense/fixed страницы, защита fence, OOM, stale, LOD, eviction/restart и transfer/host barriers; Stage51 mock — 32768 байт опубликованного GPU-света и отклонение снимка до публикации. 130277 CPU worldgen scenarios PASS. Release configure blocked by missing OpenGL development libraries.
+
+**Осталось:** автоматическая GPU-only residency и promotion в CPU Chunk, проверка pending updates/ownership, сохранение, native Vulkan validation и аппаратные измерения. Новый API не вызывается игровым циклом; штатный путь Stage58 сохранён. FPS не измерен.
+
+### Этап 58 — leased GPU source packets
+
+**Сделано:** игровой feed до распаковки блоков получает сильную ссылку на актуальный проверенный `OverlaySnapshot` через callback Vulkan stream. При попадании в пул передаёт пакет без CPU blockWords, с пустым metaWords для плотного канала или одним словом для uniform metadata. Dense diagnostic mode пропускает оба unpack; compact mode сохраняет проверку uniform metadata через существующую упаковку sparse entries. Свет остаётся CPU payload. Planner сохраняет lease при coalescing LOD/light, задержке admission, освобождает при eviction/replacement; stream переносит ссылку в frame fence lease и копирует GPU-данные в физические страницы. При отсутствии/устаревании источника до отправки используется обычный CPU snapshot. Невалидный lease отклоняет весь callback. Для source-only resident нет CPU boundary cache: изменения и eviction консервативно инвалидируют 26 соседей, LOD-only не затрагивает соседей; полный CPU snapshot восстанавливает точные границы. Добавлен owner-thread API `submitGpuSnapshot` для будущих GPU producers. Режим включён по умолчанию, A/B `OPTICRAFT_VULKAN_GPU_SOURCE_PACKETS=0`.
+
+**Протестировано:** production feed + mock chunks (8 комбинаций), отсутствие unpack блоков при lease hit и CPU fallback при смене ревизии/истечении источника; core planner; Stage5 Vulkan mock: 98304 byte GPU copy, 32768 byte CPU light, очередь и fence lifetime, light/LOD coalescing, неизвестные границы, восстановление точного boundary, inline metadata, отмена lease и atomic invalid lease rejection; Stage38 EGL (262144 block/meta comparisons), 130277 CPU worldgen scenarios PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation and hardware tests not performed.
+
+**Осталось:** CPU readback, validation, CPU Chunk и save остаются; это источник для стриминга, не генерация GPU-only чанка. Три временных snapshot могут дольше оставаться занятыми при backpressure. Неизвестные границы увеличивают remesh; плотное metadata в compact mode пока упаковывается для проверки uniform, затем временный массив освобождается. GPU-only ownership, независимый от CPU объектов worldgen, skylight и promotion не реализованы. FPS не измерен.
+
+### Этап 57 — independent light payload
+
+**Сделано:** `LiveChunkPacket::lightOnly` передаёт только свет при изменении dirty epoch или владельца света и неизменных instance/blocksVersion/material kind flags. Planner проверяет источник до изменения очереди, объединяет свет с ожидающим full snapshot без потери block/meta или overlay ticket, и совместим с последующим LOD-only. Для resident source обновляет boundary light bytes поверх сохранённых ID/metadata, сохраняет физические страницы блоков и метаданных; GPU-owned updates/handback консервативно инвалидируют 26 соседей. Page admission учитывает только световой канал; обычная и indirect адресация сохраняются. При отклонении control callback feed помечает отправленные ключи для повторного полного snapshot, не теряя их для последующей выгрузки. Включено по умолчанию; `OPTICRAFT_VULKAN_LIGHT_CONTROL=0` для A/B.
+
+**Протестировано:** production feed + mock chunks (6 комбинаций), core planner: coalescing, LOD composition, source rejection, retry, interior/face light updates и сохранение точного boundary; Stage5 mock: 98304 неизменных block/meta bytes, сохранение физических адресов, 32768 bytes light-only staging, dense/inline/owned/handback, fixed-address path, regressions; CPU worldgen 130277 scenarios PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation and hardware tests not performed.
+
+**Осталось:** первичная генерация/публикация CPU snapshot и readback сохраняются. Оптимизация зависит от корректности blocksVersion (включая metadata); dirty epoch не является отдельной ревизией света, поэтому возможна лишняя передача света при геометрической инвалидации. Нет GPU-only чанков, promotion или измеренного FPS.
+
+### Этап 56 — LOD control packets
+
+**Сделано:** `LiveChunkPacket::lodOnly` отделяет camera-only LOD transition от voxel snapshot. Для совпадающих instance, blocksVersion, meshVersion, ownership и material kind flags три массива вокселей не создаются. Planner проверяет источник до изменения очереди, объединяет LOD с ожидающим полным пакетом без потери его данных или overlay ticket, а для resident source обновляет только LOD metadata и ставит один слот на remesh. Нет voxel unpack/pack, проверки шести границ, page admission или voxel transfer для committed control packet. Устаревшие ревизии не применяются; при потере источника feed сбрасывает подтверждения и повторяет полный snapshot. Изменения блоков, dirty epoch и владения светом сохраняют полный путь. Включено по умолчанию; `OPTICRAFT_VULKAN_LOD_CONTROL=0` для A/B.
+
+**Протестировано:** production feed + planner с mock chunks в четырёх комбинациях compact/dense и control/full; отсутствие вызовов unpack, atomic rejection, retry после eviction; core tests — pending full coalescing с сохранением overlay ticket, stale/invalid source, duplicate key, new source supersession, no admission, unchanged boundary cache, local remesh; Stage5 Vulkan mock — сохранение 98304 bytes block/meta и 32768 bytes light после истечения ссылки Stage55, неизменные physical offsets и transfer counters. CPU worldgen 130277 scenarios PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan and hardware tests not performed.
+
+**Осталось:** это отделение управляющего протокола от данных, не GPU-only generation. Первоначальный snapshot, изменение source revisions, CPU generation/validation/save и promotion ещё требуют CPU-данных. LOD-only опирается на существующий контракт dirty epoch; не выявляет незарегистрированные изменения вокселей. FPS не измерен.
+
+### Этап 55 — resident overlay GPU handoff
+
+**Сделано:** после GPU Overlay runtime сохраняет блоки и метаданные в ограниченном пуле из трёх лениво выделяемых device-local snapshots по 96 КиБ. Снимок получает ticket и становится доступным только после fence/readback. Production CPU validation передаёт слабую ссылку только при полном совпадении результата; `Chunk` привязывает её к blocksVersion, mutable grid access аннулирует ссылку. Feed сохраняет полный CPU fallback. Stream проверяет ticket, ready, device и размер, использует GPU copy для плотных block/meta channels; uniform/inline и CPU light остаются без изменений. Снимок удерживается сильной ссылкой до повторного использования frame slot после fence, занятые снимки не перезаписываются. При отсутствии свободного буфера, устаревшей ссылке или отказе выделения действует обычная загрузка. Режим включён по умолчанию; `OPTICRAFT_VULKAN_WORLDGEN_RESIDENT_REUSE=0` отключает создание снимков. FPS-лог `overlay GPU KiB` считает записанный объём GPU-to-GPU копирования в resident pages.
+
+**Протестировано:** production runtime mock под UBSan: три снимка, ticket после fence, 96 КиБ copy, заполненный пул, повторное использование свободного буфера; Stage5 mock: 98304 байта block/meta, независимые ненулевые physical offsets, рост арен, 32768 байт обычной light upload, fence lifetime, expired/stale/device fallback, inline metadata. Production validation mock: передача ссылки только при принятии; feed compact/dense, Stage34 handoff, Stage38 EGL (262144 voxel comparisons), CPU worldgen (130277 scenarios) PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation and hardware tests not performed.
+
+**Осталось:** CPU readback, проверка, построение и сохранение чанка, упаковка полного fallback packet и CPU light остаются. Дополнительная GPU копия в snapshot (96 КиБ), до 288 КиБ payload пула и барьер могут не окупаться при низкой доле попаданий или UMA. Хранение ограничено последними свободными снимками; доля попаданий и FPS не измерены. Это GPU-to-GPU publication проверенных плотных каналов, не GPU-only worldgen; непосредственная генерация в арену и CPU promotion не реализованы.
+
+### Этап 54 — retained GPU base handoff
+
+**Сделано:** после завершения Vulkan base dispatch и readback выдаётся уникальный ticket исходного буфера. До CPU adoption воркер запоминает индексы не более 16 packed words с fallback ID. Для принятого базового уровня `Gpu_Overlay_Work` переносит ticket, физический порядковый номер уровня и список исправлений. При совпадении ticket текущего material buffer GPU копирует 64 КиБ напрямую в overlay storage через `vkCmdCopyBuffer`; разрешённые CPU fallback исправляются через `vkCmdUpdateBuffer` (до 64 байт, соседние слова объединяются). Барьеры compute/transfer → transfer, transfer → compute и transfer/compute → host учитывают также слова, не изменённые overlay shader. При новом base dispatch ticket аннулируется; устаревший, неподходящий или слишком большой repair list использует обычную CPU upload. Подготовленный overlay с ticket получает приоритет в пределах двух существующих GPU credits; очередь не ждёт валидацию. Режим включён по умолчанию, A/B `OPTICRAFT_VULKAN_WORLDGEN_BASE_REUSE=0`. Новых GPU-буферов, дескрипторов и submission нет.
+
+**Протестировано:** production overlay runtime mock под UBSan: два 64 КиБ copy, три repair words (12 байт, две команды), ноль полных host writes на reuse path, source unchanged, четыре fallback upload, fence, legacy mode, граница 16/17. Production validation handoff mock: передача ticket и repair indices, corruption, sky fallback, epoch reset. Stage33 base adoption (65536 repaired-result comparisons), Stage38 EGL (262144 block/meta comparisons), CPU worldgen (130277 scenarios) PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation and hardware tests not performed.
+
+**Осталось:** readback базовых блоков и полная CPU-валидация остаются; copy выполняется в overlay scratch, не в резидентную арену. Если следующий base dispatch успел перезаписать буфер, reuse не применяется. Дополнительные transfer команды и барьеры могут не дать выигрыша, особенно на UMA. Порог 16 слов эвристический, доля попаданий и FPS не измерены. Следующий этап — безопасная передача финального GPU-результата в резидентные страницы с контролем ревизий и времени жизни; GPU-only ownership и CPU promotion не реализованы.
+
+### Этап 53 — render-only resident light pilot
+
+**Сделано:** игровой Vulkan feed выбирает один дальний core среди уже выбранных резидентных чанков: горизонтальная Chebyshev-дистанция ≥8 для входа и ≥6 для удержания, nonempty, неоднородный CPU light grid, полный 3×3×3 halo в пределах существующего selected budget. CPU snapshot остаётся полным; GPU владеет только блочным светом копии в рендерере. Handback при приближении, потере окружения или отключении пилота отправляется раньше обычных snapshots. `lightOwnershipRevision` независим от blocksVersion/meshVersion и LOD; старые решения отклоняются даже при поздней доставке, смена владельца требует нового voxel upload. Игра включает пилот по умолчанию при modern voxel pages и доступном runtime; при отказе инициализации runtime передача владения прекращается. Диагностика `light pilot/Q/recorded` показывает выбранный core, очередь и число записанных core publications (не подтверждение GPU completion). Для A/B: `OPTICRAFT_VULKAN_RESIDENT_LIGHT_PILOT=0`.
+
+**Протестировано:** production feed + planner с mock chunks в compact/dense режимах: complete halo, hysteresis, handback без изменения source revisions, missing corner, disable, stale queued/resident policy rejection и сохранение CPU payload. Stage5 mock — same-source handback, реальные page allocation/copy, scheduler. Stage49 EGL: 131072 core bytes vs full BFS, 2359296 batch bytes vs closed BFS; 130277 CPU fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation and hardware tests not performed.
+
+**Осталось:** это пилот рендер-копии, не GPU-only worldgen: CPU продолжает генерацию, распространение света, игровую логику и сохранение. При backpressure переход может ждать очереди, выбранный halo не гарантирует немедленную GPU residency. Пилот может не найти подходящего чанка и добавляет вычисления; прирост FPS не заявляется. Генерация напрямую в GPU-арены, GPU-only ownership, promotion/readback и skylight остаются следующими задачами.
+
+### Этап 52 — resident light scheduler
+
+**Сделано:** `ResidentLightScheduler` отслеживает только committed `StreamBatch` uploads/releases, включая CPU-owned источники в halo; LOD-only update не сбрасывает свет. Dirty GPU-owned core keys дедуплицируются, eviction/CPU handback удаляет их из очереди. Round-robin selection проверяет до 32 кандидатов за кадр, сохраняет incomplete halo, объединяет полный halo одного измерения в пределах 36 jobs. `VulkanLiveWorldRenderer` вызывает scheduler после `stream.record`, до meshing, с учётом mesh backpressure/Emit. Runtime создаётся лениво отдельно на каждый frame slot, retire после fence, публикация в том же primary; dirty key снимается только после успешной записи публикации. Обычный CPU-owned feed не запускает dispatch и не выделяет scratch. Таблица материалов использует CPU `sky_transparent_table` и `light_emission_table`.
+
+**Протестировано:** Stage5 mock production stream, scheduler и recorder: missing halo и готовый сосед, 26/27/36 job budgets, CPU-owned halo update, LOD-only, объединение двух core, retry после отказа, старый serial, eviction/refill, handback, другой dimension, queue reset. Stage49 EGL — 131072 core bytes vs full BFS и 2359296 batch bytes vs closed BFS; 130277 CPU worldgen fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan/SPIR-V and renderer hardware tests not performed.
+
+**Осталось:** игровой feed пока не создаёт GPU-owned чанки. Incomplete halo сохраняет исходное освещение до полного окружения; при отказе runtime initialization логируется ошибка и новые dispatch не выполняются до переинициализации рендерера. Нет CPU fallback для будущего GPU-only producer, readback/promotion, GPU sky propagation и GPU-only generation. Бюджет 36 jobs (до 64512 workgroups) выбран эвристически, не является миллисекундным лимитом; требуется профилирование. Измеренный прирост FPS не заявляется.
+
+### Этап 51 — owned resident light publication
+
+**Сделано:** добавлен явный `gpuBlockLightOwned` в `LiveChunkPacket` и `StreamResident` (default false для игрового CPU feed). Владение меняется только при новой source revision/instance, не при LOD-only update. Для GPU-owned чанка light page резервируется плотной уже при admission; однородный вход разворачивается через GPU fill, нехватка страниц оставляет пакет в очереди. `VulkanResidentLight::publishStreamCore` принимает только записанный в том же кадре core и `StreamBatch` того же stream/serial; проверяет все поколения, ownership, dense ranges до первой записи. Один batched `vkCmdCopyBuffer` переносит только core prefix из scratch bank 1 в фактические light pages с compute/graphics/transfer → transfer и transfer → shader/transfer зависимостями. Halo не перезаписывается. `remeshSlots` пополняется объединением core и их 26 соседей до вызова meshing; повторная публикация запрещена. При CPU handback/новом voxel upload в GPU-owned области не используется старая boundary snapshot для исключения ремешинга. LOD-only update с неизменным источником сохраняет GPU-свет. Legacy fixed-address stream не принимает GPU ownership. Нет readback, дополнительного compute dispatch или submission.
+
+**Протестировано:** Stage5 Vulkan mock с production stream/runtime: два core и halo из 36 чанков, заполнение dense из uniform, рост/лимит страниц и повторное admission после eviction, разные scratch patterns (65536 целевых байтов, 32768 неизменённых halo bytes), CPU dense/inline rejection, mixed ownership без частичной записи, wrong frame/batch, duplicate publish, barriers, 36 remesh slots, LOD preservation, отказ LOD-only handback, новый source revision CPU handback и 27 dirty slots. Stage49 EGL — 131072 core bytes vs full BFS и 2359296 batch bytes vs closed BFS; 130277 CPU worldgen fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan/SPIR-V and hardware tests not performed.
+
+**Осталось:** штатный игровой feed пока не передаёт GPU ownership; автоматический запуск resident lighting и публикация из игрового цикла не подключены. Caller должен вызвать публикацию до meshing, отправить тот же primary на одной очереди и retire после fence. GPU-owned вход требует authoritative skylight и последующего планового пересчёта block light; нет CPU readback/promotion, GPU sky relight, dirty-region scheduler или гарантированного пересчёта при edit/unload. Плотная light page стоит 32 КиБ на GPU-owned чанк, даже если результат однороден. Измеренный прирост FPS не заявляется.
+
+### Этап 50 — stream-owned resident light snapshot
+
+**Сделано:** `VulkanChunkStreamGpu` формирует snapshot необходимого core/halo непосредственно из актуальных поколений стабильных слотов и независимых физических block/light pages. Допускаются только `ChunkHandle` текущего поколения, одно измерение, modern page addressing и полный halo в пределах бюджета. `VulkanResidentLight::recordStreamCore` использует реальные resident buffers; `resultStreamCore` предоставляет только core prefix для потребления в том же primary command buffer после `stream.record()`. Серийный номер меняется при каждом record (включая no-op) и shutdown, отдельно от allocation epoch. Старые кадры, другой command buffer/stream и raw result API для stream-транзакции отклоняются. Внешние producer callbacks только ставят изменения в очередь; planner доступен извне только для чтения. Следующие transfer команды на той же очереди упорядочены после compute-чтения существующим барьером; при росте/сжатии старые buffers удерживаются до fence миграции. Постоянной копии страниц, новых GPU-буферов, readback и глобальных ожиданий нет.
+
+**Протестировано:** Stage5 Vulkan mock с реальным stream/planner/page allocator: 27 halo + чанк другого измерения, dense/inline addressing, проверка descriptor offsets, wrong command/frame, duplicate/mixed dimensions, очередь изменений, рост block/light arenas, transfer dependency, сохранение старых buffers до fence, no-op serial, отсутствие halo, refill, reused generation, legacy addressing, shutdown. Stage49 EGL — 131072 core bytes vs full BFS и 2359296 batch bytes vs closed BFS; 130277 CPU fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan validation/hardware tests not performed.
+
+**Осталось:** игровой вызов и публикация не подключены. Same-command lifetime contract не является произвольным асинхронным pinning: caller обязан записать и отправить кадры в порядке одной graphics/compute queue, не использовать сохранённый Result в другом кадре, вызвать retire после fence. CPU пока авторитетный владелец света; необходима модель владения GPU-only чанками, публикация dense/inline страниц и инвалидация мешей, bounded scheduling. Snapshot временно выделяет до 64 байт на логический слот CPU (256 КиБ при 4096), заполнены только halo. Измеренный прирост FPS не заявляется.
+
+### Этап 49 — strict resident light core/halo
+
+**Сделано:** `ResidentLightBatch::selectCore` формирует объединение окрестностей 3×3×3 для целевых слотов, сохраняя core в начале списка и удаляя дубликаты halo. Радиус блочного света при cap 14 и затухании на единицу — 13 вокселей, меньше ширины чанка 32; полный halo включает грани, рёбра и углы. При отсутствии хотя бы одного слота, дубликатах координат/целевых ID или превышении бюджета пакет отклоняется целиком. `recordGeneratedCore` использует существующий Vulkan-runtime и проверки физических диапазонов/взаимных связей; `resultCore` возвращает только непрерывный префикс целевых световых страниц при совпадении epoch, без результатов внешнего halo. Шейдеры, дескрипторы и число dispatch не изменены. В игровую арену результат пока не публикуется.
+
+**Протестировано:** Stage49 Mesa EGL — 131072 core bytes vs BFS 45 чанков, 2359296 batch bytes vs closed BFS 36 чанков, удаление источника, диагональный свет, фактическое отличие внешнего halo, сохранение sky и guards. Stage5 Vulkan mock: 27/36 slots, deduplication, core order, missing/duplicate/over-budget, invalid links, dispatch/barriers, byte range, epoch и busy/retire. 130277 CPU fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan/SPIR-V and hardware tests not performed.
+
+**Осталось:** автоматический pinning физических страниц, согласованный snapshot стриминга, публикация и интеграция в игровой цикл. Отсутствующий halo требует CPU fallback, включая границы мира. Консервативная область увеличивает расход scratch и compute; для одного core требуется 27 jobs (1728 КиБ scratch). Измеренный прирост FPS не заявляется.
+
+### Этап 48 — resident block-light seed rebuild
+
+**Сделано:** `VulkanResidentLight::recordGenerated` строит исходные block-light seeds из текущих 16-bit block IDs и таблицы emission (cap 14, как в `Generation_Sky`), сохраняя только high nibble существующего света. Старый распространённый block light полностью исключается. Seed dispatch пишет напрямую в один из двух scratch banks; затем 0–13 propagation passes по консервативному максимуму всей таблицы материалов, чётность гарантирует итог в bank 1. Дополнительные 32 КиБ таблицы emission размещены в существующем SSBO прозрачности, новых descriptor bindings, pipelines, resident seed pages, submission или readback нет. Старый seed-only `record` сохранён. `ResidentLightBatch::matches` поддерживает полную проверку результата относительно текущих ID и сохранённого sky. Новая функция доступна recorder, но игровой вызов пока не подключён.
+
+**Протестировано:** Stage46/48 Mesa EGL — 851968 legacy и 5963776 generated light bytes vs independent BFS, 10 сцен (включая весь диапазон 65536 ID), 7 вариантов генерации seeds на сцену, старый свет 15, фактическое удаление ID источника, zero/odd/even iterations, dense/inline pages, все шесть направлений, guards и сохранение sky. CPU certificate под UBSan. Vulkan mock: все 256 emission levels, упаковка всех 65536 ID, 1–14 dispatch, зависимости, final bank, invalid admission и busy/retire. Stage5 regression и 130277 worldgen fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan/SPIR-V and hardware validation not performed.
+
+**Осталось:** closed batch не импортирует внешний свет; требуется полный affected region или корректный halo, pinning страниц и generations, scheduling и безопасная публикация в live arena. Sky не пересчитывается. Максимум по всей таблице материалов может завышать число проходов для конкретного батча. Игровой CPU cross-chunk BFS остаётся штатным. Измеренный прирост FPS не заявляется.
+
+### Этап 47 — resident lighting transaction recorder
+
+**Сделано:** `VulkanResidentLight` записывает 14 межчанковых compute dispatch в переданный command buffer. Владеет отдельным pipeline, descriptor set, компактными копиями выбранных слотов и jobs, таблицей прозрачности и двумя scratch banks. Слоты перенумерованы в порядке jobs; физические адреса block/seed pages сохраняются. Проверяются лимиты устройства, диапазоны источников, связность и вместимость батча до записи команд. Начальная transfer/compute → compute зависимость, 13 межпроходных барьеров и итоговая compute → compute/transfer зависимость. Повторная запись запрещена до `retire()` после fence (или отмены незапущенного command buffer). Итоговый диапазон bank 1 доступен только при совпадении переданного epoch. Копирования воксельных страниц, обязательного readback и отдельной submission нет. Runtime включён в CMake target, но не вызывается игровым рендерером.
+
+**Протестировано:** production recorder с mock Vulkan: 28 dispatch (два батча разного размера), 15 барьеров на батч, descriptor bindings 0/1/2/3/4/9, компактная таблица слотов, порядок соседей, invalid admission, busy/retire, epoch mismatch, итоговый byte range, освобождение буферов. Общий Stage5 mock PASS; Stage46 Mesa EGL 786432 byte comparisons vs BFS; 130277 CPU worldgen fastpaths PASS. Release configure blocked by missing OpenGL development libraries; native Vulkan/SPIR-V and hardware validation not performed.
+
+**Осталось:** caller пока обязан удерживать внешние block/seed pages и буферы до завершения fence, синхронизировать их на одной очереди и гарантировать seed-only свет. Epoch guard не заменяет проверку поколений страниц. Текущая live light arena содержит распространённый свет, поэтому прямой запуск и публикация отключены. Нужны авторитетные seed pages, pinning/retirement в stream, полный affected region или корректный halo, бюджет dispatch, инвалидация edit/unload и безопасная публикация. Измеренный прирост FPS не заявляется.
+
+### Этап 46 — resident cross-chunk block-light prototype
+
+**Сделано:** `worldgen_light_resident.comp` читает существующий 64-byte `GpuChunkSlot`, dense/inline block и light pages через `voxel_address.glsl`. `ResidentLightBatch` компилирует закрытый набор стабильных слотов в компактные 32-byte jobs с шестью соседними индексами. Проверяются границы страниц, дубликаты, активность, координаты и взаимность выбранных связей; отсутствующие/невыбранные соседи не участвуют. Один invocation обновляет четыре block-light nibbles, sky неизменен. Все выбранные чанки обрабатываются синхронно за один dispatch на итерацию; 14 итераций достаточно для seed level до 15. Два scratch banks по 32 КиБ/чанк, resident seeds read-only. `matches` проверяет точную fixed point по всем вокселям и шести направлениям, включая межчанковые границы. Шейдер добавлен в CMake SPIR-V list; текущий игровой Stage45 dispatch и CPU BFS не изменены.
+
+**Протестировано:** Stage46 Mesa EGL + production `GpuChunkSlot` и batch compiler/certificate под UBSan: 9 сцен, 24 чанка в сумме, 786432 byte comparisons vs independent global BFS, реальный перенос по всем шести граням и через угол 2×2×2, dense/inline pages, disconnected/closed slots, shuffled IDs, nonzero offsets, guards, overdispatch, неизменные seeds и sky, 144 corruption rejections, invalid page/slot/duplicate/reciprocal links. Stage45 753664 bytes, Stage43 1572864 bytes и 130277 CPU fastpaths PASS. Release configure blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V and hardware validation not performed.
+
+**Осталось:** prototype не подключён к игровому runtime. Нужны pinning поколений и страниц, budgeted batch scheduling, seed-only snapshots (не старый распространённый свет), внешний halo, обработка изменений/выгрузки и атомарная публикация в resident arena. Выбранный замкнутый набор не учитывает освещение извне; непрямой skylight остаётся CPU. 14 полных проходов и 64 КиБ scratch/чанк требуют оптимизации. Измеренный прирост FPS не заявляется.
+
+### Этап 45 — spatially bounded block-light propagation
+
+**Сделано:** `Gpu_Overlay_Work::prepare_propagation` одновременно вычисляет верхнюю границу emission и AABB потенциальных источников из base IDs и block-write commands (включая позднее удалённые источники, без metadata). `Source_Bounds` формирует консервативный диапазон с радиусом pass+1, округлённый до tiles 16×4×4 в порядке X/Z/Y. Первые два прохода остаются полными для инициализации обоих scratch ranges; далее монотонно растущая область гарантирует, что вне dispatch данные в обоих ranges равны исходным seeds. GLSL сопоставляет 64 invocation с 64 packed words без конфликтов. Полный диапазон использует прежний linear path. Push ABI 20 байт (+4 tileOrigin), прежние SSBO, pipelines, барьеры, submissions и readback. Включено по умолчанию; `OPTICRAFT_VULKAN_WORLDGEN_LIGHT_SPATIAL=0` возвращает Stage44 scheduling. CPU validation, skylight и seam BFS сохранены.
+
+**Протестировано:** Stage45 Mesa EGL + production bounds под UBSan: 23 сцены, 753664 packed light bytes vs independent BFS, guard ranges, odd/even pass counts, corner/face/center, separated sources, overlay additions/removals/overwrites, metadata, reset и diagnostic disable. Суммарно 8753 вместо 23168 workgroups в этих синтетических сценах; corner 341/1664, center 870/1664, separated 1664/1664. Stage39 runtime mock проверяет 3D dispatch dimensions, tile origin, barriers, parity and final readback. Stage44 917504 bytes, Stage43 1572864 streaming light bytes, Stage42 393216 local + 393216 seam reference bytes, Stage41 327680 GPU + 786432 CPU bytes, Stage35 queue regression и 130277 CPU fastpaths PASS. Release configure blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V and hardware validation not performed.
+
+**Осталось:** AABB не является точной компактизацией активного фронта: несколько удалённых источников могут покрыть весь чанк. Сбор границ требует полного CPU-сканирования потенциальных источников вместо раннего выхода по max emission. Первые два прохода полные, количество dispatch не меняется; производительность 3D tiles на Intel/RTX не измерена. GPU seam exchange, direct resident publication, CPU validation elimination и GPU-only worldgen остаются незавершёнными.
+
+### Этап 44 — adaptive block-only light propagation
+
+**Сделано:** штатный Vulkan Overlay распространяет только принимаемый block nibble; sky nibble остаётся равным исходным seeds. `Gpu_Overlay_Work::max_emission` консервативно оценивает максимальную светимость по base IDs и block-write commands, игнорируя metadata и ограничивая уровень 14 согласно seed ABI. Число итераций `max(0, maxEmission-1)` — 0–13 вместо фиксированных 14; уровень 0/1 не требует propagation. Удалённый позднее источник может завысить бюджет. `block_iteration` выбирает начальный scratch по чётности числа проходов, финальный результат всегда B, seed range неизменен. Режим передаётся старшим битом transparencyBase; push ABI и буферы сохранены. SWAR обрабатывает только block nibble, saturated и неизменяемые слова не читают block IDs / transparency, изменяемые lanes проверяются отдельно. Legacy двухканальный режим шейдера сохранён для тестов. `matches<true>` проверяет полный block fixed-point и неизменный sky seed; прежние CPU fallback и seam BFS сохранены. Включено по умолчанию при активном propagation.
+
+**Протестировано:** Stage44 Mesa EGL 28 сцен (уровни 1–14, два варианта), 917504 bytes vs independent BFS, guards, separate seeds, odd/even passes, 224 corruption rejections и conservative admission для всех 256 входных emission levels под UBSan. Stage39 runtime mock: 1–13 dispatch, barriers, offset parity, invalid counts, final B readback. Stage43 game seam model 1572864 comparisons / 24 cases, Stage42 legacy GLSL 393216 bytes и 393216 seam reference comparisons, Stage41 seeds, Stage35 validation queue и 130277 CPU fastpaths PASS. Release configure blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V and hardware tests not executed.
+
+**Осталось:** 128 workgroups на каждый ненулевой проход; соседние light words читаются даже для некоторых полностью opaque receivers, поэтому выигрыш GPU time зависит от сцены. Readback, full CPU validation, CPU skylight, cross-chunk BFS и dynamic edit lighting сохраняются. Не реализованы spatial compaction, GPU seam exchange и direct resident publication. Измеренный прирост FPS не заявляется.
+
+### Этап 43 — local GPU block light / streaming seam handoff
+
+**Сделано:** `VulkanMaterialWorldgen` запускает `worldgen_light_propagate.comp` после overlay, direct sky и seed dispatch в том же command buffer. Общий descriptor set (bindings 0/3/4 для propagation), 16-byte push range, отдельный ленивый pipeline, 14 compute→compute зависимостей и 14×128 workgroups. Исходные seeds сохранены; два scratch range по 8192 uint, итог в B, дополнительные 64 КиБ SSBO и 32 КиБ readback только при propagation. `Gpu_Overlay_Work::may_emit` консервативно пропускает dispatch для базы и overlay без emissive ID; metadata не учитывается как ID. Включено для подходящих overlay+seed jobs, `OPTICRAFT_VULKAN_WORLDGEN_LIGHT_PROPAGATION=0` отключает локальный GPU pass. Worker проверяет исходные seeds, затем полный fixed-point certificate и принимает только block nibble, не меняя авторитетный CPU skylight. При повреждении propagation остаются корректные seeds и CPU BFS. `relight_block_light_new_chunks` проверяет обе стороны шести граней и ставит в очередь только свет, способный увеличить прозрачного соседа; существующие emitter scan, BFS, dirty marking и edit relight сохранены.
+
+**Протестировано:** Stage43 production light grid, streaming seam scheduler и block BFS со stub chunk map под UBSan — 1572864 byte comparisons в 24 сценариях (6 граней, mixed prelit/CPU, два порядка, один pending chunk за вызов), сохранение sky, corruption rejection, emission admission. Stage42 EGL с раздельными seed/A/B ranges — 393216 bytes vs BFS, seed preservation, guards; 393216 CPU seam reference comparisons. Stage39 Vulkan mock: 14 push/dispatch, barrier count, offsets, seed/final readback, fence/reuse. Stage35 queue handoff, Stage40/41 seeds/skylight, Stage37/39 overlay adoption, Stage34 build, 130277 CPU fastpaths PASS. Release configure blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V and hardware tests not executed.
+
+**Осталось:** CPU skylight remains authoritative; GPU calculates both channels but publishes only block light. Cross-chunk exchange and dynamic relighting remain CPU. Full CPU parity, extra readback and 14 GPU passes may regress throughput; no measured speedup. Need hardware validation, actual load/unload/edit stress, compact/adaptive propagation and direct resident publication. No GPU-only worldgen yet.
+
+### Этап 42 — packed local light propagation
+
+**Сделано:** `worldgen_light_propagate.comp` вычисляет изолированное распространение обоих 4-bit каналов (sky/block) на 32³ вокселях. Один invocation владеет четырьмя X-соседями; packed SWAR max/decay выполняются отдельно для обоих каналов. Входные block IDs и transparency bitset неизменны; ping-pong light ranges по 8192 uint, 14 итераций по 128 workgroups с compute barrier между ними. X-соседи собираются сдвигами слов, Z/Y — смещениями; исключены wrap через границы. Непрозрачные источники сохраняют собственный свет, но не получают дополнительный. `Generation_Light_Propagation.h` задаёт ABI, порядок ping-pong, точный fixed-point verifier и перечисление пар граней (-X,+X,-Y,+Y,-Z,+Z). Шейдер включён в SPIR-V список CMake. Runtime dispatch пока не подключён: опубликованный локальный свет требует исходящей очереди на границах, а CPU streaming skylight пересчитывает только прямое освещение. Stage41 сохраняется активным по умолчанию.
+
+**Протестировано:** Stage42 adapted GLSL Mesa EGL — 12 сцен, 393216 light bytes / 786432 channel levels vs independent BFS, opaque emitters, overlapping channels, roof, wall, corner, saturated/empty, all 16-bit ID table, nonzero offsets, overdispatch and guards. Exact C++ verifier under UBSan accepts all fields, rejects 96 single-bit corruptions and invalid lengths/null table; six face maps × 1024 pairs checked in each case. Independent CPU seam model — 6 two-chunk cases across all three axes, 393216 voxel comparisons, bidirectional frontier replay matches global BFS. Stage41 GPU/CPU seed regression, Stage39 Vulkan runtime mock and 130277 CPU fastpaths PASS. Release CMake blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. Native Vulkan/SPIR-V and hardware tests not executed.
+
+**Осталось:** no live propagation dispatch, no adoption, no game seam exchange. Дополнительный scratch 32 КиБ на локальный объём при существующем seed buffer; 14 полных dispatch могут быть дорогими. Необходимы runtime wiring, exact seed validation, bidirectional face handoff and invalidation on edits/load/unload, согласование с CPU sky rules и resident publication. Измеренный прирост FPS не заявляется.
+
+### Этап 41 — packed direct light / emission seeds
+
+**Сделано:** третий режим `worldgen_overlay.comp` (`0x80000001`) формирует 8192 packed uint с четырьмя байтами света (sky high nibble, emission low nibble) в порядке y,z,x, совместимом с resident light arena. После overlay и direct sky выполняется 128 workgroups, по одному владельцу на слово. В Commands добавлены 8192 слова 4-bit emission table всех 65536 ID и маска допустимых Y-слоёв; в Changes добавлены 8192 seed words после 1024 cutoffs. Compute→compute barrier перед seed pass, затем существующий compute→host barrier/fence; новых descriptors, pipelines, submissions нет. Worker проверяет geometry прежним reducer, отделяет light suffix, выполняет авторитетную CPU direct sky initialization, затем `Chunk_Light_Grid::adopt_initial_seeds` полностью проверяет обе половины каждого байта по CPU sky и block IDs/registry. Только приватный grid без block light может принять результат; corrupt light не меняет grid и не отклоняет геометрию. Uniform storage сохранено. Существующий source/liquid scan и CPU BFS сохраняются; корректные источники получают emission до публикации чанка. По умолчанию включено для существующих sky/ground overlay jobs; `OPTICRAFT_VULKAN_WORLDGEN_LIGHT_SEEDS=0` возвращает Stage40. Save ABI и OpenGL не изменены.
+
+**Протестировано:** `test_vulkan_stage41_light_seeds.py`: Mesa EGL adapted GLSL, 10 сцен, 327680 packed seed bytes, 10240 cutoffs, source addition/removal, all ID range, layer masks, nonzero offsets and guards; production light grid under UBSan, 786432 seed byte comparisons, 24 emission table packs, uniform, bounds, corruption atomic rejection, reject pre-lit grids. Stage39 runtime mock verifies third dispatch, two compute barriers, readback after fence, legacy input, invalid lengths and reuse; Stage35 queue mock verifies suffix handoff and fallback. Stage40/38/37/34 regression and 130277 fastpaths PASS. Release CMake blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V validation, full game and hardware benchmarks not performed.
+
+**Осталось:** это только initial seeds, не propagation. Дополнительный payload 65540 байт в двух существующих SSBO (32 КиБ + 4 байта input, 32 КиБ output), дополнительный dispatch и полная CPU parity могут увеличить стоимость. CPU direct sky всё ещё материализуется для проверки; на выходе из world bounds GPU/CPU могут расходиться по прежнему uniform fast path — тогда используется CPU lighting. Не реализованы intra/interchunk GPU propagation, прямой resident output, GPU-only worldgen. Измеренный прирост FPS не заявляется.
+
+### Этап 40 — compact GPU direct skylight
+
+**Сделано:** `worldgen_overlay.comp` дополнен вторым режимом: 16 workgroups вычисляют 1024 first-lit-Y cutoff после применения структур. Input: 1024 terrain cutoffs и bitset sky transparency всех 65536 ID, 12 КиБ в хвосте Commands SSBO. Output: 1024 uint, 4 КиБ в хвосте Changes SSBO. Compute→compute dependency перед вторым dispatch, затем прежний compute→host barrier и один fence. Новых descriptor bindings, pipelines и submissions нет. Worker проверяет geometry/meta/revisions прежним reducer; отделяет light payload и сверяет все cutoffs с авторитетной heightmap финального чанка. При несовпадении используется CPU sky, геометрия сохраняется. CPU bulk initialization в y,z,x order сохраняет low nibble, исходные uniform fast paths и world bounds. По умолчанию включено для принятых Vulkan overlay уровней с prepared ground heights и sky light. OpenGL использует CPU path; распространение света между чанками, block light, save ABI не изменены.
+
+**Протестировано:** Stage40 Mesa EGL: 9 сцен, 9216 cutoff comparisons после overlay (294912 implied voxels), добавление/удаление крыши, ID 65535, offsets, guards. UBSan production init/light grid: 1310720 byte comparisons, 40 full transparency packs, uniform, world limits, fallback, сохранение block light. Stage39 runtime mock: compute→compute→host, suffix readback и reuse; Stage35 queue mock: separation light payload, corruption, submit fallback. Stage38/37/34 regression и 130277 worldgen fastpaths PASS. Release configuration blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; native Vulkan/SPIR-V and hardware measurements not performed.
+
+**Осталось:** GPU direct sky пока передаётся в компактном виде и материализуется CPU. Дополнительный dispatch, 12 КиБ upload, 4 КиБ readback и CPU parity могут увеличить нагрузку; ускорение не заявляется. Не реализованы GPU block-light propagation, межчанковый skylight BFS, прямой resident output, GPU-only chunks. Пустые overlay пакеты и уровни без prepared ground heights остаются CPU.
+
+### Этап 39 — validated GPU overlay integration
+
+**Сделано:** `Gpu_Overlay_Work` формирует ограниченный пакет для одного принятого Vulkan base-уровня на колонку (максимум 131072 команд и 8192 на владельца). Уровни с 0xffff и пустые пакеты идут через CPU. Общий `collect_generation_overlay` сохраняет порядок деревья/растения → деревни. Validation worker повторно ставит батч в существующую GPU очередь с тем же admission credit. `VulkanMaterialWorldgen::start_overlay` лениво создаёт пять HOST_VISIBLE SSBO (736 КиБ payload), отдельный pipeline/descriptor set, переиспользует command buffer и fence. Dispatch по активным владельцам, compute→host barrier, readback blocks/meta/edit counts после fence. Worker проверяет полный результат точным reducer, включая untouched groups, и передаёт его только соответствующему build job. `Chunk::adopt_generation_overlay` восстанавливает палитру, метаданные и версии без повторного декорирования; CPU skylight/save остаются штатными. При ошибке или смене backend CPU replay использует принятую базу. По умолчанию включено, `OPTICRAFT_VULKAN_WORLDGEN_OVERLAY=0` возвращает Stage38.
+
+**Протестировано:** Stage39 extracted Vulkan runtime mock под UBSan: descriptors, persistent buffers, dispatch, fence/readback, submit failure PASS; Stage35 extended queue mock: кредит, adoption, corruption/submit/sky fallback PASS; Stage37 extended production adoption 262144 block/meta comparisons, layer/heightmap/version parity, corrupted blocks/meta/count and length rejection PASS. Stage38 EGL shader regression 262144 comparisons, Stage37 CPU regression 524288 comparisons, Stage34 131072 voxels, Stage33 host adoption, 130277 CPU fastpaths PASS. Release CMake blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. Native Vulkan/SPIR-V and full game launch not tested.
+
+**Осталось:** переходный проверочный путь добавляет вторую GPU submission, upload/readback и полное CPU сравнение; ускорение не заявляется, возможна регрессия. Максимум один уровень на колонку, существующий бюджет base worldgen действует. Планирование структур, освещение, resident arena output и GPU-only chunks остаются CPU/не реализованы. Нужны аппаратные проверки, после них устранение дополнительного обмена и parity replay в production.
+
+### Этап 38 — packed overlay ownership / dense CPU replay
+
+**Сделано:** `Generation_Overlay_Packet` группирует ordered commands стабильным counting scatter по 8192 владельцам (4 вокселя, 2 packed ID words, 1 packed metadata word). CSR task: 3 uint (group, begin, end); один владелец обрабатывает операции в исходном порядке, исключая гонки между упакованными соседями. `worldgen_overlay.comp` реализует in-place replay и счётчик логических изменений, включён в список компиляции SPIR-V CMake. Шейдер требует полностью разрешённые базовые данные; runtime dispatch пока не подключён. CPU `Chunk::finish_generation` использует тот же packet/reducer при >=4096 операциях: распаковка flat scratch, один проход групп, однократное построение палитры и восстановление ненулевых meta, итоговый пересчёт metadata. Сохранены same-ID meta, reset при смене ID, явный Air/meta=0, версии с учётом промежуточных изменений, один dirty event. Маленькие пакеты используют прежний sparse replay. Декорации, save ABI и игровые edits не изменены.
+
+**Протестировано:** `test_vulkan_stage38_overlay_packet.py` — production C++ packet/reducer UBSan и adapted GLSL Mesa EGL: 8 сцен, 262144 voxel/meta comparisons, stable grouping, zero/full dispatch, repeated writes, full 16-bit IDs, nonzero arena offsets, change counts and guards PASS. Stage37 production CPU regression: 524288 block/meta, 512 layer counts, 16384 heightmap, sparse/dense, initial metadata, no-op dense and cancellation PASS. Stage34/35 and 130277 CPU-worldgen fastpaths PASS. Release CMake blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. Native SPIR-V/Vulkan and hardware performance not tested.
+
+**Осталось:** GPU overlay dispatch не подключён к игровому конвейеру; нельзя публиковать base до разрешения fallback и sky. Необходимы staging/descriptor lifetime, привязка к валидированной базе, GPU освещение и resident publication. Порог 4096 эвристический, эффект CPU dense replay не измерен. Scratch dense replay добавляет 96 КиБ flat arrays на использующий воркер и переиспользуемые vector (4 байта/команда + 12 байт/активная группа), временная таблица 32 КиБ. Нет измеренного прироста FPS.
+
+### Этап 37 — ordered generation overlay / batch finalization
+
+**Сделано:** `Generation_Overlay` формирует упорядоченный поток chunk-local операций (4 байта на операцию: bit31 = meta, bits16–30 = y/z/x index, bits0–15 = ID или meta). Декорации и деревни используют один sink; исходные условия `get_block` проверяют процедурный рельеф, а не изменённый чанк. Сохранён порядок anchor/road/template, явная запись Air и meta=0, повторная запись того же ID сохраняет meta, смена ID сбрасывает meta. `Chunk::finish_generation` записывает поток в worker-local переиспользуемый vector и применяет его до compact/heightmap/lighting/save. Для неопубликованного чанка исключены проверки скрытых граней, инкрементальные heightmap updates и atomic dirty events на каждый изменённый блок; layer counts корректируются при precomputed, block version растёт по прежним правилам, dirty выставляется один раз. Игровые `set_block/set_meta`, шейдеры и save ABI не изменены. Включено по умолчанию для всех backend.
+
+**Протестировано:** `test_vulkan_stage37_overlay.py`: извлечённые production `Chunk_Block_Grid`, `finish_generation`, `set_block/set_meta` и metadata methods с stub world/registry, UBSan, 16 сцен: 524288 сравнений ID и meta, 512 layer counts, 16384 heightmap entries, block versions, clipping, full 16-bit ID, overlap, same-ID meta, Air, zero meta, один dirty event; PASS. Source contract проверяет отсутствие чтений изменённого чанка в placement. Stage34/35 regression и 130277 CPU-worldgen fastpaths PASS. Release CMake blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR.
+
+**Осталось:** фактическое построение деревьев/деревень и применение потока остаются CPU; GPU replay, сортировка/группировка команд по packed words без гонок, свет и resident publication не подключены. Дополнительный worker-local scratch хранит 4 байта на запись, включая повторы; удерживает capacity. Полный реальный seed/structure parity, Vulkan validation, аппаратный запуск и производительность не проверены. Измеренного прироста FPS нет.
+
+### Этап 36 — packed base finalization / world-floor fast path
+
+**Сделано:** Vulkan base worldgen формирует мантийный слой на `world_min_y` до применения рек, пещер и FP64 ore noise. ID воды и мантийного камня упакованы в существующее слово заголовка региона (low/high 16 bit); размер SSBO, push constants и descriptors неизменны. В `adopt_gpu_base` validation worker проверяет целые слои за границами мира, мантию и sky-only fallback; мантийный ID вне нижнего слоя отклоняется. Для обычных слоёв разрешает 0xffff через существующий точный CPU `block_in_column`, записывая результат непосредственно в приватный packed array. Полный whitelist и выборочная CPU parity сохранены. После принятия все обычные слои не содержат fallback; sky >=200 остаётся CPU-authoritative. CPU Noise build не вычисляет нижний слой, который заполняется в publish() до упаковки палитры. Material-only Vulkan и OpenGL сохранены. Включено по умолчанию в base mode.
+
+**Протестировано:** Mesa EGL adapted GLSL: 327680 проверок в 5 base-сценах, включая 1024 world-floor voxels, 32768 out-of-world cells, 24576 sky markers и 2 numerical fallbacks; все готовые ID совпали, guard intact. Legacy Vulkan packed 32768 sampled voxels и OpenGL smoke 256 PASS. UBSan production extraction/adoption: 65536 cave codes, 65536 repaired-result comparisons, неверный ID вне выборки, мантия вне нижнего слоя, неправильные sky/outside/floor values отклонены, предыдущее принятое состояние сохранено. Stage34 build 131072 voxel/128 layer-count comparisons; Stage35 epoch/concurrency, Stage32 adoption, 589824 sparse-level reads, 130277 CPU fastpaths PASS. Release CMake blocked by OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. Native Vulkan/SPIR-V and hardware timings not tested.
+
+**Осталось:** fallback repair перемещён в существующую validation phase, удерживает кредит до завершения; CPU/GPU sampled parity не доказывает абсолютный детерминизм. Деревья, структуры, sky islands, освещение, CPU readback и загрузка остаются. Готовый packed base не является финальным резидентным чанком. Прямой GPU resident output, CPU-zone promotion и FPS measurements не выполнены.
+
+### Этап 35 — worker-side GPU result validation
+
+**Сделано:** `pump_gpu_worldgen` сохраняет fence polling, readback и GPU timing на main thread, передаёт полученный vector по move в `Gpu_Validation_Job`. General generation worker выполняет полный whitelist scan, проверку формата и CPU parity (96 samples на Y-уровень) до постановки `Chunk_Build_Job`; mesh-dedicated workers не участвуют. Лимит двух GPU batches включает queued, submitted и validating. При отказе результат не принимается, GPU отключается, оригинальные build jobs возвращаются CPU. Epoch validation под `m_job_mutex` блокирует публикацию и списание кредита после reset. Stop удаляет queued validation, active worker завершает кредит до join; admission проверяет generation/stop под обоими mutex. Backend poll/abandon определяется backend фактически запущенной транзакции, смена Vulkan runtime не отменяет активный GL batch. Shader ABI, декорации, освещение и сохранения не изменены.
+
+**Протестировано:** Stage35 извлечённые production handoff/validation/pump с mock backends, UBSan и реальным std::thread/latch: два кредита, GL/Vulkan selection, parity fallback, конкурентный reset, stale enqueue, shutdown PASS. Worker scheduling source contracts PASS. Stage34 extracted generation/admission (131072 voxels, 128 layer counts, stale/stop admission), Stage32/33 host adoption, 589824 sparse reads, 130277 CPU fast-path scenarios PASS. Release CMake blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. Native Vulkan, full worker loop integration and hardware timings not tested.
+
+**Осталось:** readback, GPU submission и timing остаются на main thread. Validation удерживает один из двух admission credits до завершения, поэтому перегрузка CPU workers может задерживать GPU dispatch; максимум две уже принятые задачи. Не реализованы прямой resident output, структуры, освещение, CPU-zone promotion. Прирост FPS не измерен.
+
+### Этап 34 — worker-side worldgen handoff / base layer decode
+
+**Сделано:** `Gpu_Column_Input` собирается в `try_submit_gpu_column` существующим generation worker до захвата GPU queue mutex. Подготовка 1024 X/Z записей, выбор Y-уровней, surface/mantle profiles и упаковка пещерных масок исключены из `pump_gpu_worldgen`. Main thread передаёт готовый пакет в GL/Vulkan start, освобождает пакет после синхронного копирования входа. Режим backend фиксируется в пакете; несовпадение при dispatch возвращает задачи на CPU без отключения нового backend. Сохраняется лимит двух queued/active batches; параллельные worker могут спекулятивно подготовить пакеты, которые не пройдут финальный admission. `decode_base_layer` распаковывает пару 16-bit ID за итерацию, подсчитывает non-air, оставляет 0xffff для точечного CPU repair. Полностью готовые слои минуют общий per-voxel CPU generation loop. При fallback повторно обходится только слой с маркерами; sky >=200 и world limits остаются CPU-authoritative. Mantle floor применяется к flat scratch до palette packing и layer counts, вместо последующего изменения grid (исправляет stale layer count, исключает двойное применение в generate_chunk). Сохранены правила End/Nether, shader ABI, OpenGL material path, декорации, свет и save.
+
+**Протестировано:** Stage34 UBSan extracted production build with stub terrain: 131072 voxel comparisons and 128 layer counts, sparse fallback including air, sky-authoritative layers, mantle, world limits; 65536 packed IDs. Extracted production worker admission with mock queue: base/material/GL input and queue-full rejection. Render-thread handoff source contracts PASS. Stage32/33 production host adoption/region tests, 589824 sparse result reads, 130277 CPU worldgen fast-path scenarios PASS. Release CMake blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR. No real Vulkan validation, GPU timing or full game concurrency test; shader sources unchanged.
+
+**Осталось:** main thread still performs GPU readback and sampled parity validation. GPU-only resident output, structures, lighting, asynchronous CPU-zone promotion not implemented. Worker packing shifts work rather than eliminating it; queue admission and decode benefit unmeasured on target hardware. Existing worldgen fallback remains enabled. No FPS claims.
+
+### Этап 33 — prepared base voxel worldgen
+
+**Сделано:** Vulkan-генератор применяет подготовленные CPU профили уровня моря, рек, пещер, поверхности и подповерхностного слоя до вычисления руд. Приоритет правил совпадает с `block_in_column`. Surface/mantle IDs рассчитываются прежними CPU функциями один раз на X/Z; пещерные виды упакованы в 2 бита/воксель (None, dry, flooded). Binding 5 содержит 9 зарезервированных Y-индексов и региональный payload: 2 слова заголовка, 4×1024 слова профилей и 2048 слов/уровень масок. При двух уровнях добавляется 32776 байт входных данных, без новых descriptor bindings. GPU не вычисляет ore noise для заранее определённых вокселей. Base output использует обычные 16-bit ID (0 = Air), 0xffff = явный CPU fallback для численной неопределённости и sky islands. Старый material mode сохраняет 0 = fallback. `Chunk_Manager` отслеживает режим батча, `adopt_gpu_base` проверяет все ID и 96 CPU samples/level (включая настоящий Air), worker использует готовые ID и сохраняет исходный CPU путь для fallback. Включено по умолчанию при доступном Vulkan worldgen; `OPTICRAFT_VULKAN_BASE_WORLDGEN=0` возвращает Stage32 material path. OpenGL shader, выбор Y-уровней, CPU mantle floor, структуры, свет и сохранение не изменены.
+
+**Протестировано:** adapted production Vulkan GLSL в Mesa EGL, 5 сцен × 2 уровня × 32768 = 327680 вокселей проверены полностью. 183355 результатов ранних правил, включая 24576 sky fallbacks; 144325 noise cells, один численный fallback; все остальные ID совпали с эталоном. Проверены sea/air, river air/water, cave air/water, surface, mantle, world limits, отрицательные и дальние координаты, guard words. C++ UBSan: production region extraction/adoption и block_in_column с terrain/noise stub, 65536 cave codes, порядок несмежных уровней, отказ malformed/incorrect ID, air parity и sky fallback. Stage32 legacy Vulkan (32768 samples), GL (256 samples), sparse result (589824 reads), 130277 CPU fast-path scenarios PASS. Release CMake blocked by missing OpenGL development libraries. No actual Vulkan/SPIR-V validation or hardware timings.
+
+**Осталось:** региональные алгоритмы и выбор материалов поверхности остаются на CPU. Packing выполняется на main thread и добавляет входной трафик; выигрыш не измерен. GPU по-прежнему отправляет максимум два выбранных Y-уровня с readback, CPU применяет mantle floor, структуры, освещение и загрузку в resident arena. Это промежуточная стадия, не GPU-only worldgen. Sampled runtime parity не доказывает полный детерминизм. Далее — GPU output без fallback для совместимых базовых чанков, применение структур/освещения, direct resident write и CPU-zone promotion.
+
+### Этап 32 — packed material worldgen / sparse Y-level handoff
+
+**Сделано:** Vulkan `worldgen_material.comp` записывает по два 16-bit ID в uint (x-major, тот же формат слов, что у voxel blocks arena). 64 invocation вычисляют материал как прежде, shared 256 bytes и uniform barrier обеспечивают запись без atomic; количество noise evaluations/dispatch groups не изменено. Нулевой ID остаётся CPU fallback, а не готовым воздухом. FP64 константы GLSL получили суффикс `lf` для соответствия C double. Vulkan output buffer и readback вдвое меньше. `Gpu_Material_Result` принимает только реально отправленные Y-уровни, проверяет размер и уникальность индексов, передаёт владение packed vector без дополнительного копирования; legacy GL результат конвертируется in-place. Устранён expanded 32-bit массив на всю колонку. При 9 уровнях и 2 GPU jobs прежний expanded payload 1152 KiB, новый Vulkan payload 128 KiB, без учёта заголовков/аллокатора. Worker получает указатель на уровень один раз. Все ID проверяются по whitelist допустимых материалов до выборочной CPU parity (96 samples/level); некорректный результат не публикуется. CPU fallback, дисковый приоритет, cave/river/surface/structures/light/save сохранены. OpenGL shader не изменён. Новый Vulkan ABI используется по умолчанию; общий OPTICRAFT_GPU_WORLDGEN=off отключает GPU material stage.
+
+**Протестировано:** adapted production Vulkan GLSL через Mesa EGL, 4 seeds × 2 non-contiguous Y levels × 4096 sampled voxels = 32768 samples, 24576 eligible (1 zero CPU fallback), exact nonzero parity against original OpenSimplex2S C; отрицательные и дальние X/Z, 16-bit IDs > 32767, guard words и дополнительная out-of-range workgroup. Legacy GL smoke 256 samples PASS. C++ UBSan sparse result test 589824 reads, packed move without copy, invalid indices/size/IDs; production adoption function extracted with stub oracle: whitelist, sampled mismatch, invalid level, legacy/packed fallback PASS; host ABI source contracts PASS. 130277 CPU worldgen fast-path scenarios PASS. Release CMake blocked by missing OPENGL_opengl_LIBRARY, OPENGL_glx_LIBRARY, OPENGL_INCLUDE_DIR; no Vulkan/SPIR-V validation or hardware timings.
+
+**Осталось:** packed material output — подготовка к resident generation, не готовые воксели и не GPU-only worldgen. CPU ещё получает readback, выполняет finalization и загружает готовые данные обратно на GPU. GLSL shared packing adds barrier; full GPU parity and performance unmeasured. CPU parity samples do not prove exhaustive determinism. Следующий этап: точное GPU применение региональных масок и поверхностных материалов с явным разрешением fallback, затем структуры, свет и direct resident output. Не использовать нулевые material IDs как final air; сохранять авторитетность CPU/save и исходный мир.
 
 ### Этап 31 — exact GPU plane compaction / indirect mesh dispatch
 

@@ -13,12 +13,17 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <utility>
+#include <span>
 #include "world/dimensions/Dimension.h"
 #include <functional>
 #include <optional>
+#include <memory>
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include "world/blocks/Block_Types.h"
+#include "world/generation/Generation_Light_Propagation.h"
+#include "world/generation/Gpu_Overlay_Reference.h"
 struct Chunk_Vertex {
     float x, y, z;
     float u, v;
@@ -425,6 +430,98 @@ public:
         write(index(x, y, z), static_cast<uint8_t>((packed & 0x0Fu) | ((level & 0x0Fu) << 4)));
     }
 
+    // Private generation-only path: set direct sky in y,z,x order, preserving
+    // existing light in unlit cells and the block-light nibble everywhere.
+    void set_initial_direct_sky(std::span<const uint32_t> cutoffs, int base_y) {
+        constexpr size_t layer = Config::chunk_size * Config::chunk_size;
+        if (cutoffs.size()!=layer) return;
+        for (int y=0;y<Config::chunk_height;++y) {
+            const int64_t wy=int64_t(base_y)+y;
+            if (wy<Config::world_min_y || wy>Config::world_max_y) continue;
+            for (size_t c=0;c<layer;++c) {
+                if (uint32_t(y)<cutoffs[c]) continue;
+                const size_t i=size_t(y)*layer+c;
+                if (m_data.empty()) {
+                    if ((m_uniform&0xf0u)==0xf0u) continue;
+                    m_data.assign(byte_count,m_uniform);
+                }
+                m_data[i] |= 0xf0u;
+            }
+        }
+    }
+
+    // Generation only: validate every packed light byte against the authoritative
+    // direct sky and finalized block IDs before changing the grid. This is an
+    // initial seed field, not propagated light. On failure the grid is unchanged.
+    bool adopt_initial_seeds(std::span<const uint32_t> words,
+                             std::span<const uint32_t> blocks, const uint8_t* emission) {
+        if (words.size()!=voxel_count/4 || blocks.size()!=voxel_count/2 || !emission) return false;
+        const uint8_t first=static_cast<uint8_t>(words.front());
+        bool uniform=true;
+        for (size_t w=0; w<words.size(); ++w) {
+            for (unsigned lane=0; lane<4; ++lane) {
+                const size_t i=w*4+lane;
+                const uint16_t id=static_cast<uint16_t>(blocks[i/2] >> ((i&1u)*16u));
+                const uint8_t old=m_data.empty()?m_uniform:m_data[i];
+                // Only a private, unpropagated grid can adopt this seed field.
+                if ((old&15u)!=0u || emission[id]>14u) return false;
+                const uint8_t value=static_cast<uint8_t>(words[w]>>(lane*8u));
+                if (value!=static_cast<uint8_t>((old&0xf0u)|emission[id])) return false;
+                uniform &= value==first;
+            }
+        }
+        if (uniform) { m_uniform=first; m_data.clear(); m_data.shrink_to_fit(); }
+        else {
+            m_data.resize(voxel_count);
+            for (size_t w=0; w<words.size(); ++w)
+                for (unsigned lane=0; lane<4; ++lane)
+                    m_data[w*4+lane]=static_cast<uint8_t>(words[w]>>(lane*8u));
+        }
+        return true;
+    }
+
+    // Called only after authoritative seed adoption, before the chunk is shared.
+    // Validate the isolated block solution and unchanged sky seed nibble.
+    // The world-column skylight pass is authoritative for the high nibble.
+    bool adopt_local_block_light(std::span<const uint32_t> seeds,
+                                 std::span<const uint32_t> result,
+                                 std::span<const uint32_t> blocks, const bool* transparent) {
+        using namespace Generation_Light_Propagation;
+        if (!matches<true>(seeds,result,blocks,transparent)) return false;
+        for(size_t i=0;i<voxel_count;++i)
+            if ((m_data.empty()?m_uniform:m_data[i])!=byte_at(seeds,i)) return false;
+        const uint8_t first=static_cast<uint8_t>((byte_at(seeds,0)&240u)|(byte_at(result,0)&15u));
+        bool uniform=true;
+        for(size_t i=0;i<voxel_count;++i) {
+            const uint8_t value=static_cast<uint8_t>((byte_at(seeds,i)&240u)|(byte_at(result,i)&15u));
+            uniform &= value==first;
+        }
+        if(uniform) { m_uniform=first; m_data.clear(); m_data.shrink_to_fit(); }
+        else {
+            m_data.resize(voxel_count);
+            for(size_t i=0;i<voxel_count;++i)
+                m_data[i]=static_cast<uint8_t>((byte_at(seeds,i)&240u)|(byte_at(result,i)&15u));
+        }
+        return true;
+    }
+
+    // Resident snapshot: one repeated word or the complete packed byte volume.
+    // Unlike seed adoption, preserve both already-propagated nibbles verbatim.
+    bool assign_resident_words(std::span<const uint32_t> words) {
+        if (words.size()!=1 && words.size()!=voxel_count/4) return false;
+        const uint8_t first=uint8_t(words.front());
+        const uint32_t repeated=uint32_t(first)*0x01010101u;
+        if (std::all_of(words.begin(),words.end(),[&](uint32_t w){return w==repeated;})) {
+            m_uniform=first;
+            m_data.clear();
+        } else {
+            m_data.resize(voxel_count);
+            for (size_t i=0;i<voxel_count;++i)
+                m_data[i]=uint8_t(words[words.size()==1?0:i/4]>>((i&3u)*8u));
+        }
+        return true;
+    }
+
     void clear_block() {
         if (m_data.empty()) { m_uniform &= 0xF0u; return; }
         for (auto& b : m_data) b &= 0xF0u;
@@ -569,6 +666,7 @@ Gpu_Mesh_Tables gpu_mesh_tables();
 bool block_occludes_view(Block_Types type);
 
 class Chunk {
+    friend class Chunk_Manager; // transfer private, unpublished promotion data into a pool slot
 private:
     int m_chunk_x;
     int m_chunk_y;
@@ -596,6 +694,8 @@ private:
     // Растёт при каждой пометке грязности (см. mark_mesh_dirty): задача пересборки запоминает его
     // на моменте снимка, и если к её применению он вырос, правка легла уже после снимка.
     uint64_t m_dirty_epoch = 0;
+    static inline std::atomic<uint64_t> s_interactive_events{0};
+    uint64_t m_interactive_mesh_epoch = 0;
     uint8_t m_dirty_section_mask = static_cast<uint8_t>((1u << Config::chunk_section_count) - 1u);
     uint64_t m_mesh_seq_issued = 0;
     // Уникальный номер ОБЪЕКТА (выдаётся в конструкторе из глобального счётчика, с 1). Позиция
@@ -610,6 +710,8 @@ private:
     bool m_is_modified = false;
     // Changes even for fully occluded replacements that skip geometry rebuild.
     uint64_t m_blocks_version = 1;
+    OptiCraft::Vulkan::OverlayReference m_overlay_reference;
+    uint64_t m_overlay_reference_version=0;
     uint64_t m_mesh_version = 0;
     // Кольцо относительно игрока (max по |dx|,|dz|,|dy|, 255 = неизвестно) и поколение вида, в котором оно
     // посчитано. Менеджер пересчитывает кольца при каждой смене чанка игрока.
@@ -630,6 +732,14 @@ public:
     // already_known_air=true разрешён только после точной для генератора проверки chunk_is_definitely_air.
     void finish_generation(bool already_known_air = false,
                            bool layer_metadata_precomputed = false);
+    void adopt_generation_overlay(const std::vector<uint32_t>& words, uint64_t edits);
+    // Construct a fresh, unpublished CPU object. No generation/decorations are replayed.
+    // Caller must own the world transition, check the snapshot's freshness, and
+    // insert only into an absent CPU slot. The result requires saving.
+    static std::unique_ptr<Chunk> from_resident_words(int x,int y,int z,Dimension_Id dimension,
+        const World_Generator& generator,std::span<const uint32_t> blocks,
+        std::span<const uint32_t> meta,std::span<const uint32_t> light);
+
     // Used by World_Generator when per-layer occupied counts were computed during filling.
     void set_layer_block_counts(const std::array<int, Config::chunk_height>& counts) {
         m_layer_block_count = counts;
@@ -657,7 +767,13 @@ public:
     // требующим перестройки меша.
     void set_meta(int x, int y, int z, uint8_t value);
     const Chunk_Block_Grid& get_blocks() const { return m_blocks; }
-    Chunk_Block_Grid& get_blocks_mutable() { return m_blocks; }
+    Chunk_Block_Grid& get_blocks_mutable() { m_overlay_reference={}; return m_blocks; }
+    void set_overlay_reference(OptiCraft::Vulkan::OverlayReference ref) noexcept {
+        m_overlay_reference=std::move(ref);m_overlay_reference_version=m_blocks_version;
+    }
+    OptiCraft::Vulkan::OverlayReference overlay_reference() const noexcept {
+        return m_overlay_reference_version==m_blocks_version?m_overlay_reference:OptiCraft::Vulkan::OverlayReference{};
+    }
 
     uint8_t get_light(int x, int y, int z) const;
     void set_light(int x, int y, int z, uint8_t level);
@@ -667,6 +783,17 @@ public:
     void clear_light() { m_block_light.fill(0); }
     void clear_block_light() { m_block_light.clear_block(); }
     void clear_sky_light() { m_block_light.clear_sky(); }
+    void set_initial_direct_sky(std::span<const uint32_t> cutoffs, int base_y) {
+        m_block_light.set_initial_direct_sky(cutoffs,base_y);
+    }
+    bool adopt_initial_light_seeds(std::span<const uint32_t> words,
+                                  std::span<const uint32_t> blocks, const uint8_t* emission) {
+        return m_block_light.adopt_initial_seeds(words,blocks,emission);
+    }
+    bool adopt_local_block_light(std::span<const uint32_t> seeds,std::span<const uint32_t> result,
+                                 std::span<const uint32_t> blocks,const bool* transparent) {
+        return m_block_light.adopt_local_block_light(seeds,result,blocks,transparent);
+    }
     void compact_light() { m_block_light.compact(); }
     const Chunk_Light_Grid& get_light_grid() const { return m_block_light; }
 
@@ -742,6 +869,13 @@ public:
     // можно пропустить (с прошлого скана никто не стал грязным).
     static uint64_t dirty_event_count() { return s_dirty_events.load(std::memory_order_relaxed); }
     uint64_t get_dirty_epoch() const { return m_dirty_epoch; }
+    // Independent event clock: a later light/LOD update must not erase edit priority.
+    void mark_interactive_mesh() {
+        mark_mesh_dirty();
+        m_interactive_mesh_epoch = s_interactive_events.fetch_add(1, std::memory_order_relaxed)+1;
+    }
+    uint64_t interactive_mesh_epoch() const noexcept { return m_interactive_mesh_epoch; }
+    static uint64_t interactive_event_count() noexcept { return s_interactive_events.load(std::memory_order_relaxed); }
     // Номер последней поставленной задачи пересборки меша этого чанка. Результат более старой задачи
     // (например, поставленной до срочной пересборки после правки блока) отбрасывается.
     uint64_t next_mesh_seq() { return ++m_mesh_seq_issued; }

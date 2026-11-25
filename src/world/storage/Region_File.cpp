@@ -369,6 +369,11 @@ bool Region_File::contains(const Key& key) {
     return m_index.find(key) != m_index.end();
 }
 
+bool Region_File::confirmed_absent(const Key& key) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_open && m_stream.good() && m_index.find(key)==m_index.end();
+}
+
 bool Region_File::read(const Key& key, Chunk_Block_Grid& blocks) {
     std::lock_guard<std::mutex> lock(m_mutex);
     return read_locked(key, blocks);
@@ -614,17 +619,26 @@ bool Region_File::flush_locked() {
             LOG_ERROR("Region_File: cannot write index for " + m_path.string());
             return false;
         }
-        m_stream.flush();
     }
-
-    // Данные и индекс должны быть на диске раньше заголовка, иначе заголовок может указать в никуда.
     m_stream.flush();
-    if (!write_header_locked(index_offset, index_count)) {
+    if (!m_stream) {
+        m_stream.clear();
         if (index_sectors > 0) release_sectors_locked(index_first_sector, index_sectors);
+        LOG_ERROR("Region_File: cannot flush payload/index for " + m_path.string());
+        return false;
+    }
+    if (!write_header_locked(index_offset, index_count)) {
+        // The header may already reference the new index: do not recycle it.
+        m_stream.clear();
         LOG_ERROR("Region_File: cannot write header for " + m_path.string());
         return false;
     }
     m_stream.flush();
+    if (!m_stream) {
+        m_stream.clear();
+        LOG_ERROR("Region_File: cannot flush header for " + m_path.string());
+        return false;
+    }
 
     // Заголовок уже указывает на новый индекс: старый индекс и предыдущие версии payload
     // теперь больше не нужны. До этого момента они намеренно оставались занятыми, чтобы

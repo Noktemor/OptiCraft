@@ -110,6 +110,34 @@ int main(){
     // Pending slot token prevents canceled jobs jumping ahead after same-slot reuse.
     weighted.dirty(1,2);weighted.clearEmpty(1,2);weighted.dirty(2,2);weighted.dirty(1,2);
     assert(weighted.startCount() && weighted.jobs()[0].slot==2 && weighted.jobs()[1].slot==1);
+    // Interactive promotion bypasses thousands of background jobs, coalesces
+    // repeated edits and retains the published geometry until the new fence.
+    {
+        GpuMeshTransactions edits(4096, 8192,8192,8,8,2);
+        for(uint32_t i=0;i<3000;++i)edits.dirty(i,1);
+        edits.dirty(2999,1,8,true);
+        for(int i=0;i<10000;++i)edits.dirty(2999,1,8,true);
+        assert(edits.pendingCount()==3000);
+        assert(edits.startCount() && edits.jobs().size()==1 && edits.jobs()[0].slot==2999);
+        assert(edits.finishCount(newOpaque,newMisc));
+        edits.dirty(2999,1,8,true);
+        edits.selectBatch(1);
+        assert(edits.startCount() && edits.jobs()[0].slot==0);
+        assert(edits.finishCount(newOpaque,newMisc));
+        edits.selectBatch(0);
+        auto staleEdit=edits.verifyEmit(newOpaque,newMisc);assert(!staleEdit[0].valid);
+        edits.acceptPublish(staleEdit);
+        assert(edits.startCount() && edits.jobs()[0].slot==2999);
+        assert(edits.finishCount(newOpaque,newMisc));
+        auto validEdit=edits.verifyEmit(newOpaque,newMisc);edits.acceptPublish(validEdit);
+        const auto before=edits.opaqueUsed();
+        edits.dirty(2999,1,8,true);assert(edits.startCount() && edits.jobs()[0].slot==2999);
+        assert(edits.finishCount(newOpaque,newMisc));
+        edits.dirty(2999,1,8,true);auto invalidEdit=edits.verifyEmit(newOpaque,newMisc);
+        assert(!invalidEdit[0].valid);edits.acceptPublish(invalidEdit);assert(edits.opaqueUsed()==before);
+        edits.evict(2999,1);edits.dirty(2999,2);
+        assert(edits.startCount() && edits.jobs()[0].slot==1);
+    }
     MeshWorkBudget budget;budget.reset(16,32);
     budget.sample(12.0,16);assert(budget.budget()==4);
     for(int i=0;i<3;++i)budget.sample(1.0,4);

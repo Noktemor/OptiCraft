@@ -17,6 +17,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -27,6 +28,7 @@
 #include "world/chunks/Chunk.h"
 #include "world/chunks/Chunk_Table.h"
 #include "world/chunks/Chunk_Slot_Pool.h"
+#include "world/chunks/Gpu_World_Streaming_Policy.h"
 #include "world/storage/Chunk_IO.h"
 #include "utils/concurrency/Mpmc_Queue.h"
 #include "utils/concurrency/Priority_Bucket_Queue.h"
@@ -34,6 +36,7 @@
 #include "world/blocks/Block_Entity_Store.h"
 #include "math/Hash_Utils.h"
 #include "world/generation/World_Generator.h"
+#include "world/generation/Gpu_Overlay_Work.h"
 #include "world/storage/World_File.h"
 #include "world/fluids/Fluid_Simulator.h"
 
@@ -65,6 +68,14 @@ struct Renderable_Chunk {
 // Game::update_gameplay на главном потоке). После исправления теста (все обращения к
 // Chunk_Manager — с одного потока, только сами worker'ы понастоящему параллельны) гонок нет.
 class Chunk_Manager {
+public:
+    struct Gpu_Generation_Request {
+        glm::ivec3 position;
+        Dimension_Id dimension;
+        uint64_t claim;
+        uint64_t generation;
+    };
+    using Gpu_Generation_Producer=std::function<bool(const Gpu_Generation_Request&)>;
 private:
     struct Chunk_Job {
         glm::ivec3 position;
@@ -104,13 +115,36 @@ private:
         Chunk_Ptr chunk{};
         std::shared_ptr<World_Generator::Prepared_Column> prepared{};
         size_t prepared_index = 0;
+        std::vector<uint32_t> overlay_result;
+        uint64_t overlay_edits = 0;
+        OptiCraft::Vulkan::OverlayReference overlay_reference;
+        std::vector<uint32_t> overlay_sky;
+    };
+    struct Gpu_Column_Input {
+        std::array<Gpu_Material_Column, Config::chunk_size * Config::chunk_size> columns{};
+        std::vector<int> ys;
+        Gpu_Base_Region region;
+        int cx = 0, cz = 0;
+        bool vulkan = false;
     };
     struct Gpu_Batch {
         uint64_t generation_id = 0;
         std::shared_ptr<World_Generator::Prepared_Column> prepared;
         std::vector<Chunk_Build_Job> builds;
         std::vector<size_t> gpu_indices; // Y levels accelerated in this dispatch
+        bool gpu_base_voxels = false;
+        uint64_t gpu_base_ticket = 0;
+        OptiCraft::Vulkan::OverlayReference overlay_reference;
+        bool dispatched_vulkan = false;
+        std::unique_ptr<Gpu_Column_Input> input;
+        std::unique_ptr<Gpu_Overlay_Work> overlay;
         std::chrono::steady_clock::time_point started{};
+    };
+    struct Gpu_Validation_Job {
+        Gpu_Batch batch;
+        std::vector<uint32_t> materials;
+        Gpu_Material_Result::Encoding encoding = Gpu_Material_Result::Encoding::Legacy32;
+        uint64_t epoch = 0;
     };
     struct Region_Prep_Job {
         int chunk_x = 0;
@@ -203,6 +237,31 @@ private:
     // "в полёте": запрошенные к генерации, ожидающие пересборки меша, требующие повторной
     // пересборки. См. Chunk_Coord_Set в Chunk_Table.h.
     Chunk_Coord_Set m_requested_chunks;
+    // Owner-thread only. A reservation is separate from CPU worker requests:
+    // stale worker completions cannot erase it. Match the readback concurrency.
+    struct Promotion_Reservation { uint64_t ticket=0; glm::ivec3 position{}; uint64_t claim=0; };
+    // Long-lived GPU authority, separate from the two in-flight readbacks.
+    struct Gpu_Chunk_Claim { uint64_t serial=0; bool bound=false; bool policy=false; };
+    std::unordered_map<glm::ivec3,Gpu_Chunk_Claim,Chunk_Key_Hash> m_gpu_chunk_claims;
+    static constexpr size_t k_max_gpu_chunk_claims=4096;
+    bool cpu_generation_excluded(const glm::ivec3& position) const;
+    Gpu_Generation_Producer m_gpu_generation_producer;
+    int m_gpu_generation_cpu_radius=6;
+    bool gpu_generation_candidate(const glm::ivec3& position) const;
+    void prune_gpu_generation_claims(bool all_pending=false);
+    void offer_gpu_generation(const glm::ivec3& position,Gpu_World_Streaming::Budget& budget);
+    std::array<Promotion_Reservation,2> m_promotions{};
+    // A wholesale CPU queue reset may leave workers holding old jobs that
+    // can still write to disk. Until per-job authority is tracked, reject
+    // promotions after such a reset for the rest of this manager's lifetime.
+    bool m_promotion_tracking_safe=true;
+    bool m_promotion_storage_bound=false;
+    static inline std::atomic<uint64_t> s_promotion_ticket{0};
+    static uint64_t allocate_promotion_ticket() noexcept;
+    bool promotion_reserved(const glm::ivec3& position) const;
+    bool promotion_eligible(const glm::ivec3& position);
+    void cancel_all_gpu_promotions();
+    void register_arrived_chunk(Chunk_Result result);
 
     // recompute_sky_lighting() normally runs once the whole load wave has drained (see the
     // comment at its call site) — but m_requested_chunks can stay non-empty indefinitely
@@ -349,11 +408,15 @@ private:
     // Если чанк опять поменялся, пока его пересборка уже была в полёте — не теряем правку:
     // помечаем "досчитать ещё раз" и переставляем задачу заново, когда текущая завершится.
     Chunk_Coord_Set m_mesh_rebuild_requeue;
-    // Main-thread GL stage, bounded to two columns total (queued + executing).
+    // GPU stage bounded to two columns total (queued + executing + CPU validation).
     // CPU workers only submit fully prepared immutable data and never touch GL.
     std::mutex m_gpu_queue_mutex;
     std::deque<Gpu_Batch> m_gpu_pending;
     std::optional<Gpu_Batch> m_gpu_active;
+    // Protected by m_job_mutex. Epoch prevents late validation from publishing or
+    // decrementing the new world's GPU admission counter after clear().
+    std::deque<Gpu_Validation_Job> m_gpu_validation_pending;
+    uint64_t m_gpu_validation_epoch = 0;
     std::unique_ptr<Gpu_Worldgen> m_gpu_worldgen;
 #if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
     OptiCraft::Vulkan::VulkanFrameRuntime* m_vk_worldgen_runtime=nullptr;
@@ -368,8 +431,12 @@ private:
     int m_gpu_slow_batches = 0;
     uint64_t m_gpu_completed_batches = 0;
     double m_gpu_total_ms = 0.0;
-    bool try_submit_gpu_column(Gpu_Batch&& batch);
+    bool try_submit_gpu_column(Gpu_Batch&& batch, const World_Generator& generator);
     void publish_gpu_batch(Gpu_Batch&& batch);
+    void publish_gpu_batch_locked(Gpu_Batch&& batch);
+    bool queue_gpu_validation(Gpu_Batch&& batch, std::vector<uint32_t>&& materials,
+                              Gpu_Material_Result::Encoding encoding);
+    void validate_gpu_batch(Gpu_Validation_Job&& job, const World_Generator* generator);
     void pump_gpu_worldgen();
     void clear_gpu_worldgen();
 
@@ -512,6 +579,8 @@ public:
     ~Chunk_Manager();
 
     void set_world_generator(const World_Generator& generator) {
+        cancel_all_gpu_promotions();
+        if (m_world_generator) m_promotion_tracking_safe=false;
         clear_gpu_worldgen();
         m_world_generator = &generator;
         m_sunlight_heightmap.clear();
@@ -540,6 +609,44 @@ public:
     void unload_distant(int center_cx, int center_cz, int max_distance);
     void update_player_position(float player_x, float player_y, float player_z);
     void collect_finished_chunks();
+    // Explicit GPU-only authority must be established by the caller BEFORE
+    // reservation and retained through commit. A renderer light-owner flag is
+    // not sufficient. No concurrent producer may modify the source meanwhile.
+    // Only never-saved, absent CPU chunks are eligible. Owner thread only.
+    // Establish before submitting a GPU-only source. Claims survive canceled
+    // promotions and window/backend resets; release only after stream retirement
+    // (or failed admission). Owner thread; detach/resolve claims before world replacement.
+    // Optional owner-thread producer, called before CPU admission from the
+    // existing prioritized backlog. It may only enqueue work (no reentry into
+    // the manager/stream), returning true if it takes responsibility for the
+    // claim. Rejected/throwing work must not publish. Accepted work must later
+    // submitClaimedGpuChunk or cancel its claim, even after camera movement.
+    // Replacing/detaching a producer revokes its unbound policy claims only.
+    // Bound claims still require acknowledged retirement.
+    void set_gpu_generation_producer(int cpu_radius,Gpu_Generation_Producer producer);
+    uint64_t claim_gpu_chunk(const glm::ivec3& position, Dimension_Id dimension);
+    bool gpu_chunk_claim_current(const glm::ivec3& position,uint64_t claim) const;
+    // Bound GPU claim only; the caller pins ownership until confirmed region write/retirement.
+    std::shared_ptr<Region_File> gpu_chunk_persistence_region(const glm::ivec3& position,
+                                                            Dimension_Id dimension,uint64_t claim) const;
+    // Pending claim can be canceled until source admission starts. A bound
+    // claim may only be released on failed admission or confirmed retirement.
+    bool bind_gpu_chunk_claim(const glm::ivec3& position,Dimension_Id dimension,uint64_t claim);
+    bool cancel_gpu_chunk_claim(const glm::ivec3& position,uint64_t claim);
+    bool release_gpu_chunk_claim(const glm::ivec3& position,uint64_t claim);
+    uint64_t reserve_gpu_chunk_promotion(const glm::ivec3& position, Dimension_Id dimension,
+                                         uint64_t claim=0);
+    bool cancel_gpu_chunk_promotion(uint64_t ticket);
+    // Reconstruct initial lighting for a finalized GPU block/meta snapshot; normal arrival queues rebuild light.
+    void prepare_gpu_promotion_lighting(Chunk& chunk);
+    Gpu_World_Streaming::Window gpu_world_window() const noexcept {
+        return {m_player_chunk.x,m_player_chunk_y,m_player_chunk.y,m_load_radius,m_vertical_half,m_gpu_generation_cpu_radius};
+    }
+    // A failed commit leaves the reservation active for retry/cancellation.
+    // `source_current` is evaluated immediately before publication, after the
+    // pool allocation. It must be a non-mutating validation of the same source.
+    bool commit_gpu_chunk_promotion(uint64_t ticket, std::unique_ptr<Chunk> prepared,
+                                    const std::function<bool()>& source_current);
     // Забирает готовые асинхронные пересборки мешей и применяет их к живым чанкам
     // (или тихо отбрасывает результат, если чанк успели выгрузить, пока задача летала).
     // Нужно звать каждый кадр, как и collect_finished_chunks — см. Game.cpp.

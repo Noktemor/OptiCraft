@@ -1,0 +1,12 @@
+#version 450
+layout(local_size_x=64) in;
+layout(std430,binding=0) readonly buffer Coarse { int coarse[]; };
+layout(std430,binding=1) writeonly buffer Height { int height[]; };
+void main(){
+ uint i=gl_GlobalInvocationID.x; if(i>=589824u)return;
+ int x=int(i%768u),z=int(i/768u),a=(z/4)*193+x/4,fx=x%4,fz=z%4;
+ // Exact rational bilinear interpolation of integral samples. floor(v+0.5), including negatives.
+ int n=(coarse[a]*(4-fx)+coarse[a+1]*fx)*(4-fz)+
+       (coarse[a+193]*(4-fx)+coarse[a+194]*fx)*fz+8;
+ height[i]=n>=0?n/16:-((-n+15)/16);
+}

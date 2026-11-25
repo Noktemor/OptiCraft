@@ -126,6 +126,15 @@ bool Chunk_IO::has_saved(const std::shared_ptr<Region_File>& region, const Regio
     return region->contains(key);
 }
 
+bool Chunk_IO::confirm_unsaved(const std::shared_ptr<Region_File>& region, const Region_File::Key& key) {
+    if (!region) return false;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_pending.count(Pending_Key{region.get(),key})) return false;
+    }
+    return region->confirmed_absent(key);
+}
+
 void Chunk_IO::read_batch(const std::shared_ptr<Region_File>& region,
                           const std::vector<Region_File::Key>& keys, std::vector<uint32_t>& stages) {
     stages.assign(keys.size(), kNone);

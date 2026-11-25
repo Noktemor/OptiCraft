@@ -195,7 +195,8 @@ bool Game::initialize() {
             m_vulkan_game_mirror->initialize(m_window_ptr->vulkan_candidate(), Block_Registry::get_instance());
             m_vulkan_chunk_feed.setTrackedBudget(m_vulkan_game_mirror->residentCapacity());
             m_vulkan_chunk_feed.setMeshKinds(m_vulkan_game_mirror->meshKinds());
-            set_vulkan_chunk_sink(m_vulkan_game_mirror->uploadSink(),m_vulkan_game_mirror->evictSink());
+            set_vulkan_chunk_sink(m_vulkan_game_mirror->uploadSink(),m_vulkan_game_mirror->evictSink(),
+                                  m_vulkan_game_mirror->snapshotLeaseSink());
             m_hud_ptr->set_ui_sink([this](std::span<const Hud::Ui_Vertex> v,bool blocks){m_vulkan_game_mirror->submitUi(v,blocks);});
             selected_vulkan = true;
             LOG_INFO(std::string("Primary renderer: Vulkan / ")+m_vulkan_game_mirror->gpuName()+
@@ -263,11 +264,15 @@ void Game::run() {
                 std::cout << "\r[FPSCOUNTER] FPS: " << static_cast<int>(m_current_fps)
                     << " | VK resident " << m_vulkan_game_mirror->residentCount() << '/' << m_vulkan_game_mirror->residentCapacity()
                     << " | selected " << m_vulkan_chunk_feed.selectedCount() << " air skip " << m_vulkan_chunk_feed.remoteAirSkipped()
+                    << " | light pilot/Q/recorded " << m_vulkan_chunk_feed.lightPilotSelected()
+                    << '/' << m_vulkan_game_mirror->residentLightPending()
+                    << '/' << m_vulkan_game_mirror->residentLightRecordedCores()
                     << " | upload Q " << m_vulkan_game_mirror->pendingUploads()
                     << " | voxel copy/fill/reuse/inline KiB " << (m_vulkan_game_mirror->uploadStats().copiedBytes/1024)
                     << '/' << (m_vulkan_game_mirror->uploadStats().filledBytes/1024)
                     << '/' << (m_vulkan_game_mirror->uploadStats().reusedBytes/1024)
                     << '/' << (m_vulkan_game_mirror->uploadStats().inlineBytes/1024)
+                    << " overlay GPU KiB " << (m_vulkan_game_mirror->uploadStats().overlayReusedBytes/1024)
                     << " | voxel dense KiB " << (m_vulkan_game_mirror->denseVoxelBytes()/1024)
                     << " allocated KiB " << (m_vulkan_game_mirror->voxelAllocatedBytes()/1024)
                     << " grows " << m_vulkan_game_mirror->voxelGrowthCount()
@@ -280,13 +285,30 @@ void Game::run() {
                     << " | fast mesh " << mesh.fastJobs << " fallback " << mesh.fastFallbacks
                     << " reserve miss " << mesh.fastReservationMisses << " mixed " << mesh.fastMixedJobs << " misc overflow " << mesh.fastMiscOverflow
                     << " | published " << mesh.published << " stale " << mesh.stale
+                    << " | edit mesh started/published " << mesh.interactiveStarted << '/' << mesh.interactivePublished
                     << " | alloc fail " << mesh.allocationFailures << " retry " << mesh.allocationRetries << " | overflow " << mesh.overflow
                     << " | mesh GPU " << m_vulkan_game_mirror->lastMeshGpuMs() << " ms"
                     << " | GPU total/cull/alpha/hiz " << m_vulkan_game_mirror->gpuTimes()[0] << '/' << m_vulkan_game_mirror->gpuTimes()[1] << '/' << m_vulkan_game_mirror->gpuTimes()[2] << '/' << m_vulkan_game_mirror->gpuTimes()[3] << " ms"
                     << " | misc reuse " << m_vulkan_game_mirror->reusedMiscCommands()
                     << " | opaque reuse " << m_vulkan_game_mirror->reusedOpaqueCommands()
                     << " | CPU update/render " << m_last_update_cpu_ms << '/' << m_last_render_cpu_ms << " ms"
-                    << " | budget " << m_vulkan_game_mirror->workBudget() << "      " << std::flush;
+                    << " | entity draw/single/culled " << m_vulkan_game_mirror->entityStats().drawCalls
+                    << '/' << m_vulkan_game_mirror->entityStats().unbatchedDrawCalls
+                    << '/' << m_vulkan_game_mirror->entityStats().culled
+                    << " | item upload/source B " << m_vulkan_game_mirror->itemStats().uploadBytes
+                    << '/' << m_vulkan_game_mirror->itemStats().sourceBytes
+                    << " | budget " << m_vulkan_game_mirror->workBudget();
+                const auto memory=m_vulkan_game_mirror->deviceMemoryUsage();
+                std::cout << " | GPU alloc total/local/used/budget MiB " << (memory.total()>>20) << '/' << (memory.local()>>20) << '/' << (memory.localUsed()>>20) << '/' << (memory.localBudget()>>20)
+                    << " (" << (memory.driverBudget?"driver":"heap") << ") #" << memory.allocations;
+                if(m_vulkan_game_mirror->ownedCapacity()){
+                    const auto& grants=m_vulkan_game_mirror->ownedGrants();
+                    std::cout << " | owned " << m_vulkan_game_mirror->ownedCount() << '/' << m_vulkan_game_mirror->ownedCapacity()
+                        << " pressure " << m_vulkan_game_mirror->ownedPressure()
+                        << " quota ms " << m_vulkan_game_mirror->ownedQuotaMs()
+                        << " grants G/M/B/S/T " << grants[0] << '/' << grants[1] << '/' << grants[2] << '/' << grants[3] << '/' << grants[4];
+                }
+                std::cout << "      " << std::flush;
             }else
 #endif
             std::cout << "\r[FPSCOUNTER] FPS: " << static_cast<int>(m_current_fps) << "      " << std::flush;
@@ -822,6 +844,9 @@ bool Game::create_world(const std::string& name, const std::string& seed_text, G
 
 void Game::teardown_world() {
     m_vulkan_chunk_feed.clear();
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->detachWorld();
+#endif
     if (m_mobs.is_riding()) apply_mob_result(m_mobs.dismount(false, mob_view(), Mob_Blocked_Fn()));
     if (is_container_open()) close_container();
     m_chat_open = false;
@@ -846,7 +871,7 @@ void Game::teardown_world() {
         m_chunk_manager_ptr->clear(); // сохраняет изменённые чанки
         for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
             m_renderer_ptr->invalidate_chunk_cache(position);
-        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
+        m_vulkan_chunk_feed.chunkUnloaded({(m_world_generator?static_cast<int32_t>(m_world_generator->get_dimension_id()):0), position.x, position.y, position.z});
         }
         m_chunk_manager_ptr.reset();
     }
@@ -1039,6 +1064,9 @@ void Game::setup_world_objects(const glm::vec3* saved_position) {
     m_chunk_manager_ptr->set_world_generator(*m_world_generator);
     m_chunk_manager_ptr->set_texture_atlas(m_renderer_ptr->get_texture_atlas());
     m_chunk_manager_ptr->set_world_storage(m_world_file, m_world_generator->get_storage_key());
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->attachWorld(*m_chunk_manager_ptr);
+#endif
     m_chunk_manager_ptr->update_player_position(start.x, start.y, start.z);
 }
 
@@ -1505,6 +1533,9 @@ bool Game::is_camera_underwater() const {
 
 void Game::reload_world(const std::string& generation_folder) {
     m_vulkan_chunk_feed.clear();
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->detachWorld();
+#endif
     // A reload destroys the chunk namespace. Do not let old pending edits survive it.
     m_pending_portal_type.clear();
     m_pending_command_portal_type.clear();
@@ -1546,7 +1577,7 @@ void Game::reload_world(const std::string& generation_folder) {
     if (m_dropped_items_ptr) m_dropped_items_ptr->clear();
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
         m_renderer_ptr->invalidate_chunk_cache(position);
-        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
+        m_vulkan_chunk_feed.chunkUnloaded({(m_world_generator?static_cast<int32_t>(m_world_generator->get_dimension_id()):0), position.x, position.y, position.z});
     }
     m_chunk_manager_ptr.reset();
     m_world_generator = std::make_unique<World_Generator>(generation_folder, m_world_settings.seed,
@@ -1566,6 +1597,9 @@ void Game::reload_world(const std::string& generation_folder) {
     m_chunk_manager_ptr->set_world_generator(*m_world_generator);
     m_chunk_manager_ptr->set_texture_atlas(m_renderer_ptr->get_texture_atlas());
     m_chunk_manager_ptr->set_world_storage(m_world_file, m_world_generator->get_storage_key());
+#if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->attachWorld(*m_chunk_manager_ptr);
+#endif
     LOG_INFO("World reload: new generator and streaming workers created");
 
     // Игрок остаётся в своей колонке; в мире без земли find_spawn_surface сдвинет его к ближайшему острову.
@@ -1849,7 +1883,7 @@ void Game::update_gameplay(float delta_time, bool simulation_active, bool player
 
     for (const glm::ivec3& position : m_chunk_manager_ptr->take_unloaded_chunk_positions()) {
         m_renderer_ptr->invalidate_chunk_cache(position);
-        m_vulkan_chunk_feed.chunkUnloaded({0, position.x, position.y, position.z});
+        m_vulkan_chunk_feed.chunkUnloaded({(m_world_generator?static_cast<int32_t>(m_world_generator->get_dimension_id()):0), position.x, position.y, position.z});
     }
 
     if (!player_actions) return;
@@ -2089,9 +2123,16 @@ void Game::render_gameplay(bool show_gameplay_hud) {
             static_cast<int32_t>(std::floor(double(camera_position.z) / Config::chunk_size))});
         size_t packets=4;
 #if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
-        if(m_vulkan_game_mirror && m_vulkan_game_mirror->pendingUploads()>=32) packets=0;
+        static const bool lightPilot=[](){const char* s=std::getenv("OPTICRAFT_VULKAN_RESIDENT_LIGHT_PILOT");
+            return !s || std::string_view(s)!="0";}();
+        m_vulkan_chunk_feed.setResidentLightPilot(lightPilot && m_vulkan_game_mirror &&
+            m_vulkan_game_mirror->residentLightPilotAvailable());
+        if(m_vulkan_game_mirror){
+            m_vulkan_chunk_feed.setTrackedBudget(m_vulkan_game_mirror->cpuMirrorCapacity());
+            if(m_vulkan_game_mirror->pendingUploads()>=32)packets=0;
+        }
 #endif
-        m_vulkan_chunk_feed.acceptFrame(renderable, *m_chunk_manager_ptr,0,packets);
+        m_vulkan_chunk_feed.acceptFrame(renderable, *m_chunk_manager_ptr,static_cast<int32_t>(m_world_generator->get_dimension_id()),packets);
     }
 #if defined(OPTICRAFT_VULKAN_GAME_MIRROR)
     if (m_vulkan_game_mirror) {
@@ -2394,6 +2435,7 @@ void Game::switch_to_opengl() {
     if (!m_vulkan_game_mirror) return;
     if(m_hud_ptr)m_hud_ptr->set_ui_sink({});
     set_vulkan_chunk_sink({},{});
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->detachWorld();
     if(m_chunk_manager_ptr)m_chunk_manager_ptr->set_vulkan_worldgen(nullptr);
     m_vulkan_game_mirror.reset();
     m_window_ptr->select_vulkan(false);
@@ -2417,6 +2459,7 @@ void Game::shutdown() {
     // Detach callbacks BEFORE releasing GPU buffers or the window.
     if (m_hud_ptr) m_hud_ptr->set_ui_sink({});
     set_vulkan_chunk_sink({}, {});
+    if(m_vulkan_game_mirror)m_vulkan_game_mirror->detachWorld();
     if(m_chunk_manager_ptr)m_chunk_manager_ptr->set_vulkan_worldgen(nullptr);
     m_vulkan_game_mirror.reset();
 #endif

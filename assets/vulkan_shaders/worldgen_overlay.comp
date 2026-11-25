@@ -1,0 +1,191 @@
+#version 450
+// Fully resolved base only. Each invocation exclusively owns two ID words and
+// one meta word. Host packet compiler guarantees unique group IDs per dispatch.
+layout(local_size_x=64) in;
+layout(std430,binding=0) buffer Blocks { uint blocks[]; };
+layout(std430,binding=1) buffer Metadata { uint metadata[]; };
+layout(std430,binding=2) readonly buffer Tasks { uint tasks[]; };
+layout(std430,binding=3) buffer Commands { uint commands[]; };
+layout(std430,binding=4) buffer Changes { uint changes[]; };
+layout(push_constant,std430) uniform Params {
+    uint taskCount;
+    uint blockBase;
+    uint metaBase;
+};
+// Mode uses disjoint reserved tails: command capacity + input, change capacity
+// + output. One invocation owns a z,x column; block words are read-only here.
+void directSky(uint column) {
+    if (column >= 1024u) return;
+    const uint inputBase = 131072u;
+    uint first = commands[inputBase + column];
+    for (int y = 31; y >= int(first); --y) {
+        uint voxel = uint(y)*1024u + column;
+        uint id = (blocks[blockBase + voxel/2u] >> ((voxel&1u)*16u)) & 65535u;
+        uint bits = commands[inputBase + 1024u + id/32u];
+        if ((bits & (1u << (id&31u))) == 0u) { first = uint(y)+1u; break; }
+    }
+    changes[8192u + column] = first;
+}
+// Each invocation owns a packed word (four adjacent light bytes).
+// Direct sky cutoffs were produced in the preceding dispatch; host inserts a
+// compute-to-compute dependency. Emission is seeded, not propagated.
+void lightSeeds(uint word) {
+    if (word >= 8192u) return;
+    const uint emissionBase = 131072u + 3072u;
+    uint y = word >> 8u;
+    bool validY = (commands[emissionBase + 8192u] & (1u << y)) != 0u;
+    uint a = blocks[blockBase + word*2u], b = blocks[blockBase + word*2u+1u];
+    uint packedLight = 0u;
+    for (uint lane=0u; lane<4u; ++lane) {
+        uint id = ((lane < 2u ? a : b) >> ((lane&1u)*16u)) & 65535u;
+        uint emit = (commands[emissionBase + id/8u] >> ((id&7u)*4u)) & 15u;
+        uint column = (word*4u+lane)&1023u;
+        uint sky = validY && y >= changes[8192u+column] ? 240u : 0u;
+        packedLight |= (sky | emit) << (lane*8u);
+    }
+    changes[8192u+1024u+word] = packedLight;
+}
+// Stage134: immutable tree catalog in the disjoint tail of Commands.
+// No per-tree dispatch and no additional descriptors. Stage137 regular trees
+// use clipped candidate masks and test the immutable owner-local base.
+const uint treeInstanceOffset=131072u+11265u;
+const uint treeRangeOffset=treeInstanceOffset+512u;
+
+int signed16(uint x){return int(x<<16u)>>16;}
+ivec3 treeCoord(uint i){uint a=commands[treeRangeOffset+i],b=commands[treeRangeOffset+i+1u];return ivec3(signed16(a),signed16(a>>16u),signed16(b));}
+bool keyLess(ivec3 a,ivec3 b){return a.y<b.y||(a.y==b.y&&(a.z<b.z||(a.z==b.z&&a.x<b.x)));}
+// Stage136: live surface selection, same rule body as worldgen_tree_select.comp.
+struct Candidate {int x,y,z;uint biome,eligible,gentle,palm_roll,reserved;};
+uvec2 mul64(uvec2 a,uvec2 b){uint hi,lo;umulExtended(a.x,b.x,hi,lo);return uvec2(lo,hi+a.x*b.y+a.y*b.x);}
+uvec2 shr(uvec2 a,uint n){if(n==32u)return uvec2(a.y,0);return uvec2((a.x>>n)|(a.y<<(32u-n)),a.y>>n);}
+uvec2 sign64(int x){return uvec2(uint(x),x<0?0xffffffffu:0u);}
+uint mod64(uvec2 a,uint n){return ((a.y%n)*(((0xffffffffu%n)+1u)%n)+a.x%n)%n;}
+uvec2 hashpos(int x,int z,uint salt,uint seed){
+ uvec2 h=uvec2(seed,0)^mul64(sign64(x),uvec2(0x85ebca87u,0x9e3779b1u))^mul64(sign64(z),uvec2(0x27d4eb4fu,0xc2b2ae3du))^mul64(uvec2(salt,0),uvec2(0x9e3779f9u,0x165667b1u));
+ h=mul64(h^shr(h,29u),uvec2(0x1ce4e5b9u,0xbf58476du));return h^shr(h,32u);
+}
+uvec2 mix64(uvec2 h){h=mul64(h^shr(h,30u),uvec2(0x1ce4e5b9u,0xbf58476du));h=mul64(h^shr(h,27u),uvec2(0x133111ebu,0x94d049bbu));return h^shr(h,31u);}
+int fd(int a,int d){int q=a/d;return q-int(a-q*d<0);}
+bool anchor(int x,int z,int r,uint seed){uvec2 h=hashpos(x,z,9u,seed);for(int dz=-r;dz<=r;++dz)for(int dx=-r;dx<=r;++dx){if(dx==0&&dz==0)continue;uvec2 other=hashpos(x+dx,z+dz,9u,seed);if(other.y>h.y||(other.y==h.y&&other.x>=h.x))return false;}return true;}
+bool sparse(int x,int z,uint seed){int cx=fd(x,60),cz=fd(z,60);uvec2 h=hashpos(cx,cz,0x5c1fu,seed);if(h.y%100u>=40u)return false;return x==cx*60+25+int(mod64(h,11u))&&z==cz*60+25+int(mod64(shr(h,16u),11u));}
+uint variant(int x,int z,uint species,uint seed){int cx=fd(x,16),cz=fd(z,16),tx=fd(cx,6),tz=fd(cz,6);uvec2 h=mix64(uvec2(seed,species<<16));h=mix64(h^mul64(sign64(tx),uvec2(0x85ebca87u,0x9e3779b1u)));h=mix64(h^mul64(sign64(tz),uvec2(0x27d4eb4fu,0xc2b2ae3du)));return (uint((cz-tz*6)*6+cx-tx*6)+mod64(h,36u))%36u;}
+uint selectTree(Candidate c,uint seed){uint s=0xffffffffu;int r=0;uint density=100u;
+ if(c.eligible==1u){
+ switch(c.biome){case 4u:s=0u;r=3;density=55u;break;case 5u:s=3u;r=3;density=40u;break;case 28u:s=15u;r=4;density=48u;break;case 27u:s=7u;r=4;density=52u;break;case 26u:s=14u;r=4;density=40u;break;case 23u:s=8u;r=5;density=35u;break;case 6u:case 33u:s=4u;r=4;density=60u;break;case 7u:s=5u;r=4;density=50u;break;case 24u:s=10u;r=5;density=34u;break;case 25u:s=9u;r=4;density=58u;break;case 8u:s=mod64(hashpos(c.x,c.z,0xba0bu,seed),4u)==0u?13u:2u;r=s==13u?5:4;density=27u;break;case 17u:s=6u;break;default:break;}
+ if(s!=0xffffffffu && (c.gentle!=1u || !(s==6u?sparse(c.x,c.z,seed):(mod64(hashpos(c.x,c.z,0x7de5u,seed),100u)<density&&anchor(c.x,c.z,r,seed)))))s=0xffffffffu;
+ if(c.biome==9u&&c.palm_roll==1u)s=1u;
+ }
+ return s==0xffffffffu?s:s*36u+variant(c.x,c.z,s,seed);
+}
+// Variant-only entries have union masks; legacy entries retain their CPU handle.
+void resolveTreeSelection(uint i){
+    if(i>=metaBase||metaBase>128u)return;
+    uint off=blockBase+i*6u;
+    uint instance=commands[off];
+    if(instance>=128u)return;
+    uint biome=commands[off+4u];
+    uint address=treeInstanceOffset+instance*4u+3u;
+    if(biome==0x80000000u){
+        uint species=commands[address]/36u;
+        uint selected=species*36u+variant(int(commands[off+1u]),int(commands[off+2u]),species,commands[off+3u]);
+        commands[address]=selected;commands[off+5u]=0x40000000u|selected;return;
+    }
+    if((biome&0xffffff00u)==0x80000100u){
+        Candidate c=Candidate(int(commands[off+1u]),0,int(commands[off+2u]),biome&255u,1u,1u,0u,0u);
+        uint selected=selectTree(c,commands[off+3u]);
+        commands[address]=selected;commands[off+5u]=0x40000000u|(selected&65535u);return;
+    }
+    Candidate c=Candidate(int(commands[off+1u]),0,int(commands[off+2u]),biome,1u,1u,uint(biome==9u),0u);
+    uint selected=selectTree(c,commands[off+3u]);
+    bool matches=selected==commands[address];
+    commands[off+5u]=(selected&65535u)|(matches?0x80000000u:0u);
+    if(matches)commands[address]=selected;
+}
+void applyTree(uint op,uint group,inout uint b[2],uint base[2],inout uint m,inout uint count){
+    uint instance=treeInstanceOffset+4u*(op&127u), mask=(op>>8u)&15u;
+    ivec3 origin=ivec3(int(commands[instance]),int(commands[instance+1u]),int(commands[instance+2u]));
+    uint handle=commands[instance+3u];
+    if(handle>=596u)return; // rejected GPU candidate, no ordered writes
+    uint begin=commands[treeRangeOffset+2u*handle],end=commands[treeRangeOffset+2u*handle+1u];
+    // One lower_bound per owner, not four: the catalog is sorted by y,z,x.
+    uint v=group*4u;
+    ivec3 p=ivec3(int(v&31u),int(v>>10u),int((v>>5u)&31u))-origin;
+    uint stride=handle<576u?2u:3u;
+    uint a=0u,e=(end-begin)/stride;
+    while(a<e){uint mid=a+(e-a)/2u;if(keyLess(treeCoord(begin+mid*stride),p))a=mid+1u;else e=mid;}
+    for(uint i=begin+a*stride;i<end;i+=stride){
+        ivec3 q=treeCoord(i);
+        if(q.y!=p.y||q.z!=p.z||q.x<p.x||q.x>=p.x+4)break;
+        uint lane=uint(q.x-p.x);
+        if((mask&(1u<<lane))==0u)continue;
+        uint k=lane>>1u,bs=(lane&1u)*16u,mm=255u<<(lane*8u);
+        if((op&0x2000u)!=0u && ((base[k]>>bs)&65535u)!=0u)continue;
+        uint id=commands[treeRangeOffset+i+1u]>>16u;
+        uint next=(b[k]&~(65535u<<bs))|(id<<bs);
+        if(next!=b[k]){b[k]=next;m&=~mm;++count;}
+        if(stride==3u){uint meta=commands[treeRangeOffset+i+2u];if((meta&256u)!=0u){
+            uint nextMeta=(m&~mm)|((meta&255u)<<(lane*8u));if(nextMeta!=m)++count;m=nextMeta;
+        }}
+    }
+}
+// One workgroup, bounded material-independent palette. All lanes probe
+// the same order and never remove entries. Overflow means unknown.
+shared uint roofIds[8];
+shared uint roofOverflow;
+void roofInsert(uint id){
+    for(uint k=0u;k<8u;++k){
+        uint prev=atomicCompSwap(roofIds[k],0xffffffffu,id);
+        if(prev==0xffffffffu||prev==id)return;
+    }
+    atomicOr(roofOverflow,1u);
+}
+void roofPalette(){
+    uint lane=gl_LocalInvocationID.x;
+    if(lane<8u)roofIds[lane]=0xffffffffu;
+    if(lane==0u)roofOverflow=0u;
+    barrier();
+    for(uint i=lane;i<512u;i+=64u){
+        uint w=blocks[15872u+i];roofInsert(w&65535u);roofInsert(w>>16u);
+    }
+    barrier();
+    if(lane==0u){
+        const uint offset=8192u+1024u+3u*8192u;
+        uint count=0u;
+        for(uint i=0u;i<8u;++i){changes[offset+1u+i]=roofIds[i];count+=uint(roofIds[i]!=0xffffffffu);}
+        changes[offset]=roofOverflow!=0u?0u:count;
+    }
+}
+void main() {
+    uint t = gl_GlobalInvocationID.x;
+    if (taskCount == 0x80000000u) { directSky(t); return; }
+    if (taskCount == 0x80000001u) { lightSeeds(t); return; }
+    if (taskCount == 0x80000002u) { resolveTreeSelection(t); return; }
+    if (taskCount == 0x80000003u) { roofPalette(); return; }
+    if (t >= taskCount) return;
+    uint group = tasks[t*3u];
+    uint begin = tasks[t*3u+1u], end = tasks[t*3u+2u];
+    uint bi = blockBase + group*2u, mi = metaBase + group;
+    uint b[2] = uint[2](blocks[bi], blocks[bi+1u]);
+    uint base[2] = uint[2](b[0],b[1]);
+    uint m = metadata[mi], count = 0u;
+    for (uint i = begin; i < end; ++i) {
+        uint op = commands[i];
+        if((op&0x80008000u)==0x80008000u){applyTree(op,group,b,base,m,count);continue;}
+        uint lane = (op >> 16u) & 3u;
+        uint ms = lane*8u, mm = 255u << ms;
+        bool conditional=(op&0x8000c000u)==0x80004000u;
+        if(conditional && ((base[lane>>1u]>>((lane&1u)*16u))&65535u)!=0u)continue;
+        if ((op & 0x80000000u) != 0u && !conditional) {
+            uint next = (m & ~mm) | ((op & 255u) << ms);
+            if (next != m) ++count;
+            m = next;
+        } else {
+            uint bs = (lane & 1u)*16u, bm = 65535u << bs;
+            uint k = lane >> 1u;
+            uint next = (b[k] & ~bm) | ((op & (conditional?16383u:65535u)) << bs);
+            if (next != b[k]) { b[k] = next; m &= ~mm; ++count; }
+        }
+    }
+    blocks[bi] = b[0]; blocks[bi+1u] = b[1]; metadata[mi] = m;
+    changes[t] = count;
+}

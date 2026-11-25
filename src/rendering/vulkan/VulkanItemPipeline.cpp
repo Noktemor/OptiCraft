@@ -14,17 +14,22 @@ VkShaderModule makeShader(VkDevice device,std::span<const uint32_t> code){
 }
 }
 void VulkanItemPipeline::initialize(VulkanFrameRuntime& rt,VkDescriptorSetLayout atlasLayout,std::span<const uint32_t> vs,std::span<const uint32_t> fs){
-    device_=rt.device();physical_=rt.physicalDevice();
+    initialize(rt.physicalDevice(),rt.device(),rt.renderPass(),atlasLayout,vs,fs);
+}
+void VulkanItemPipeline::initialize(VkPhysicalDevice physical,VkDevice device,VkRenderPass renderPass,VkDescriptorSetLayout atlasLayout,std::span<const uint32_t> vs,std::span<const uint32_t> fs){
+    if(device_||!physical||!device||!renderPass)throw std::invalid_argument("Invalid graphics pipeline device");
+    device_=device;physical_=physical;
     try {
         VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(WorldViewParams)};
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount=1;pl.pSetLayouts=&atlasLayout;pl.pushConstantRangeCount=1;pl.pPushConstantRanges=&push;
         check(vkCreatePipelineLayout(device_,&pl,nullptr,&layout_),"Item pipeline layout");
-        recreate(rt.renderPass(),vs,fs);
+        recreate(renderPass,vs,fs);
     }catch(...){shutdown();throw;}
 }
 void VulkanItemPipeline::recreate(VkRenderPass pass,std::span<const uint32_t> vsCode,std::span<const uint32_t> fsCode){
-    if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);pipeline_=VK_NULL_HANDLE;
+    if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);
+    pipeline_=VK_NULL_HANDLE;
     VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
     try {
         vs=makeShader(device_,vsCode);fs=makeShader(device_,fsCode);
@@ -59,25 +64,36 @@ void VulkanItemPipeline::recreate(VkRenderPass pass,std::span<const uint32_t> vs
     vkDestroyShaderModule(device_,vs,nullptr);vkDestroyShaderModule(device_,fs,nullptr);
 }
 void VulkanItemPipeline::prepare(const VulkanFrameRuntime::Frame& frame,std::span<const ItemVertex> items){
+    auto& f=buffers_.at(frame.frameSlot);
+    f.count=0;f.indexed=false;stats_={};
     if(items.empty())return;
-    auto& buffer=buffers_.at(frame.frameSlot);
-    const VkDeviceSize bytes=items.size_bytes();
-    if(buffer.size()<bytes){buffer.destroy();buffer.create(physical_,device_,std::max<VkDeviceSize>(bytes,256*1024),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);}
-    buffer.write(0,items.data(),bytes);
+    if(items.size()>UINT32_MAX)throw std::length_error("Item vertex count");
+    if(items.size()%3==0){scratch_.build(items);f.indexed=scratch_.savesBytes();}
+    const auto vertices=f.indexed?std::span<const ItemVertex>(scratch_.vertices):items;
+    auto upload=[&](VulkanDeviceBuffer& buffer,const void* data,VkDeviceSize bytes,VkBufferUsageFlags usage){
+        if(buffer.size()<bytes){buffer.destroy();buffer.create(physical_,device_,std::max<VkDeviceSize>(bytes,256*1024),usage,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);}
+        buffer.write(0,data,bytes);
+    };
+    upload(f.vertices,vertices.data(),vertices.size_bytes(),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    if(f.indexed)upload(f.indices,scratch_.indices.data(),scratch_.indices.size()*sizeof(uint32_t),VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    f.count=uint32_t(items.size());
+    stats_={items.size_bytes(),vertices.size_bytes()+(f.indexed?scratch_.indices.size()*sizeof(uint32_t):0),f.indexed};
 }
-void VulkanItemPipeline::draw(const VulkanFrameRuntime::Frame& frame,std::span<const ItemVertex> items,VkDescriptorSet atlas,const WorldViewParams& view)const{
-    if(items.empty())return;
+void VulkanItemPipeline::draw(const VulkanFrameRuntime::Frame& frame,VkDescriptorSet atlas,const WorldViewParams& view)const{
+    const auto& f=buffers_.at(frame.frameSlot);if(!f.count)return;
     const VkViewport vp{0,0,float(frame.extent.width),float(frame.extent.height),0,1};const VkRect2D sc{{0,0},frame.extent};
     vkCmdSetViewport(frame.cmd,0,1,&vp);vkCmdSetScissor(frame.cmd,0,1,&sc);
     vkCmdBindPipeline(frame.cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline_);
-    const VkBuffer buffer=buffers_[frame.frameSlot].buffer();const VkDeviceSize zero=0;vkCmdBindVertexBuffers(frame.cmd,0,1,&buffer,&zero);
+    const VkBuffer buffer=f.vertices.buffer();const VkDeviceSize zero=0;vkCmdBindVertexBuffers(frame.cmd,0,1,&buffer,&zero);
     vkCmdBindDescriptorSets(frame.cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,layout_,0,1,&atlas,0,nullptr);
     vkCmdPushConstants(frame.cmd,layout_,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(view),&view);
-    vkCmdDraw(frame.cmd,uint32_t(items.size()),1,0,0);
+    if(f.indexed){vkCmdBindIndexBuffer(frame.cmd,f.indices.buffer(),0,VK_INDEX_TYPE_UINT32);vkCmdDrawIndexed(frame.cmd,f.count,1,0,0,0);}
+    else vkCmdDraw(frame.cmd,f.count,1,0,0);
 }
 void VulkanItemPipeline::shutdown()noexcept{
     if(!device_)return;
-    for(auto& b:buffers_)b.destroy();
+    stats_={};
+    for(auto& b:buffers_){b.vertices.destroy();b.indices.destroy();b.count=0;b.indexed=false;}
     if(pipeline_)vkDestroyPipeline(device_,pipeline_,nullptr);
     if(layout_)vkDestroyPipelineLayout(device_,layout_,nullptr);
     pipeline_=VK_NULL_HANDLE;layout_=VK_NULL_HANDLE;device_=VK_NULL_HANDLE;physical_=VK_NULL_HANDLE;

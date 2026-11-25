@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include "rendering/vulkan/DeviceMemoryUsage.h"
 #include <array>
 #include <cstdint>
 #include <string>
@@ -62,6 +63,7 @@ public:
     bool supportsShaderFloat64() const noexcept { return shaderFloat64_; }
     bool supportsIndirectCount() const noexcept { return indirectCount_; }
     const std::string& gpuName() const noexcept { return gpuName_; }
+    DeviceMemoryUsage deviceMemoryUsage() const;
     uint64_t framesPresented() const noexcept { return framesPresented_; }
     uint64_t swapchainGeneration() const noexcept { return swapchainGeneration_; }
 
@@ -79,6 +81,7 @@ private:
     };
 
     void selectDevice(GpuPreference preference);
+    void refreshMemoryBudget();
     void createSwapchain();
     DepthImage createDepthImage() const;
     uint32_t deviceLocalMemoryType(uint32_t allowedBits) const;
@@ -124,6 +127,10 @@ private:
     bool multiDrawIndirect_ = false;
     bool indirectCount_ = false;
     bool shaderFloat64_ = false;
+    bool memoryBudgetSupported_=false;
+    uint32_t memoryBudgetTick_=0;
+    DeviceMemoryUsage memoryBudgetSample_{};
+    std::array<uint64_t,16> driverHeapBudget_{},driverHeapUsage_{};
     int windowFbWidth_ = 0, windowFbHeight_ = 0;
     std::string gpuName_;
 };
